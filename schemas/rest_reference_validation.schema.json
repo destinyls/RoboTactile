@@ -1,0 +1,39 @@
+{
+  "$id": "https://robotactile.invalid/schemas/rest_reference_validation.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "calibration_sha256": {"$ref": "#/$defs/slotHashes"},
+    "dataset_split": {"enum": ["development", "validation", "calibration"], "type": "string"},
+    "episode_id": {"minLength": 1, "type": "string"},
+    "initial_seed": {"minimum": 0, "type": "integer"},
+    "minimum_consecutive_free_records": {"minimum": 1, "type": "integer"},
+    "no_contact_predicate_id": {"const": "univtac-depth-hysteresis-free-consecutive-v1"},
+    "phase_tracker_sha256": {"$ref": "#/$defs/sha256"},
+    "qualified_clean_record_sha256s": {"items": {"$ref": "#/$defs/sha256"}, "minItems": 1, "type": "array"},
+    "qualified_record_ids": {"$ref": "#/$defs/slotHashes"},
+    "qualified_start_index": {"minimum": 0, "type": "integer"},
+    "qualified_stop_index": {"minimum": 1, "type": "integer"},
+    "selected_payload_sha256": {"$ref": "#/$defs/slotHashes"},
+    "selected_step_index": {"minimum": 0, "type": "integer"},
+    "semantic_version": {"const": "1.0"},
+    "source_live_artifact_root_sha256": {"$ref": "#/$defs/sha256"},
+    "source_trial_manifest_sha256": {"$ref": "#/$defs/sha256"},
+    "split_manifest_sha256": {"$ref": "#/$defs/sha256"},
+    "task": {"minLength": 1, "type": "string"}
+  },
+  "required": ["source_live_artifact_root_sha256", "source_trial_manifest_sha256", "dataset_split", "split_manifest_sha256", "task", "episode_id", "initial_seed", "no_contact_predicate_id", "phase_tracker_sha256", "minimum_consecutive_free_records", "qualified_start_index", "qualified_stop_index", "selected_step_index", "qualified_clean_record_sha256s", "qualified_record_ids", "calibration_sha256", "selected_payload_sha256", "semantic_version"],
+  "type": "object",
+  "$defs": {
+    "sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+    "slotHashes": {
+      "additionalProperties": false,
+      "properties": {
+        "left": {"$ref": "#/$defs/sha256"},
+        "right": {"$ref": "#/$defs/sha256"}
+      },
+      "required": ["left", "right"],
+      "type": "object"
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robotactile.invalid/schemas/n0_twam_artifact_manifest.schema.json",
+  "title": "N0-TWAM External Artifact Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "bundle_root",
+    "checkpoint_sha256",
+    "config_sha256",
+    "external_commit",
+    "normalizer_sha256",
+    "schema_version"
+  ],
+  "properties": {
+    "bundle_root": {"type": "string", "minLength": 1},
+    "checkpoint_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "config_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "external_commit": {"const": "9036c130409f8cf5494b12489fea339f7213b9d6"},
+    "normalizer_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "schema_version": {"const": "robotactile-n0-artifact-v1"}
+  }
+}

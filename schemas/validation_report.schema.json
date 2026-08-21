@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robotactile.invalid/schemas/validation_report.schema.json",
+  "title": "RoboTactile ValidationReport",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["passed", "failure_codes", "failures", "metrics", "manifest_sha256", "trace_sha256", "episode_artifact_sha256"],
+  "properties": {
+    "passed": {"type": "boolean"},
+    "failure_codes": {"type": "array", "items": {"type": "string"}},
+    "failures": {"type": "array", "items": {"type": "string"}},
+    "metrics": {"type": "object"},
+    "manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "trace_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "episode_artifact_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robotactile.invalid/schemas/pull_out_key_matrix_receipt.schema.json",
+  "title": "RoboTactile Pull-out-key Request Matrix Receipt",
+  "description": "Request-generation receipt only; it does not claim simulator execution.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "matrix_id", "task_id", "pair_key", "evidence_level",
+    "simulator_execution_claimed", "task_success_claimed", "dataset_identity",
+    "base_system", "matched_no_touch_system", "policy_artifacts",
+    "fault_manifests", "requests", "member_sha256", "matrix_contract_sha256",
+    "semantic_version"
+  ],
+  "properties": {
+    "matrix_id": {"type": "string", "minLength": 1},
+    "task_id": {"const": "pull_out_key"},
+    "pair_key": {"$ref": "#/$defs/sha256"},
+    "evidence_level": {"const": "request_generation_only_no_simulator_execution"},
+    "simulator_execution_claimed": {"const": false},
+    "task_success_claimed": {"const": false},
+    "dataset_identity": {"$ref": "#/$defs/dataset_identity"},
+    "base_system": {"$ref": "#/$defs/base_system"},
+    "matched_no_touch_system": {"$ref": "#/$defs/no_touch_system"},
+    "policy_artifacts": {
+      "type": "object", "additionalProperties": false,
+      "required": ["univtac", "vision_only"],
+      "properties": {
+        "univtac": {"$ref": "#/$defs/policy_artifact"},
+        "vision_only": {"$ref": "#/$defs/policy_artifact"}
+      }
+    },
+    "fault_manifests": {
+      "type": "object", "additionalProperties": false,
+      "required": ["persistent", "restored"],
+      "properties": {
+        "persistent": {"$ref": "#/$defs/sha256"},
+        "restored": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "requests": {
+      "type": "object", "additionalProperties": false,
+      "required": ["clean", "faulted", "no_touch", "restored"],
+      "properties": {
+        "clean": {"$ref": "#/$defs/request"},
+        "faulted": {"$ref": "#/$defs/request"},
+        "no_touch": {"$ref": "#/$defs/request"},
+        "restored": {"$ref": "#/$defs/request"}
+      }
+    },
+    "member_sha256": {
+      "type": "object", "minProperties": 9,
+      "additionalProperties": {"$ref": "#/$defs/sha256"},
+      "propertyNames": {"type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*\\.\\.).+$"}
+    },
+    "matrix_contract_sha256": {"$ref": "#/$defs/sha256"},
+    "semantic_version": {"const": "1.0"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "dataset_identity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["identity_kind", "path", "sha256", "is_raw_dataset_file_hash"],
+      "properties": {
+        "identity_kind": {"const": "frozen_trial_set_manifest_content_sha256"},
+        "path": {"const": "trial_set_manifest.json"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "is_raw_dataset_file_hash": {"const": false}
+      }
+    },
+    "base_system": {
+      "type": "object", "additionalProperties": false,
+      "required": ["system_id", "manifest_sha256", "profile"],
+      "properties": {
+        "system_id": {"type": "string", "minLength": 1},
+        "manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "profile": {"const": "univtac"}
+      }
+    },
+    "no_touch_system": {
+      "type": "object", "additionalProperties": false,
+      "required": ["system_id", "profile"],
+      "properties": {
+        "system_id": {"type": "string", "minLength": 1},
+        "profile": {"const": "vision_only"}
+      }
+    },
+    "policy_artifact": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "path", "file_sha256", "checkpoint_sha256", "stats_sha256",
+        "encoder_sha256", "config_sha256"
+      ],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "file_sha256": {"$ref": "#/$defs/sha256"},
+        "checkpoint_sha256": {"$ref": "#/$defs/sha256"},
+        "stats_sha256": {"$ref": "#/$defs/sha256"},
+        "encoder_sha256": {"$ref": "#/$defs/sha256"},
+        "config_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "request": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "path", "file_sha256", "trial_manifest_sha256", "executed_system_id",
+        "output_dir"
+      ],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "file_sha256": {"$ref": "#/$defs/sha256"},
+        "trial_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "executed_system_id": {"type": "string", "minLength": 1},
+        "output_dir": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

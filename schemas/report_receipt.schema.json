@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robotactile.invalid/schemas/report_receipt.schema.json",
+  "title": "RoboTactile ReportReceipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "summary_sha256", "reporting_spec_sha256", "source_root_sha256", "members",
+    "evidence_level", "simulator_qualification_claimed", "semantic_version"
+  ],
+  "properties": {
+    "summary_sha256": {"$ref": "#/$defs/sha256"},
+    "reporting_spec_sha256": {"$ref": "#/$defs/sha256"},
+    "source_root_sha256": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {"$ref": "#/$defs/sha256"}
+    },
+    "members": {
+      "type": "array", "minItems": 6, "maxItems": 6,
+      "items": {"$ref": "#/$defs/member"}
+    },
+    "evidence_level": {"const": "derived_from_verified_closed_loop_results"},
+    "simulator_qualification_claimed": {"const": false},
+    "semantic_version": {"const": "1.0"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "member": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes"],
+      "properties": {
+        "path": {"enum": [
+          "native_dose_curves.csv", "native_dose_curves.svg", "operator_cells.csv",
+          "per_task.csv", "summary.json", "summary_table.tex"
+        ]},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 1, "maximum": 33554432}
+      }
+    }
+  }
+}

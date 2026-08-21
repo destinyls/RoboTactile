@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robotactile.invalid/schemas/benchmark_summary.schema.json",
+  "title": "RoboTactile BenchmarkSummary",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "spec", "source_root_sha256", "tasks", "operator_cells", "worst_cell",
+    "recovery", "coverage", "macro_clean_sr", "macro_no_touch_sr",
+    "macro_fault_sr", "macro_paired_delta_sr", "macro_tgr",
+    "paired_delta_interval", "semantic_version"
+  ],
+  "properties": {
+    "spec": {"$ref": "https://robotactile.invalid/schemas/reporting_spec.schema.json"},
+    "source_root_sha256": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {"$ref": "#/$defs/sha256"}
+    },
+    "tasks": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/task"}},
+    "operator_cells": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/operator_cell"}},
+    "worst_cell": {
+      "type": "object", "additionalProperties": false,
+      "required": ["operator_id", "severity_level"],
+      "properties": {
+        "operator_id": {"$ref": "#/$defs/operator"},
+        "severity_level": {"type": "integer", "minimum": 1, "maximum": 5}
+      }
+    },
+    "recovery": {"$ref": "#/$defs/recovery"},
+    "coverage": {"$ref": "#/$defs/coverage"},
+    "macro_clean_sr": {"$ref": "#/$defs/rate"},
+    "macro_no_touch_sr": {"$ref": "#/$defs/rate"},
+    "macro_fault_sr": {"$ref": "#/$defs/rate"},
+    "macro_paired_delta_sr": {"type": "number"},
+    "macro_tgr": {"type": ["number", "null"]},
+    "paired_delta_interval": {"$ref": "#/$defs/interval"},
+    "semantic_version": {"const": "1.0"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "rate": {"type": "number", "minimum": 0, "maximum": 1},
+    "nullable_rate": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+    "operator": {"enum": [
+      "A1_stream_absence", "A2_frame_erasure", "F1_global_response_drift",
+      "F2_spatial_sensitivity_loss", "F3_persistent_surface_artifact",
+      "F4_local_nonresponsive_patch", "F5_contact_shape_distortion",
+      "F6_history_residual_imprint", "F7_high_load_saturation",
+      "T1_fixed_source_delay", "T2_held_last_freeze", "T3_inter_sensor_skew",
+      "C1_sensor_identity_misrouting", "C2_frame_misregistration"
+    ]},
+    "pair": {
+      "type": "array", "minItems": 2, "maxItems": 2,
+      "prefixItems": [{"type": "string", "minLength": 1}, {"type": "number"}],
+      "items": false
+    },
+    "task": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "task", "pair_count", "clean_sr", "no_touch_sr", "clean_gain", "fault_sr",
+        "paired_delta_sr", "no_touch_relative_fault_delta", "tgr",
+        "tgr_ineligibility_reason", "axis_fault_sr"
+      ],
+      "properties": {
+        "task": {"type": "string", "minLength": 1},
+        "pair_count": {"type": "integer", "minimum": 1},
+        "clean_sr": {"$ref": "#/$defs/rate"},
+        "no_touch_sr": {"$ref": "#/$defs/rate"},
+        "clean_gain": {"type": "number"},
+        "fault_sr": {"$ref": "#/$defs/rate"},
+        "paired_delta_sr": {"type": "number"},
+        "no_touch_relative_fault_delta": {"type": "number"},
+        "tgr": {"type": ["number", "null"]},
+        "tgr_ineligibility_reason": {"type": ["string", "null"], "minLength": 1},
+        "axis_fault_sr": {"type": "array", "items": {"$ref": "#/$defs/pair"}}
+      }
+    },
+    "operator_cell": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "operator_id", "axis", "severity_level", "native_dose", "native_unit",
+        "requested_count", "eligible_count", "success_rate", "paired_delta_sr",
+        "no_touch_relative_delta", "paired_delta_lower", "paired_delta_upper",
+        "mcnemar_p_value", "holm_adjusted_p_value"
+      ],
+      "properties": {
+        "operator_id": {"$ref": "#/$defs/operator"},
+        "axis": {"enum": ["availability", "fidelity", "temporal", "context"]},
+        "severity_level": {"type": "integer", "minimum": 1, "maximum": 5},
+        "native_dose": {"type": "number"},
+        "native_unit": {"type": "string", "minLength": 1},
+        "requested_count": {"type": "integer", "minimum": 1},
+        "eligible_count": {"type": "integer", "minimum": 0},
+        "success_rate": {"$ref": "#/$defs/nullable_rate"},
+        "paired_delta_sr": {"type": ["number", "null"]},
+        "no_touch_relative_delta": {"type": ["number", "null"]},
+        "paired_delta_lower": {"type": ["number", "null"]},
+        "paired_delta_upper": {"type": ["number", "null"]},
+        "mcnemar_p_value": {"$ref": "#/$defs/nullable_rate"},
+        "holm_adjusted_p_value": {"$ref": "#/$defs/nullable_rate"}
+      }
+    },
+    "recovery": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "eligible_count", "recovered_count", "unrecovered_fraction",
+        "median_lag_steps", "mean_lag_steps"
+      ],
+      "properties": {
+        "eligible_count": {"type": "integer", "minimum": 0},
+        "recovered_count": {"type": "integer", "minimum": 0},
+        "unrecovered_fraction": {"$ref": "#/$defs/nullable_rate"},
+        "median_lag_steps": {"type": ["number", "null"], "minimum": 0},
+        "mean_lag_steps": {"type": ["number", "null"], "minimum": 0}
+      }
+    },
+    "terminal_count": {
+      "type": "array", "minItems": 2, "maxItems": 2,
+      "prefixItems": [
+        {"enum": ["success", "task_failure", "early_stop", "timeout", "crash", "validator_rejected", "unsupported_contract"]},
+        {"type": "integer", "minimum": 0}
+      ],
+      "items": false
+    },
+    "coverage": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "requested_count", "eligible_count", "ineligible_count",
+        "expected_primary_cell_count", "observed_primary_cell_count",
+        "scored_primary_cell_count", "primary_grid_complete",
+        "primary_score_complete", "terminal_counts"
+      ],
+      "properties": {
+        "requested_count": {"type": "integer", "minimum": 0},
+        "eligible_count": {"type": "integer", "minimum": 0},
+        "ineligible_count": {"type": "integer", "minimum": 0},
+        "expected_primary_cell_count": {"type": "integer", "minimum": 0},
+        "observed_primary_cell_count": {"type": "integer", "minimum": 0},
+        "scored_primary_cell_count": {"type": "integer", "minimum": 0},
+        "primary_grid_complete": {"type": "boolean"},
+        "primary_score_complete": {"type": "boolean"},
+        "terminal_counts": {"type": "array", "items": {"$ref": "#/$defs/terminal_count"}}
+      }
+    },
+    "interval": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "estimate", "lower", "upper", "confidence_level", "valid_resamples",
+        "task_count", "pair_count"
+      ],
+      "properties": {
+        "estimate": {"type": "number"},
+        "lower": {"type": "number"},
+        "upper": {"type": "number"},
+        "confidence_level": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1},
+        "valid_resamples": {"type": "integer", "minimum": 1},
+        "task_count": {"type": "integer", "minimum": 1},
+        "pair_count": {"type": "integer", "minimum": 1}
+      }
+    }
+  }
+}

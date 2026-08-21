@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robotactile.invalid/schemas/integrations_lock.schema.json",
+  "title": "RoboTactile External Integrations Lock",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["entries", "schema_version"],
+  "properties": {
+    "entries": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "artifact_schema",
+          "commit_sha",
+          "install_script",
+          "integration_id",
+          "license_spdx",
+          "release_ready",
+          "repository_url",
+          "source_inventory_required"
+        ],
+        "properties": {
+          "artifact_schema": {"type": "string", "minLength": 1},
+          "commit_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+          "install_script": {"type": "string", "pattern": "^integrations/[a-z0-9_]+\\.sh$"},
+          "integration_id": {"enum": ["act_runtime", "n0_twam", "univtac"]},
+          "license_spdx": {"enum": ["Apache-2.0", "CC-BY-NC-SA-4.0"]},
+          "release_ready": {"type": "boolean"},
+          "repository_url": {"type": "string", "pattern": "^https://github\\.com/"},
+          "source_inventory_required": {"const": true}
+        }
+      }
+    },
+    "schema_version": {"const": "robotactile-integrations-lock-v1"}
+  }
+}

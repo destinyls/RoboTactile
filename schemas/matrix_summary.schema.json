@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robotactile.invalid/schemas/matrix_summary.schema.json",
+  "title": "RoboTactile MatrixSummary",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "matrix_id", "kind", "manifest_sha256", "pair_key", "cells",
+    "status_counts", "semantic_version"
+  ],
+  "properties": {
+    "matrix_id": {"type": "string", "minLength": 1},
+    "kind": {"enum": ["primary_14x5_blind", "focused_phase", "focused_restoration"]},
+    "manifest_sha256": {"$ref": "#/$defs/sha256"},
+    "pair_key": {"$ref": "#/$defs/sha256"},
+    "cells": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/state"}},
+    "status_counts": {
+      "type": "object", "additionalProperties": false,
+      "required": ["pending", "completed", "crash", "unsupported", "validator_rejected"],
+      "properties": {
+        "pending": {"const": 0},
+        "completed": {"type": "integer", "minimum": 0},
+        "crash": {"type": "integer", "minimum": 0},
+        "unsupported": {"type": "integer", "minimum": 0},
+        "validator_rejected": {"type": "integer", "minimum": 0}
+      }
+    },
+    "semantic_version": {"const": "1.0"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "operator": {"enum": [
+      "A1_stream_absence", "A2_frame_erasure", "F1_global_response_drift",
+      "F2_spatial_sensitivity_loss", "F3_persistent_surface_artifact",
+      "F4_local_nonresponsive_patch", "F5_contact_shape_distortion",
+      "F6_history_residual_imprint", "F7_high_load_saturation",
+      "T1_fixed_source_delay", "T2_held_last_freeze", "T3_inter_sensor_skew",
+      "C1_sensor_identity_misrouting", "C2_frame_misregistration"
+    ]},
+    "artifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["result_sha256", "root_receipt_sha256", "evidence_level"],
+      "properties": {
+        "result_sha256": {"$ref": "#/$defs/sha256"},
+        "root_receipt_sha256": {"$ref": "#/$defs/sha256"},
+        "evidence_level": {"type": "string", "minLength": 1}
+      }
+    },
+    "state": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "cell_sha256", "trial_manifest_sha256", "task", "pair_key", "condition",
+        "operator_id", "severity_level", "status", "receipt_sha256", "artifact",
+        "failure_code"
+      ],
+      "properties": {
+        "cell_sha256": {"$ref": "#/$defs/sha256"},
+        "trial_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "task": {"type": "string", "minLength": 1},
+        "pair_key": {"$ref": "#/$defs/sha256"},
+        "condition": {"enum": ["clean", "faulted", "no_touch", "restored"]},
+        "operator_id": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/operator"}]},
+        "severity_level": {"type": ["integer", "null"], "minimum": 1, "maximum": 5},
+        "status": {"enum": ["completed", "crash", "unsupported", "validator_rejected"]},
+        "receipt_sha256": {"$ref": "#/$defs/sha256"},
+        "artifact": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/artifact"}]},
+        "failure_code": {"type": ["string", "null"], "minLength": 1}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"condition": {"enum": ["faulted", "restored"]}}, "required": ["condition"]},
+          "then": {"properties": {
+            "operator_id": {"$ref": "#/$defs/operator"},
+            "severity_level": {"type": "integer", "minimum": 1, "maximum": 5}
+          }},
+          "else": {"properties": {"operator_id": {"const": null}, "severity_level": {"const": null}}}
+        },
+        {
+          "if": {"properties": {"status": {"const": "completed"}}, "required": ["status"]},
+          "then": {"properties": {"artifact": {"$ref": "#/$defs/artifact"}, "failure_code": {"const": null}}}
+        },
+        {
+          "if": {"properties": {"status": {"const": "validator_rejected"}}, "required": ["status"]},
+          "then": {"properties": {
+            "artifact": {"$ref": "#/$defs/artifact"},
+            "failure_code": {"type": "string", "minLength": 1}
+          }}
+        },
+        {
+          "if": {"properties": {"status": {"enum": ["crash", "unsupported"]}}, "required": ["status"]},
+          "then": {"properties": {"failure_code": {"type": "string", "minLength": 1}}}
+        }
+      ]
+    }
+  }
+}

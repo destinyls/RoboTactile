@@ -1,0 +1,22 @@
+{
+  "registry_id": "provisional_engineering_v1",
+  "semantic_version": "1.0",
+  "calibration_status": "mechanism-inspired; not trace-calibrated",
+  "cross_operator_comparable": false,
+  "paths": {
+    "A1_stream_absence": {"unit": "affected_window_fraction", "values": [0.05, 0.10, 0.20, 0.40, 0.80]},
+    "A2_frame_erasure": {"unit": "erased_frame_fraction", "values": [0.05, 0.10, 0.20, 0.40, 0.80]},
+    "F1_global_response_drift": {"unit": "retained_global_gain", "values": [0.95, 0.88, 0.78, 0.65, 0.50]},
+    "F2_spatial_sensitivity_loss": {"unit": "retained_regional_gain", "values": [0.90, 0.75, 0.55, 0.35, 0.15]},
+    "F3_persistent_surface_artifact": {"unit": "scar_dose", "values": [1, 2, 3, 4, 5]},
+    "F4_local_nonresponsive_patch": {"unit": "failed_area_dose", "values": [1, 2, 3, 4, 5]},
+    "F5_contact_shape_distortion": {"unit": "contour_displacement_pixels", "values": [1, 2, 3, 4, 5]},
+    "F6_history_residual_imprint": {"unit": "history_mix", "values": [0.12, 0.22, 0.35, 0.50, 0.68]},
+    "F7_high_load_saturation": {"unit": "response_knee_fraction", "values": [0.90, 0.72, 0.55, 0.40, 0.28]},
+    "T1_fixed_source_delay": {"unit": "lag_frames", "values": [1, 2, 4, 8, 16]},
+    "T2_held_last_freeze": {"unit": "held_duration_frames", "values": [2, 4, 8, 16, 32]},
+    "T3_inter_sensor_skew": {"unit": "source_index_gap", "values": [1, 2, 3, 4, 5]},
+    "C1_sensor_identity_misrouting": {"unit": "misrouted_window_fraction", "values": [0.05, 0.10, 0.20, 0.40, 0.80]},
+    "C2_frame_misregistration": {"unit": "reprojection_displacement_pixels", "values": [1, 2, 3, 4, 5]}
+  }
+}

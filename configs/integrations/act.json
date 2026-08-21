@@ -1,0 +1,1 @@
+{"artifact_manifest":"examples/act/artifact_manifest.example.json","device":"cuda:0","integration_id":"act","schema_version":"robotactile-model-integration-config-v1","transport":"in_process"}

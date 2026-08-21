@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robotactile.invalid/schemas/observation_record.schema.json",
+  "title": "RoboTactile ObservationRecord Metadata",
+  "description": "Arrays are content-addressed binary artifacts; evaluator provenance is intentionally excluded.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["episode_id", "task", "seed", "step_index", "tactile", "vision_sha256", "proprio_sha256"],
+  "properties": {
+    "episode_id": {"type": "string", "minLength": 1},
+    "task": {"type": "string", "minLength": 1},
+    "seed": {"type": "integer", "minimum": 0},
+    "step_index": {"type": "integer", "minimum": 0},
+    "tactile": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "allOf": [
+        {
+          "contains": {
+            "type": "object",
+            "properties": {"slot_id": {"const": "left"}},
+            "required": ["slot_id"]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "type": "object",
+            "properties": {"slot_id": {"const": "right"}},
+            "required": ["slot_id"]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        }
+      ],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["slot_id", "payload_present", "delivery_index", "delivery_time_s", "frame_id", "calibration_id"],
+        "properties": {
+          "slot_id": {"enum": ["left", "right"]},
+          "payload_present": {"type": "boolean"},
+          "payload_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+          "declared_validity": {"type": ["boolean", "null"]},
+          "delivery_index": {"type": "integer", "minimum": 0},
+          "delivery_time_s": {"type": "number", "minimum": 0},
+          "visible_source_time_s": {"type": ["number", "null"]},
+          "frame_id": {"type": "string"},
+          "calibration_id": {"type": "string"}
+        }
+      }
+    },
+    "vision_sha256": {
+      "type": "object",
+      "additionalProperties": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+    },
+    "proprio_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

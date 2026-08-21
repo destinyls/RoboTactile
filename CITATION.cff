@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: "If you use RoboTactile, cite the accompanying paper and this software."
+title: "RoboTactile: An Auditable Robustness Benchmark for Optical-Tactile Robot Policies"
+type: software
+version: 0.4.0
+date-released: 2026-08-21
+license: Apache-2.0
+authors:
+  - name: "RoboTactile Authors"

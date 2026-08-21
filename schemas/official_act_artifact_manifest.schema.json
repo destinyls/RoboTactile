@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robotactile.invalid/schemas/official_act_artifact_manifest.schema.json",
+  "title": "Official UniVTAC ACT Artifact Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_family", "task_id", "profile", "artifact_root", "checkpoint_path",
+    "checkpoint_sha256", "stats_path", "stats_sha256", "encoder_path",
+    "encoder_sha256", "upstream_root", "upstream_commit", "source_path",
+    "source_sha256", "config_path", "config_sha256", "semantic_version"
+  ],
+  "properties": {
+    "artifact_family": {"const": "official_univtac_policy_last"},
+    "task_id": {"type": "string", "minLength": 1},
+    "profile": {"enum": ["univtac", "vision_only"]},
+    "artifact_root": {"$ref": "#/$defs/path"},
+    "checkpoint_path": {"$ref": "#/$defs/path"},
+    "checkpoint_sha256": {"$ref": "#/$defs/sha256"},
+    "stats_path": {"$ref": "#/$defs/path"},
+    "stats_sha256": {"$ref": "#/$defs/sha256"},
+    "encoder_path": {"$ref": "#/$defs/path"},
+    "encoder_sha256": {"$ref": "#/$defs/sha256"},
+    "upstream_root": {"$ref": "#/$defs/path"},
+    "upstream_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "source_path": {"$ref": "#/$defs/path"},
+    "source_sha256": {"$ref": "#/$defs/sha256"},
+    "config_path": {"$ref": "#/$defs/path"},
+    "config_sha256": {"$ref": "#/$defs/sha256"},
+    "semantic_version": {"const": "1.0"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "path": {"type": "string", "minLength": 1}
+  }
+}

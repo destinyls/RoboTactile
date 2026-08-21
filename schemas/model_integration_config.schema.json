@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robotactile.invalid/schemas/model_integration_config.schema.json",
+  "title": "RoboTactile Model Integration Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_manifest",
+    "device",
+    "integration_id",
+    "schema_version",
+    "transport"
+  ],
+  "properties": {
+    "artifact_manifest": {"type": "string", "pattern": "^examples/(act|n0_twam)/"},
+    "device": {"type": "string", "minLength": 1},
+    "integration_id": {"enum": ["act", "n0_twam"]},
+    "schema_version": {"const": "robotactile-model-integration-config-v1"},
+    "transport": {"enum": ["in_process", "typed_gateway"]}
+  }
+}

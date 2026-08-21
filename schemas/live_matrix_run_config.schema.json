@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robotactile.invalid/schemas/live_matrix_run_config.schema.json",
+  "title": "RoboTactile Live Matrix Run Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "matrix_manifest_sha256", "policy_kind", "max_control_cycles",
+    "max_observation_steps", "execute_action_steps", "wall_timeout_s",
+    "upstream_root", "runtime_root", "act_device_name", "simulator_device",
+    "launcher_args", "official_act_artifact_root", "stats_sha256",
+    "encoder_sha256", "resources", "semantic_version"
+  ],
+  "properties": {
+    "matrix_manifest_sha256": {"$ref": "#/$defs/sha256"},
+    "policy_kind": {"const": "act"},
+    "max_control_cycles": {"type": "integer", "minimum": 1},
+    "max_observation_steps": {"type": "integer", "minimum": 1},
+    "execute_action_steps": {"const": 1},
+    "wall_timeout_s": {"type": "number", "exclusiveMinimum": 0},
+    "upstream_root": {"type": "string", "minLength": 1},
+    "runtime_root": {"type": "string", "minLength": 1},
+    "act_device_name": {"type": "string", "minLength": 1},
+    "simulator_device": {"type": "string", "minLength": 1},
+    "launcher_args": {"type": "object", "additionalProperties": true},
+    "official_act_artifact_root": {"type": "string", "minLength": 1},
+    "stats_sha256": {"$ref": "#/$defs/sha256"},
+    "encoder_sha256": {"$ref": "#/$defs/sha256"},
+    "resources": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"pattern": "^[0-9a-f]{64}$"},
+      "additionalProperties": {"$ref": "#/$defs/resource"}
+    },
+    "semantic_version": {"const": "1.0"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "nullable_path": {"type": ["string", "null"], "minLength": 1},
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fault_manifest_path", "rest_references_path",
+        "matched_no_touch_artifact_path"
+      ],
+      "properties": {
+        "fault_manifest_path": {"$ref": "#/$defs/nullable_path"},
+        "rest_references_path": {"$ref": "#/$defs/nullable_path"},
+        "matched_no_touch_artifact_path": {"$ref": "#/$defs/nullable_path"}
+      }
+    }
+  }
+}

@@ -1,0 +1,145 @@
+{
+  "registry_id": "robotactile_core_2_7_3_2_v1",
+  "semantic_version": "1.0",
+  "implementation_version": "0.3.0",
+  "scope": "GelSight-like optical-tactile model-boundary signatures",
+  "complete_root_cause_taxonomy": false,
+  "operators": [
+    {
+      "operator_id": "A1_stream_absence",
+      "family": "availability",
+      "native_unit": "affected_window_fraction",
+      "stateful": false,
+      "evidence_tier": "engineering_proxy",
+      "validator_id": "availability_stream_interval_v1",
+      "write_set": ["payload", "payload_present", "declared_validity", "source_provenance"]
+    },
+    {
+      "operator_id": "A2_frame_erasure",
+      "family": "availability",
+      "native_unit": "erased_frame_fraction",
+      "stateful": false,
+      "evidence_tier": "engineering_proxy",
+      "validator_id": "availability_registered_gaps_v1",
+      "write_set": ["payload", "payload_present", "declared_validity", "source_provenance"],
+      "requires": ["manifest.parameters.erased_offsets"]
+    },
+    {
+      "operator_id": "F1_global_response_drift",
+      "family": "fidelity",
+      "native_unit": "retained_global_gain",
+      "stateful": false,
+      "evidence_tier": "direct_observation",
+      "validator_id": "retained_global_response_v1",
+      "write_set": ["payload", "declared_validity"],
+      "requires": ["rest_reference_bundle"]
+    },
+    {
+      "operator_id": "F2_spatial_sensitivity_loss",
+      "family": "fidelity",
+      "native_unit": "retained_regional_gain",
+      "stateful": false,
+      "evidence_tier": "direct_observation",
+      "validator_id": "central_residual_attenuation_v1",
+      "write_set": ["payload", "declared_validity"],
+      "requires": ["rest_reference_bundle"]
+    },
+    {
+      "operator_id": "F3_persistent_surface_artifact",
+      "family": "fidelity",
+      "native_unit": "scar_dose",
+      "stateful": false,
+      "evidence_tier": "mechanism_proxy",
+      "validator_id": "persistent_changed_support_v1",
+      "write_set": ["payload", "declared_validity"],
+      "requires": ["rest_reference_bundle"]
+    },
+    {
+      "operator_id": "F4_local_nonresponsive_patch",
+      "family": "fidelity",
+      "native_unit": "failed_area_dose",
+      "stateful": false,
+      "evidence_tier": "direct_observation",
+      "validator_id": "baseline_replaced_area_v1",
+      "write_set": ["payload", "declared_validity"],
+      "requires": ["rest_reference_bundle"]
+    },
+    {
+      "operator_id": "F5_contact_shape_distortion",
+      "family": "fidelity",
+      "native_unit": "contour_displacement_pixels",
+      "stateful": false,
+      "evidence_tier": "field_observation",
+      "validator_id": "contact_gated_shape_delta_v1",
+      "write_set": ["payload", "declared_validity"],
+      "requires": ["rest_reference_bundle", "evaluator_private_contact_phase"]
+    },
+    {
+      "operator_id": "F6_history_residual_imprint",
+      "family": "fidelity",
+      "native_unit": "history_mix",
+      "stateful": true,
+      "evidence_tier": "direct_observation",
+      "validator_id": "post_release_residual_v1",
+      "write_set": ["payload", "declared_validity"],
+      "requires": ["rest_reference_bundle", "release_sample"]
+    },
+    {
+      "operator_id": "F7_high_load_saturation",
+      "family": "fidelity",
+      "native_unit": "response_knee_fraction",
+      "stateful": false,
+      "evidence_tier": "direct_observation",
+      "validator_id": "contact_response_compression_v1",
+      "write_set": ["payload", "declared_validity"],
+      "requires": ["rest_reference_bundle"]
+    },
+    {
+      "operator_id": "T1_fixed_source_delay",
+      "family": "temporal",
+      "native_unit": "lag_frames",
+      "stateful": false,
+      "evidence_tier": "engineering_proxy",
+      "validator_id": "fixed_source_mapping_v1",
+      "write_set": ["payload", "declared_validity", "source_provenance"]
+    },
+    {
+      "operator_id": "T2_held_last_freeze",
+      "family": "temporal",
+      "native_unit": "held_duration_frames",
+      "stateful": true,
+      "evidence_tier": "engineering_proxy",
+      "validator_id": "held_source_run_v1",
+      "write_set": ["payload", "declared_validity", "source_provenance"]
+    },
+    {
+      "operator_id": "T3_inter_sensor_skew",
+      "family": "temporal",
+      "native_unit": "source_index_gap",
+      "stateful": true,
+      "evidence_tier": "direct_observation",
+      "validator_id": "cross_sensor_source_gap_v1",
+      "write_set": ["payload", "declared_validity", "source_provenance"]
+    },
+    {
+      "operator_id": "C1_sensor_identity_misrouting",
+      "family": "context",
+      "native_unit": "misrouted_window_fraction",
+      "stateful": false,
+      "evidence_tier": "engineering_proxy",
+      "validator_id": "physical_source_binding_v1",
+      "write_set": ["payload", "declared_validity", "source_provenance"]
+    },
+    {
+      "operator_id": "C2_frame_misregistration",
+      "family": "context",
+      "native_unit": "reprojection_displacement_pixels",
+      "stateful": false,
+      "evidence_tier": "mechanism_proxy",
+      "validator_id": "registered_frame_reprojection_v1",
+      "write_set": ["payload", "declared_validity", "calibration_provenance"],
+      "requires": ["rest_reference_bundle"],
+      "applicability": "manifest.parameters.realization == registered_pixels; otherwise N/A"
+    }
+  ]
+}

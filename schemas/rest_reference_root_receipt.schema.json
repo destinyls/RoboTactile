@@ -1,0 +1,33 @@
+{
+  "$id": "https://robotactile.invalid/schemas/rest_reference_root_receipt.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "evidence_level": {"const": "unqualified_univtac_no_contact_calibration_v1"},
+    "members": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {"enum": ["no_contact_validation.json", "rest_reference.json"], "type": "string"},
+          "sha256": {"$ref": "#/$defs/sha256"},
+          "size_bytes": {"minimum": 1, "type": "integer"}
+        },
+        "required": ["path", "sha256", "size_bytes"],
+        "type": "object"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "type": "array"
+    },
+    "no_contact_validation_sha256": {"$ref": "#/$defs/sha256"},
+    "rest_reference_sha256": {"$ref": "#/$defs/sha256"},
+    "semantic_version": {"const": "1.0"},
+    "simulator_qualification_claimed": {"const": false},
+    "source_live_artifact_root_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "required": ["rest_reference_sha256", "no_contact_validation_sha256", "source_live_artifact_root_sha256", "members", "evidence_level", "simulator_qualification_claimed", "semantic_version"],
+  "type": "object",
+  "$defs": {
+    "sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"}
+  }
+}

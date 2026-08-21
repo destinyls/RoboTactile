@@ -1,0 +1,49 @@
+{
+  "$id": "https://robotactile.invalid/schemas/rest_reference_bundle.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "calibration_sha256": {"$ref": "#/$defs/slotHashes"},
+    "dataset_split": {"enum": ["development", "validation", "calibration"], "type": "string"},
+    "no_contact_predicate_id": {"minLength": 1, "type": "string"},
+    "no_contact_validation_sha256": {"$ref": "#/$defs/sha256"},
+    "no_contact_verified": {"const": true},
+    "payloads": {
+      "additionalProperties": false,
+      "properties": {
+        "left": {"$ref": "#/$defs/payload"},
+        "right": {"$ref": "#/$defs/payload"}
+      },
+      "required": ["left", "right"],
+      "type": "object"
+    },
+    "qualified_record_ids": {"$ref": "#/$defs/slotHashes"},
+    "reference_id": {"minLength": 1, "type": "string"},
+    "source_artifact_sha256": {"$ref": "#/$defs/sha256"},
+    "split_manifest_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "required": ["reference_id", "dataset_split", "split_manifest_sha256", "source_artifact_sha256", "no_contact_predicate_id", "no_contact_validation_sha256", "no_contact_verified", "qualified_record_ids", "calibration_sha256", "payloads"],
+  "type": "object",
+  "$defs": {
+    "payload": {
+      "additionalProperties": false,
+      "properties": {
+        "data_hex": {"pattern": "^[0-9a-f]+$", "type": "string"},
+        "dtype": {"const": "uint8"},
+        "shape": {"items": {"minimum": 1, "type": "integer"}, "maxItems": 3, "minItems": 3, "type": "array"}
+      },
+      "required": ["dtype", "shape", "data_hex"],
+      "type": "object"
+    },
+    "sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+    "slotHashes": {
+      "additionalProperties": false,
+      "properties": {
+        "left": {"$ref": "#/$defs/sha256"},
+        "right": {"$ref": "#/$defs/sha256"}
+      },
+      "required": ["left", "right"],
+      "type": "object"
+    }
+  }
+}

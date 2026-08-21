@@ -1,0 +1,178 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robotactile.invalid/schemas/fault_manifest.schema.json",
+  "title": "RoboTactile FaultManifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "operator_id", "severity_level", "operator_seed", "start_index",
+    "stop_index", "sensor_slots", "observability", "parameters",
+    "semantic_version", "implementation_version", "severity_registry"
+  ],
+  "properties": {
+    "operator_id": {"enum": [
+      "A1_stream_absence", "A2_frame_erasure",
+      "F1_global_response_drift", "F2_spatial_sensitivity_loss",
+      "F3_persistent_surface_artifact", "F4_local_nonresponsive_patch",
+      "F5_contact_shape_distortion", "F6_history_residual_imprint",
+      "F7_high_load_saturation", "T1_fixed_source_delay",
+      "T2_held_last_freeze", "T3_inter_sensor_skew",
+      "C1_sensor_identity_misrouting", "C2_frame_misregistration"
+    ]},
+    "severity_level": {"type": "integer", "minimum": 1, "maximum": 5},
+    "operator_seed": {"type": "integer", "minimum": 0},
+    "start_index": {"type": "integer", "minimum": 0},
+    "stop_index": {"type": "integer", "minimum": 1},
+    "sensor_slots": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {"enum": ["left", "right"]}
+    },
+    "observability": {"enum": ["blind", "declared"]},
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "parameterization_version", "template_seed",
+        "instance_descriptor_sha256"
+      ],
+      "properties": {
+        "parameterization_version": {"const": "canonical_operator_instance_v2"},
+        "template_seed": {"type": "integer", "minimum": 0},
+        "instance_descriptor_sha256": {"$ref": "#/$defs/sha256"},
+        "rest_reference_sha256": {"$ref": "#/$defs/sha256"},
+        "affected_offsets": {"$ref": "#/$defs/offsets"},
+        "erased_offsets": {"$ref": "#/$defs/offsets"},
+        "target_gain": {"type": "number", "minimum": 0, "maximum": 1},
+        "temporal_path": {"const": "linear_ramp"},
+        "retained_gain": {"type": "number", "minimum": 0, "maximum": 1},
+        "center_xy": {"$ref": "#/$defs/pair_number"},
+        "sigma_fraction": {"type": "number", "exclusiveMinimum": 0},
+        "minimum_sigma_px": {"type": "number", "exclusiveMinimum": 0},
+        "scar_slope": {"type": "number"},
+        "scar_intercept_fraction": {"type": "number"},
+        "scar_half_width_px": {"type": "number", "exclusiveMinimum": 0},
+        "rgb_delta": {"$ref": "#/$defs/triple_number"},
+        "radius_fraction": {"type": "number", "exclusiveMinimum": 0},
+        "minimum_radius_px": {"type": "integer", "minimum": 1},
+        "fill_mode": {"const": "rest_reference"},
+        "warp_domain": {"const": "current_rgb"},
+        "field": {"const": "compact_quartic_horizontal"},
+        "support_radius_fraction": {"type": "number", "exclusiveMinimum": 0},
+        "displacement_px": {"type": "integer", "minimum": 1},
+        "axis": {"const": "horizontal"},
+        "direction": {"const": "positive"},
+        "boundary": {"const": "identity"},
+        "activation_phases": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": {"enum": ["free", "contact_onset", "sustained_contact", "release"]}
+        },
+        "history_mix": {"type": "number", "minimum": 0, "maximum": 1},
+        "memory_beta": {"type": "number", "minimum": 0, "exclusiveMaximum": 1},
+        "synthesis_domain": {"const": "current_rgb_same_frame"},
+        "anchor_filter": {"const": "uniform_box"},
+        "anchor_radius_fraction": {"type": "number", "exclusiveMinimum": 0},
+        "minimum_anchor_radius_px": {"type": "integer", "minimum": 1},
+        "padding": {"const": "reflect_no_edge_repeat"},
+        "accumulation": {"const": "float64"},
+        "response_norm": {"const": "l2_rgb_detail"},
+        "response_knee": {"type": "number", "exclusiveMinimum": 0},
+        "plateau_width_ratio": {"type": "number", "exclusiveMinimum": 0},
+        "transfer": {"const": "identity_then_rational_plateau"},
+        "lag_frames": {"type": "integer", "minimum": 1},
+        "source_index_map": {
+          "oneOf": [
+            {"$ref": "#/$defs/source_indices"},
+            {
+              "type": "object", "additionalProperties": false,
+              "required": ["left", "right"],
+              "properties": {
+                "left": {"$ref": "#/$defs/source_indices"},
+                "right": {"$ref": "#/$defs/source_indices"}
+              }
+            }
+          ]
+        },
+        "hold_duration_frames": {"type": "integer", "minimum": 1},
+        "held_source_index": {"type": "integer", "minimum": 0},
+        "delayed_slot": {"enum": ["left", "right"]},
+        "skew_frames": {"type": "integer", "minimum": 1},
+        "route_map": {
+          "type": "object", "additionalProperties": false,
+          "required": ["left", "right"],
+          "properties": {
+            "left": {"const": "right"}, "right": {"const": "left"}
+          }
+        },
+        "realization": {"const": "registered_pixels"},
+        "translation_xy_px": {"$ref": "#/$defs/pair_integer"},
+        "interpolation": {"enum": ["bilinear_float64", "integer_copy"]}
+      }
+    },
+    "semantic_version": {"const": "2.0"},
+    "implementation_version": {"const": "0.4.0"},
+    "severity_registry": {"const": "provisional_engineering_v2"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "offsets": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {"type": "integer", "minimum": 0}
+    },
+    "source_indices": {
+      "type": "array", "minItems": 1,
+      "items": {"type": "integer", "minimum": 0}
+    },
+    "pair_number": {
+      "type": "array", "minItems": 2, "maxItems": 2,
+      "items": {"type": "number"}
+    },
+    "pair_integer": {
+      "type": "array", "minItems": 2, "maxItems": 2,
+      "items": {"type": "integer", "minimum": 0}
+    },
+    "triple_number": {
+      "type": "array", "minItems": 3, "maxItems": 3,
+      "items": {"type": "number"}
+    }
+  },
+  "allOf": [
+    {"if": {"properties": {"operator_id": {"const": "A1_stream_absence"}}},
+     "then": {"properties": {"parameters": {"required": ["affected_offsets"]}}}},
+    {"if": {"properties": {"operator_id": {"const": "A2_frame_erasure"}}},
+     "then": {"properties": {"parameters": {"required": ["erased_offsets"]}}}},
+    {"if": {"properties": {"operator_id": {"const": "F1_global_response_drift"}}},
+     "then": {"properties": {"parameters": {"required": ["rest_reference_sha256", "target_gain", "temporal_path"]}}}},
+    {"if": {"properties": {"operator_id": {"const": "F2_spatial_sensitivity_loss"}}},
+     "then": {"properties": {"parameters": {"required": ["rest_reference_sha256", "retained_gain", "center_xy", "sigma_fraction", "minimum_sigma_px"]}}}},
+    {"if": {"properties": {"operator_id": {"const": "F3_persistent_surface_artifact"}}},
+     "then": {"properties": {"parameters": {"required": ["rest_reference_sha256", "scar_slope", "scar_intercept_fraction", "scar_half_width_px", "rgb_delta"]}}}},
+    {"if": {"properties": {"operator_id": {"const": "F4_local_nonresponsive_patch"}}},
+     "then": {"properties": {"parameters": {"required": ["rest_reference_sha256", "center_xy", "radius_fraction", "minimum_radius_px", "fill_mode"]}}}},
+    {"if": {"properties": {"operator_id": {"const": "F5_contact_shape_distortion"}}},
+     "then": {"properties": {"parameters": {"required": ["warp_domain", "field", "center_xy", "support_radius_fraction", "displacement_px", "axis", "direction", "interpolation", "boundary", "activation_phases"], "not": {"required": ["rest_reference_sha256"]}}}}},
+    {"if": {"properties": {"operator_id": {"const": "F6_history_residual_imprint"}}},
+     "then": {"properties": {"parameters": {"required": ["rest_reference_sha256", "history_mix", "memory_beta"]}}}},
+    {"if": {"properties": {"operator_id": {"const": "F7_high_load_saturation"}}},
+     "then": {"properties": {"parameters": {"required": ["synthesis_domain", "anchor_filter", "anchor_radius_fraction", "minimum_anchor_radius_px", "padding", "accumulation", "response_norm", "response_knee", "plateau_width_ratio", "transfer", "activation_phases"], "not": {"required": ["rest_reference_sha256"]}}}}},
+    {"if": {"properties": {"operator_id": {"const": "T1_fixed_source_delay"}}},
+     "then": {"properties": {"parameters": {"required": ["lag_frames", "source_index_map"]}}}},
+    {"if": {"properties": {"operator_id": {"const": "T2_held_last_freeze"}}},
+     "then": {"properties": {"parameters": {"required": ["hold_duration_frames", "held_source_index", "source_index_map"]}}}},
+    {"if": {"properties": {"operator_id": {"const": "T3_inter_sensor_skew"}}},
+     "then": {
+       "properties": {
+         "sensor_slots": {"const": ["left", "right"]},
+         "parameters": {"required": ["delayed_slot", "skew_frames", "source_index_map"]}
+       }
+     }},
+    {"if": {"properties": {"operator_id": {"const": "C1_sensor_identity_misrouting"}}},
+     "then": {
+       "properties": {
+         "sensor_slots": {"const": ["left", "right"]},
+         "parameters": {"required": ["affected_offsets", "route_map"]}
+       }
+     }},
+    {"if": {"properties": {"operator_id": {"const": "C2_frame_misregistration"}}},
+     "then": {"properties": {"parameters": {"required": ["rest_reference_sha256", "realization", "translation_xy_px", "interpolation", "fill_mode"]}}}}
+  ]
+}

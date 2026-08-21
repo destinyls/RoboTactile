@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robotactile.invalid/schemas/calibration_request_receipt.schema.json",
+  "title": "RoboTactile Calibration Request Receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "request_sha256", "request_file_sha256", "trial_manifest_sha256",
+    "task_id", "dataset_split", "split_manifest_sha256",
+    "base_system_manifest_sha256", "evidence_level",
+    "simulator_execution_claimed", "semantic_version"
+  ],
+  "properties": {
+    "request_sha256": {"$ref": "#/$defs/sha256"},
+    "request_file_sha256": {"$ref": "#/$defs/sha256"},
+    "trial_manifest_sha256": {"$ref": "#/$defs/sha256"},
+    "task_id": {"type": "string", "minLength": 1},
+    "dataset_split": {"enum": ["development", "validation", "calibration"]},
+    "split_manifest_sha256": {"$ref": "#/$defs/sha256"},
+    "base_system_manifest_sha256": {"$ref": "#/$defs/sha256"},
+    "evidence_level": {"const": "request_generation_only_no_simulator_execution"},
+    "simulator_execution_claimed": {"const": false},
+    "semantic_version": {"const": "1.0"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

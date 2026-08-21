@@ -1,0 +1,317 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robotactile.invalid/schemas/univtac_task_registry.schema.json",
+  "title": "RoboTactile Frozen UniVTAC Task Registry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "registry_id",
+    "semantic_version",
+    "upstream_repository",
+    "upstream_commit",
+    "runtime",
+    "aliases",
+    "phase_tracker",
+    "tasks"
+  ],
+  "properties": {
+    "registry_id": {"const": "robotactile_univtac_tasks_v1"},
+    "semantic_version": {"const": "1.0"},
+    "upstream_repository": {"const": "https://github.com/destinyls/UniVTAC"},
+    "upstream_commit": {"const": "05bcd3edb92237107efa40105292a24f1a9fd761"},
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action_spec",
+        "action_mode",
+        "force",
+        "sim_hz",
+        "decimation",
+        "physics_steps_per_action",
+        "canonical_joint_names",
+        "action_lower_bounds",
+        "action_upper_bounds",
+        "head_shape",
+        "wrist_shape",
+        "tactile_rgb_shape",
+        "tactile_depth_shape"
+      ],
+      "properties": {
+        "action_spec": {"const": "qpos8_next_step"},
+        "action_mode": {"const": "qpos"},
+        "force": {"const": true},
+        "sim_hz": {"const": 120},
+        "decimation": {"const": 1},
+        "physics_steps_per_action": {"const": 1},
+        "canonical_joint_names": {
+          "type": "array",
+          "minItems": 9,
+          "maxItems": 9,
+          "prefixItems": [
+            {"const": "panda_joint1"},
+            {"const": "panda_joint2"},
+            {"const": "panda_joint3"},
+            {"const": "panda_joint4"},
+            {"const": "panda_joint5"},
+            {"const": "panda_joint6"},
+            {"const": "panda_joint7"},
+            {"const": "panda_finger_joint1"},
+            {"const": "panda_finger_joint2"}
+          ],
+          "items": false
+        },
+        "action_lower_bounds": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "prefixItems": [
+            {"const": -2.8973},
+            {"const": -1.7628},
+            {"const": -2.8973},
+            {"const": -3.0718},
+            {"const": -2.8973},
+            {"const": -0.0175},
+            {"const": -2.8973},
+            {"const": 0.0}
+          ],
+          "items": false
+        },
+        "action_upper_bounds": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "prefixItems": [
+            {"const": 2.8973},
+            {"const": 1.7628},
+            {"const": 2.8973},
+            {"const": -0.0698},
+            {"const": 2.8973},
+            {"const": 3.7525},
+            {"const": 2.8973},
+            {"const": 0.039}
+          ],
+          "items": false
+        },
+        "head_shape": {"const": [270, 480, 3]},
+        "wrist_shape": {"const": [270, 480, 3]},
+        "tactile_rgb_shape": {"const": [240, 320, 3]},
+        "tactile_depth_shape": {"const": [240, 320]}
+      }
+    },
+    "aliases": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "head_camera",
+        "wrist_camera",
+        "left_tactile",
+        "right_tactile",
+        "left_physical_source_id",
+        "right_physical_source_id",
+        "sensor_type",
+        "far_plane_mm",
+        "calibration_id",
+        "calibration_config_sha256",
+        "tactile_payload"
+      ],
+      "properties": {
+        "head_camera": {"const": "head"},
+        "wrist_camera": {"const": "wrist"},
+        "left_tactile": {"const": "left_tactile"},
+        "right_tactile": {"const": "right_tactile"},
+        "left_physical_source_id": {"const": "univtac-left-gsmini-sim-v1"},
+        "right_physical_source_id": {"const": "univtac-right-gsmini-sim-v1"},
+        "sensor_type": {"const": "gsmini"},
+        "far_plane_mm": {"const": 34.0},
+        "calibration_id": {"const": "univtac-gsmini-sim-calibration-v1"},
+        "calibration_config_sha256": {"const": "f62283f77af986ab30f4b68ff7f746e772c3c2455e49efed297ef24b777d6fa9"},
+        "tactile_payload": {"const": "rgb_marker"}
+      }
+    },
+    "phase_tracker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["on_threshold_mm", "off_threshold_mm"],
+      "properties": {
+        "on_threshold_mm": {"const": 0.8},
+        "off_threshold_mm": {"const": 0.3}
+      }
+    },
+    "tasks": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "prefixItems": [
+        {
+          "allOf": [
+            {"$ref": "#/$defs/task"},
+            {"properties": {
+              "task_id": {"const": "grasp_classify"},
+              "prompt_id": {"const": "robotactile.grasp_classify.v1"},
+              "prompt": {"const": "Classify the grasped object's tactile response and maintain a stable grasp."},
+              "module_name": {"const": "envs.grasp_classify"},
+              "class_name": {"const": "Task"},
+              "success_predicate_id": {"const": "univtac-upstream-05bcd3ed.grasp_classify.check_success.v1"},
+              "task_source_sha256": {"const": "9596a819c97e3ac53188da10683b6f3be60cc573067f572f3e5dbe1d7e29d48c"},
+              "action_horizon": {"const": 300},
+              "early_stop_capable": {"const": false},
+              "predicate_note": {"const": "Frozen upstream check_success behavior without benchmark-side correction."}
+            }}
+          ]
+        },
+        {
+          "allOf": [
+            {"$ref": "#/$defs/task"},
+            {"properties": {
+              "task_id": {"const": "insert_HDMI"},
+              "prompt_id": {"const": "robotactile.insert_HDMI.v1"},
+              "prompt": {"const": "Insert the HDMI plug fully into the matching socket."},
+              "module_name": {"const": "envs.insert_HDMI"},
+              "class_name": {"const": "Task"},
+              "success_predicate_id": {"const": "univtac-upstream-05bcd3ed.insert_HDMI.check_success.v1"},
+              "task_source_sha256": {"const": "6b612905275aa401983133ab9b58f5d38dc76975fb9ef422673a37036fbdf2eb"},
+              "action_horizon": {"const": 600},
+              "early_stop_capable": {"const": false},
+              "predicate_note": {"const": "Frozen upstream predicate with its x-coordinate omission; characterized, not benchmark-corrected."}
+            }}
+          ]
+        },
+        {
+          "allOf": [
+            {"$ref": "#/$defs/task"},
+            {"properties": {
+              "task_id": {"const": "insert_hole"},
+              "prompt_id": {"const": "robotactile.insert_hole.v1"},
+              "prompt": {"const": "Align the object with the hole and insert it to the target depth."},
+              "module_name": {"const": "envs.insert_hole"},
+              "class_name": {"const": "Task"},
+              "success_predicate_id": {"const": "univtac-upstream-05bcd3ed.insert_hole.check_success.v1"},
+              "task_source_sha256": {"const": "8b199327e549f979076e03082b0a8883cc71de351c90c30901c6af6c432ce1cb"},
+              "action_horizon": {"const": 300},
+              "early_stop_capable": {"const": true},
+              "predicate_note": {"const": "Frozen upstream check_success behavior without benchmark-side correction."}
+            }}
+          ]
+        },
+        {
+          "allOf": [
+            {"$ref": "#/$defs/task"},
+            {"properties": {
+              "task_id": {"const": "insert_tube"},
+              "prompt_id": {"const": "robotactile.insert_tube.v1"},
+              "prompt": {"const": "Align the tube and insert it into the target opening."},
+              "module_name": {"const": "envs.insert_tube"},
+              "class_name": {"const": "Task"},
+              "success_predicate_id": {"const": "univtac-upstream-05bcd3ed.insert_tube.check_success.v1"},
+              "task_source_sha256": {"const": "dca64e9232f459a5e3019eb3ba92c2b31e8aca4d64182c97e291b6575f5f7353"},
+              "action_horizon": {"const": 300},
+              "early_stop_capable": {"const": true},
+              "predicate_note": {"const": "Frozen upstream predicate with signed offsets in its planar check; characterized, not benchmark-corrected."}
+            }}
+          ]
+        },
+        {
+          "allOf": [
+            {"$ref": "#/$defs/task"},
+            {"properties": {
+              "task_id": {"const": "lift_bottle"},
+              "prompt_id": {"const": "robotactile.lift_bottle.v1"},
+              "prompt": {"const": "Grasp the bottle securely and lift it above the success height."},
+              "module_name": {"const": "envs.lift_bottle"},
+              "class_name": {"const": "Task"},
+              "success_predicate_id": {"const": "univtac-upstream-05bcd3ed.lift_bottle.check_success.v1"},
+              "task_source_sha256": {"const": "46b9a691ec850004ffe2d226aa6e7e4ab84c7c2f1ab1548819f235b86f1e993c"},
+              "action_horizon": {"const": 500},
+              "early_stop_capable": {"const": true},
+              "predicate_note": {"const": "Frozen upstream check_success behavior without benchmark-side correction."}
+            }}
+          ]
+        },
+        {
+          "allOf": [
+            {"$ref": "#/$defs/task"},
+            {"properties": {
+              "task_id": {"const": "lift_can"},
+              "prompt_id": {"const": "robotactile.lift_can.v1"},
+              "prompt": {"const": "Grasp the can securely and lift it above the success height."},
+              "module_name": {"const": "envs.lift_can"},
+              "class_name": {"const": "Task"},
+              "success_predicate_id": {"const": "univtac-upstream-05bcd3ed.lift_can.check_success.v1"},
+              "task_source_sha256": {"const": "2e6327443a895555675b1a5caab7e33d8f6dc99ef5b9328c0b7282b922aebffd"},
+              "action_horizon": {"const": 300},
+              "early_stop_capable": {"const": true},
+              "predicate_note": {"const": "Frozen upstream check_success behavior without benchmark-side correction."}
+            }}
+          ]
+        },
+        {
+          "allOf": [
+            {"$ref": "#/$defs/task"},
+            {"properties": {
+              "task_id": {"const": "pull_out_key"},
+              "prompt_id": {"const": "robotactile.pull_out_key.v1"},
+              "prompt": {"const": "Grasp the key and pull it completely out of the lock."},
+              "module_name": {"const": "envs.pull_out_key"},
+              "class_name": {"const": "Task"},
+              "success_predicate_id": {"const": "univtac-upstream-05bcd3ed.pull_out_key.check_success.v1"},
+              "task_source_sha256": {"const": "d77e3a36df9a3c9aa4e445ac2f78f88f8a76d857d277801982a9b78bba8614be"},
+              "action_horizon": {"const": 300},
+              "early_stop_capable": {"const": true},
+              "predicate_note": {"const": "Frozen upstream check_success behavior without benchmark-side correction."}
+            }}
+          ]
+        },
+        {
+          "allOf": [
+            {"$ref": "#/$defs/task"},
+            {"properties": {
+              "task_id": {"const": "put_bottle_in_shelf"},
+              "prompt_id": {"const": "robotactile.put_bottle_in_shelf.v1"},
+              "prompt": {"const": "Place the bottle fully inside the target shelf compartment."},
+              "module_name": {"const": "envs.put_bottle_in_shelf"},
+              "class_name": {"const": "Task"},
+              "success_predicate_id": {"const": "univtac-upstream-05bcd3ed.put_bottle_in_shelf.check_success.v1"},
+              "task_source_sha256": {"const": "f6e17433d0310c12793e1cb64d58f4c3a3e376329c85384e0797ddad6f8c8d4b"},
+              "action_horizon": {"const": 300},
+              "early_stop_capable": {"const": true},
+              "predicate_note": {"const": "Frozen upstream check_success behavior without benchmark-side correction."}
+            }}
+          ]
+        }
+      ],
+      "items": false
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task_id",
+        "prompt_id",
+        "prompt",
+        "module_name",
+        "class_name",
+        "success_predicate_id",
+        "task_source_sha256",
+        "action_horizon",
+        "early_stop_capable",
+        "predicate_note"
+      ],
+      "properties": {
+        "task_id": {"type": "string", "minLength": 1},
+        "prompt_id": {"type": "string", "pattern": "^robotactile\\..+\\.v1$"},
+        "prompt": {"type": "string", "minLength": 1},
+        "module_name": {"type": "string", "pattern": "^envs\\..+$"},
+        "class_name": {"const": "Task"},
+        "success_predicate_id": {"type": "string", "pattern": "^univtac-upstream-05bcd3ed\\..+\\.check_success\\.v1$"},
+        "task_source_sha256": {"$ref": "#/$defs/sha256"},
+        "action_horizon": {"type": "integer", "minimum": 1},
+        "early_stop_capable": {"type": "boolean"},
+        "predicate_note": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

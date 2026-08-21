@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robotactile.invalid/schemas/live_preflight_receipt.schema.json",
+  "title": "RoboTactile Live Deployment Preflight Receipt",
+  "description": "No-allocation readiness evidence; never simulator execution, qualification, or task success.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "checks",
+    "condition",
+    "evidence_level",
+    "passed",
+    "policy_kind",
+    "receipt_sha256",
+    "request_content_sha256",
+    "semantic_version",
+    "simulator_execution_claimed",
+    "simulator_qualification_claimed",
+    "task_id"
+  ],
+  "properties": {
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["check_id", "evidence", "passed"],
+        "properties": {
+          "check_id": {"type": "string", "minLength": 1},
+          "evidence": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": {"type": "string", "minLength": 1}
+          },
+          "passed": {"type": "boolean"}
+        }
+      }
+    },
+    "condition": {"enum": ["clean", "faulted", "no_touch", "restored"]},
+    "evidence_level": {"const": "live_preflight_no_simulator_execution_v1"},
+    "passed": {"type": "boolean"},
+    "policy_kind": {"const": "act"},
+    "receipt_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "request_content_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "semantic_version": {"const": "1.0"},
+    "simulator_execution_claimed": {"const": false},
+    "simulator_qualification_claimed": {"const": false},
+    "task_id": {"type": "string", "minLength": 1}
+  }
+}

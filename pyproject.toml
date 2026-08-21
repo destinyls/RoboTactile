@@ -1,0 +1,83 @@
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "robotactile-benchmark"
+version = "0.4.0"
+description = "Auditable optical-tactile robustness benchmark contracts and replay"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+dependencies = [
+  "numpy>=1.24,<2.3",
+  "typing-extensions>=4.7",
+]
+
+[project.optional-dependencies]
+dev = [
+  "hatchling==1.27.0",
+  "mypy>=1.11,<1.19",
+  "pytest>=8.3",
+  "ruff>=0.8",
+]
+
+[project.scripts]
+robotactile = "robotactile_benchmark.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/robotactile_benchmark"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/.github",
+  "/.gitignore",
+  "/BENCHMARK_CARD.md",
+  "/CITATION.cff",
+  "/CONTRIBUTING.md",
+  "/LICENSE",
+  "/README.md",
+  "/SECURITY.md",
+  "/THIRD_PARTY_NOTICES.md",
+  "/pyproject.toml",
+  "/requirements",
+  "/uv.lock",
+  "/configs",
+  "/docs",
+  "/examples",
+  "/integrations",
+  "/schemas",
+  "/release",
+  "/scripts",
+  "/src",
+  "/tests",
+]
+
+[tool.hatch.build.targets.wheel.force-include]
+"configs" = "robotactile_benchmark/configs"
+"schemas" = "robotactile_benchmark/schemas"
+"integrations/integrations.lock.json" = "robotactile_benchmark/integrations/integrations.lock.json"
+"release/source_manifest.sha256" = "robotactile_benchmark/source_manifest.sha256"
+"LICENSE" = "robotactile_benchmark/LICENSE"
+"THIRD_PARTY_NOTICES.md" = "robotactile_benchmark/THIRD_PARTY_NOTICES.md"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.9"
+strict = true
+disable_error_code = ["redundant-cast"]
+packages = ["robotactile_benchmark"]
+mypy_path = "src"
+
+[tool.uv]
+package = true

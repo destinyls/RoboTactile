@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robotactile.invalid/schemas/live_univtac_request.schema.json",
+  "title": "RoboTactile LiveUniVTACRunRequest",
+  "description": "Exact-field, path-explicit request consumed by load_live_univtac_request.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "task_id", "condition", "policy_kind", "base_system_id",
+    "dataset_sha256", "checkpoint_sha256", "config_sha256",
+    "base_system_manifest_sha256", "initial_seed", "exogenous_seed",
+    "max_control_cycles", "max_observation_steps", "execute_action_steps",
+    "wall_timeout_s", "upstream_root", "runtime_dir", "output_dir",
+    "fault_manifest_path", "rest_references_path", "restoration_index",
+    "restoration_mode", "matched_no_touch_system_id",
+    "matched_no_touch_artifact_path", "act_device_name", "simulator_device",
+    "launcher_args", "n0_source_commit", "n0_normalizer_sha256",
+    "n0_serve_bundle_sha256", "n0_prompt_manifest_sha256", "semantic_version"
+  ],
+  "properties": {
+    "task_id": {"type": "string", "minLength": 1},
+    "condition": {"enum": ["clean", "faulted", "no_touch", "restored"]},
+    "policy_kind": {"enum": ["act", "n0"]},
+    "base_system_id": {"type": "string", "minLength": 1},
+    "dataset_sha256": {"$ref": "#/$defs/sha256"},
+    "checkpoint_sha256": {"$ref": "#/$defs/sha256"},
+    "config_sha256": {"$ref": "#/$defs/sha256"},
+    "base_system_manifest_sha256": {"$ref": "#/$defs/nullable_sha256"},
+    "initial_seed": {"type": "integer", "minimum": 0},
+    "exogenous_seed": {"type": "integer", "minimum": 0},
+    "max_control_cycles": {"type": "integer", "minimum": 1},
+    "max_observation_steps": {"type": "integer", "minimum": 1},
+    "execute_action_steps": {"type": "integer", "minimum": 1},
+    "wall_timeout_s": {"type": "number", "exclusiveMinimum": 0},
+    "upstream_root": {"$ref": "#/$defs/path"},
+    "runtime_dir": {"$ref": "#/$defs/path"},
+    "output_dir": {"$ref": "#/$defs/nullable_path"},
+    "fault_manifest_path": {"$ref": "#/$defs/nullable_path"},
+    "rest_references_path": {"$ref": "#/$defs/nullable_path"},
+    "restoration_index": {"type": ["integer", "null"], "minimum": 0},
+    "restoration_mode": {
+      "type": ["string", "null"],
+      "enum": ["valid_stream_resume", "maintenance_or_replacement", null]
+    },
+    "matched_no_touch_system_id": {"type": ["string", "null"], "minLength": 1},
+    "matched_no_touch_artifact_path": {"$ref": "#/$defs/nullable_path"},
+    "act_device_name": {"type": ["string", "null"], "minLength": 1},
+    "simulator_device": {"type": ["string", "null"], "minLength": 1},
+    "launcher_args": {"type": "object", "additionalProperties": true},
+    "n0_source_commit": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"},
+    "n0_normalizer_sha256": {"$ref": "#/$defs/nullable_sha256"},
+    "n0_serve_bundle_sha256": {"$ref": "#/$defs/nullable_sha256"},
+    "n0_prompt_manifest_sha256": {"$ref": "#/$defs/nullable_sha256"},
+    "semantic_version": {"const": "1.0"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "nullable_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+    "path": {"type": "string", "minLength": 1},
+    "nullable_path": {"type": ["string", "null"], "minLength": 1}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"policy_kind": {"const": "act"}}, "required": ["policy_kind"]},
+      "then": {
+        "properties": {
+          "execute_action_steps": {"const": 1},
+          "act_device_name": {"type": "string", "minLength": 1},
+          "n0_source_commit": {"const": null},
+          "n0_normalizer_sha256": {"const": null},
+          "n0_serve_bundle_sha256": {"const": null},
+          "n0_prompt_manifest_sha256": {"const": null}
+        }
+      },
+      "else": {
+        "properties": {
+          "execute_action_steps": {"const": 8},
+          "act_device_name": {"const": null},
+          "n0_source_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+          "n0_normalizer_sha256": {"$ref": "#/$defs/sha256"},
+          "n0_serve_bundle_sha256": {"$ref": "#/$defs/sha256"},
+          "n0_prompt_manifest_sha256": {"$ref": "#/$defs/sha256"}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"condition": {"const": "clean"}}, "required": ["condition"]},
+      "then": {"properties": {
+        "fault_manifest_path": {"const": null}, "rest_references_path": {"const": null},
+        "restoration_index": {"const": null}, "restoration_mode": {"const": null},
+        "matched_no_touch_system_id": {"const": null},
+        "matched_no_touch_artifact_path": {"const": null}
+      }}
+    },
+    {
+      "if": {"properties": {"condition": {"const": "faulted"}}, "required": ["condition"]},
+      "then": {"properties": {
+        "fault_manifest_path": {"$ref": "#/$defs/path"},
+        "restoration_index": {"const": null}, "restoration_mode": {"const": null},
+        "matched_no_touch_system_id": {"const": null},
+        "matched_no_touch_artifact_path": {"const": null}
+      }}
+    },
+    {
+      "if": {"properties": {"condition": {"const": "restored"}}, "required": ["condition"]},
+      "then": {"properties": {
+        "fault_manifest_path": {"$ref": "#/$defs/path"},
+        "restoration_index": {"type": "integer", "minimum": 0},
+        "restoration_mode": {"enum": ["valid_stream_resume", "maintenance_or_replacement"]},
+        "matched_no_touch_system_id": {"const": null},
+        "matched_no_touch_artifact_path": {"const": null}
+      }}
+    },
+    {
+      "if": {"properties": {"condition": {"const": "no_touch"}}, "required": ["condition"]},
+      "then": {"properties": {
+        "fault_manifest_path": {"const": null}, "rest_references_path": {"const": null},
+        "restoration_index": {"const": null}, "restoration_mode": {"const": null},
+        "matched_no_touch_system_id": {"type": "string", "minLength": 1},
+        "matched_no_touch_artifact_path": {"$ref": "#/$defs/path"}
+      }}
+    }
+  ]
+}

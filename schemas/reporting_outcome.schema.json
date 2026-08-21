@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robotactile.invalid/schemas/reporting_outcome.schema.json",
+  "title": "RoboTactile OutcomeRecord",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "system_id", "task", "pair_key", "condition", "terminal_status",
+    "score_eligible", "score_success", "source_root_sha256", "operator_id",
+    "severity_level", "recovery_eligible", "recovery_lag_steps", "semantic_version"
+  ],
+  "properties": {
+    "system_id": {"type": "string", "minLength": 1},
+    "task": {"type": "string", "minLength": 1},
+    "pair_key": {"$ref": "#/$defs/sha256"},
+    "condition": {"enum": ["clean", "faulted", "no_touch", "restored"]},
+    "terminal_status": {"enum": [
+      "success", "task_failure", "early_stop", "timeout", "crash",
+      "validator_rejected", "unsupported_contract"
+    ]},
+    "score_eligible": {"type": "boolean"},
+    "score_success": {"type": ["boolean", "null"]},
+    "source_root_sha256": {"$ref": "#/$defs/sha256"},
+    "operator_id": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/operator"}]},
+    "severity_level": {"type": ["integer", "null"], "minimum": 1, "maximum": 5},
+    "recovery_eligible": {"type": "boolean"},
+    "recovery_lag_steps": {"type": ["integer", "null"], "minimum": 0},
+    "semantic_version": {"const": "1.0"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "operator": {"enum": [
+      "A1_stream_absence", "A2_frame_erasure", "F1_global_response_drift",
+      "F2_spatial_sensitivity_loss", "F3_persistent_surface_artifact",
+      "F4_local_nonresponsive_patch", "F5_contact_shape_distortion",
+      "F6_history_residual_imprint", "F7_high_load_saturation",
+      "T1_fixed_source_delay", "T2_held_last_freeze", "T3_inter_sensor_skew",
+      "C1_sensor_identity_misrouting", "C2_frame_misregistration"
+    ]}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"score_eligible": {"const": true}}, "required": ["score_eligible"]},
+      "then": {
+        "properties": {
+          "score_success": {"type": "boolean"},
+          "terminal_status": {"enum": ["success", "task_failure", "early_stop", "timeout", "crash"]}
+        }
+      },
+      "else": {
+        "properties": {
+          "score_success": {"const": null},
+          "terminal_status": {"enum": ["validator_rejected", "unsupported_contract"]}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"condition": {"enum": ["faulted", "restored"]}}, "required": ["condition"]},
+      "then": {"properties": {
+        "operator_id": {"$ref": "#/$defs/operator"},
+        "severity_level": {"type": "integer", "minimum": 1, "maximum": 5}
+      }},
+      "else": {"properties": {"operator_id": {"const": null}, "severity_level": {"const": null}}}
+    },
+    {
+      "if": {"properties": {"recovery_eligible": {"const": true}}, "required": ["recovery_eligible"]},
+      "then": {"properties": {"condition": {"const": "restored"}}},
+      "else": {"properties": {"recovery_lag_steps": {"const": null}}}
+    }
+  ]
+}

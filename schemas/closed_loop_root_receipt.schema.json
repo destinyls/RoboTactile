@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robotactile.invalid/schemas/closed_loop_root_receipt.schema.json",
+  "title": "RoboTactile Single-Trial Closed-Loop Root Receipt",
+  "description": "Enumerates every non-root member. The SHA256 of this canonical file is pinned externally to avoid recursive self-hashing.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "evidence_level",
+    "trial_manifest_sha256",
+    "pair_key",
+    "run_spec_sha256",
+    "fault_manifest_sha256",
+    "result_sha256",
+    "terminal_trace_sha256",
+    "action_trace_sha256",
+    "clean_trace_sha256",
+    "delivered_trace_sha256",
+    "members",
+    "semantic_version"
+  ],
+  "properties": {
+    "evidence_level": {"const": "deterministic_cpu_fake_closed_loop"},
+    "trial_manifest_sha256": {"$ref": "#/$defs/sha256"},
+    "pair_key": {"$ref": "#/$defs/sha256"},
+    "run_spec_sha256": {"$ref": "#/$defs/sha256"},
+    "fault_manifest_sha256": {"$ref": "#/$defs/sha256"},
+    "result_sha256": {"$ref": "#/$defs/sha256"},
+    "terminal_trace_sha256": {"$ref": "#/$defs/sha256"},
+    "action_trace_sha256": {"$ref": "#/$defs/sha256"},
+    "clean_trace_sha256": {"$ref": "#/$defs/sha256"},
+    "delivered_trace_sha256": {"$ref": "#/$defs/sha256"},
+    "members": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 512,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "sha256", "size_bytes"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "sha256": {"$ref": "#/$defs/sha256"},
+          "size_bytes": {"type": "integer", "minimum": 1, "maximum": 16777216}
+        }
+      }
+    },
+    "semantic_version": {"const": "1.0"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

@@ -1,0 +1,1 @@
+{"artifact_manifest":"examples/n0_twam/artifact_manifest.example.json","device":"cuda:0","integration_id":"n0_twam","schema_version":"robotactile-model-integration-config-v1","transport":"typed_gateway"}

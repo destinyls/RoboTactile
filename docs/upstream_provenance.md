@@ -5,7 +5,7 @@
 - source URL: `https://github.com/destinyls/N0-TWAM.git`
 - requested branch: `UniVTAC-PostTraining`
 - frozen commit: `9036c130409f8cf5494b12489fea339f7213b9d6`
-- checkout: `paper/N0-TWAM`
+- default checkout: `deployment/sources/N0-TWAM`
 
 The first network clone was interrupted after repository initialization and had
 no HEAD. The final checkout was reconstructed from a previously verified clone
@@ -35,7 +35,7 @@ Frozen N0-TWAM requires two tactile payloads. A1/A2 therefore return
 
 ## UniVTAC
 
-- audited sibling checkout: `../UniVTAC`
+- default checkout: `deployment/sources/UniVTAC`
 - branch: `main`
 - frozen commit: `05bcd3edb92237107efa40105292a24f1a9fd761`
 
@@ -55,3 +55,8 @@ The current adapter is a typed client-side contract. The audited N0-TWAM branch
 does not yet emit the required `robotactile-n0-v1` handshake metadata and has no
 registered qpos8 serve configuration, so local unit tests must not be described
 as a live N0 server integration.
+
+The canonical five-source inventory, pinned commit hyperlinks, licenses, and
+install commands are maintained in
+[External dependencies](external_dependencies.md). The writable directory
+contract is maintained in [Deployment layout](deployment_layout.md).

@@ -16,9 +16,11 @@ from robotactile_benchmark.closed_loop.artifact_io import (
     strict_json_bytes,
 )
 
-_SCHEMA_VERSION = "robotactile-integrations-lock-v1"
+_SCHEMA_VERSION = "robotactile-integrations-lock-v2"
 _LOCK_PATH = "integrations/integrations.lock.json"
 _SHA40 = re.compile(r"^[0-9a-f]{40}$")
+_SOURCE_DIRECTORY = re.compile(r"^[A-Za-z0-9._-]+$")
+_EXPECTED_IDS = ("act_runtime", "curobo", "isaaclab", "n0_twam", "univtac")
 _ALLOWED_FIELDS = frozenset(
     {
         "artifact_schema",
@@ -28,38 +30,10 @@ _ALLOWED_FIELDS = frozenset(
         "license_spdx",
         "release_ready",
         "repository_url",
+        "source_directory",
         "source_inventory_required",
     }
 )
-_EXPECTED: Mapping[str, Mapping[str, object]] = {
-    "act_runtime": {
-        "repository_url": "https://github.com/WorldArena2/WorldArena-2.0",
-        "commit_sha": "e295378c702b2e87617ebddcad193be3608e00c3",
-        "license_spdx": "Apache-2.0",
-        "install_script": "integrations/install_act_runtime.sh",
-        "artifact_schema": "official_act_artifact_manifest.schema.json",
-        "source_inventory_required": True,
-        "release_ready": False,
-    },
-    "n0_twam": {
-        "repository_url": "https://github.com/destinyls/N0-TWAM.git",
-        "commit_sha": "9036c130409f8cf5494b12489fea339f7213b9d6",
-        "license_spdx": "CC-BY-NC-SA-4.0",
-        "install_script": "integrations/install_n0_twam.sh",
-        "artifact_schema": "robotactile-n0-artifact-v1",
-        "source_inventory_required": True,
-        "release_ready": False,
-    },
-    "univtac": {
-        "repository_url": "https://github.com/univtac/UniVTAC",
-        "commit_sha": "05bcd3edb92237107efa40105292a24f1a9fd761",
-        "license_spdx": "Apache-2.0",
-        "install_script": "integrations/install_univtac.sh",
-        "artifact_schema": "univtac_task_registry.schema.json",
-        "source_inventory_required": True,
-        "release_ready": True,
-    },
-}
 
 
 class IntegrationProvenanceError(ValueError):
@@ -82,20 +56,29 @@ class ExternalIntegrationPin:
     license_spdx: str
     install_script: str
     artifact_schema: str
+    source_directory: str
     source_inventory_required: bool
     release_ready: bool
 
     def __post_init__(self) -> None:
-        expected = _EXPECTED.get(self.integration_id)
-        if expected is None:
+        if self.integration_id not in _EXPECTED_IDS:
             raise IntegrationProvenanceError("unknown external integration pin")
         if not _SHA40.fullmatch(self.commit_sha):
             raise IntegrationProvenanceError("commit_sha must be a lowercase Git SHA")
-        actual = self.to_dict()
-        if any(actual[key] != value for key, value in expected.items()):
-            raise IntegrationProvenanceError(
-                f"external integration metadata drift: {self.integration_id}"
-            )
+        if not self.repository_url.startswith("https://github.com/"):
+            raise IntegrationProvenanceError("repository_url must use GitHub HTTPS")
+        if _SOURCE_DIRECTORY.fullmatch(self.source_directory) is None:
+            raise IntegrationProvenanceError("source_directory is unsafe")
+        install = Path(self.install_script)
+        if (
+            install.is_absolute()
+            or ".." in install.parts
+            or install.suffix != ".sh"
+            or install.parts[0] not in {"integrations", "scripts"}
+        ):
+            raise IntegrationProvenanceError("install_script is unsafe")
+        if self.source_inventory_required is not True:
+            raise IntegrationProvenanceError("full source inventory is required")
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -106,6 +89,7 @@ class ExternalIntegrationPin:
             "license_spdx": self.license_spdx,
             "release_ready": self.release_ready,
             "repository_url": self.repository_url,
+            "source_directory": self.source_directory,
             "source_inventory_required": self.source_inventory_required,
         }
 
@@ -120,6 +104,7 @@ class ExternalIntegrationPin:
             "integration_id",
             "license_spdx",
             "repository_url",
+            "source_directory",
         ):
             _string(value[field], field)
         if (
@@ -140,8 +125,7 @@ class IntegrationLock:
     def __post_init__(self) -> None:
         if self.schema_version != _SCHEMA_VERSION:
             raise IntegrationProvenanceError("integration lock version mismatch")
-        expected_ids = tuple(_EXPECTED)
-        if tuple(entry.integration_id for entry in self.entries) != expected_ids:
+        if tuple(entry.integration_id for entry in self.entries) != _EXPECTED_IDS:
             raise IntegrationProvenanceError("integration lock inventory mismatch")
 
     def by_id(self, integration_id: str) -> ExternalIntegrationPin:

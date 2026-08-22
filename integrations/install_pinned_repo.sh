@@ -1,21 +1,50 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 5 ]]; then
-  echo "usage: $0 INTEGRATION_ID REPOSITORY_URL COMMIT_SHA LICENSE_SPDX DESTINATION" >&2
+if [[ $# -lt 1 || $# -gt 3 ]]; then
+  echo "usage: $0 INTEGRATION_ID [DESTINATION] [--dry-run]" >&2
   exit 2
 fi
 
 INTEGRATION_ID="$1"
-REPOSITORY_URL="$2"
-COMMIT_SHA="$3"
-LICENSE_SPDX="$4"
-DESTINATION="$5"
+shift
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+REPOSITORY_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd -P)"
+PIN_RESOLVER="$SCRIPT_DIR/resolve_pin.py"
+PYTHON_BIN="${ROBOTACTILE_SYSTEM_PYTHON:-python3}"
 
-case "$INTEGRATION_ID" in
-  act_runtime|n0_twam|univtac) ;;
-  *) echo "unknown integration id" >&2; exit 2 ;;
-esac
+command -v "$PYTHON_BIN" >/dev/null 2>&1 || {
+  echo "required command is unavailable: $PYTHON_BIN" >&2
+  exit 2
+}
+REPOSITORY_URL="$($PYTHON_BIN "$PIN_RESOLVER" "$INTEGRATION_ID" repository_url)"
+COMMIT_SHA="$($PYTHON_BIN "$PIN_RESOLVER" "$INTEGRATION_ID" commit_sha)"
+LICENSE_SPDX="$($PYTHON_BIN "$PIN_RESOLVER" "$INTEGRATION_ID" license_spdx)"
+SOURCE_DIRECTORY="$($PYTHON_BIN "$PIN_RESOLVER" "$INTEGRATION_ID" source_directory)"
+DEPLOY_ROOT="${ROBOTACTILE_DEPLOY_ROOT:-$REPOSITORY_ROOT/deployment}"
+DESTINATION=""
+DRY_RUN=false
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      printf 'usage: %s [DESTINATION] [--dry-run]\n' "$(basename "$0")"
+      exit 0
+      ;;
+    --dry-run)
+      DRY_RUN=true
+      ;;
+    *)
+      [[ -z "$DESTINATION" ]] || {
+        echo "only one destination may be supplied" >&2
+        exit 2
+      }
+      DESTINATION="$1"
+      ;;
+  esac
+  shift
+done
+DESTINATION="${DESTINATION:-$DEPLOY_ROOT/sources/$SOURCE_DIRECTORY}"
+
 case "$REPOSITORY_URL" in
   https://github.com/*) ;;
   *) echo "repository must use the frozen GitHub HTTPS origin" >&2; exit 2 ;;
@@ -28,10 +57,22 @@ case "$DESTINATION" in
   /*) ;;
   *) echo "destination must be absolute" >&2; exit 2 ;;
 esac
-if [[ "$DESTINATION" == "/" ]]; then
-  echo "destination cannot be filesystem root" >&2
+[[ ! -L "$DESTINATION" ]] || {
+  echo "destination cannot be a symlink" >&2
   exit 2
+}
+
+if [[ "$DRY_RUN" == true ]]; then
+  printf '{"commit_sha":"%s","destination":"%s","integration_id":"%s","license_spdx":"%s","repository_url":"%s","writes_performed":false}\n' \
+    "$COMMIT_SHA" "$DESTINATION" "$INTEGRATION_ID" "$LICENSE_SPDX" "$REPOSITORY_URL"
+  exit 0
 fi
+case "$DESTINATION" in
+  /|/data|/data1|/data2|/mnt|/mnt/data)
+  echo "destination is too broad" >&2
+  exit 2
+  ;;
+esac
 
 normalize_url() {
   local value="$1"

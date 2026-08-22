@@ -16,6 +16,7 @@ build/
 checkpoints/
 credentials.json
 data/
+/deployment/
 dist/
 outputs/
 settings.json

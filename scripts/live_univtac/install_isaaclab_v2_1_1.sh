@@ -7,9 +7,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
 
 ISAACLAB_VERSION="v2.1.1"
-ISAACLAB_COMMIT="90b79bb2d44feb8d833f260f2bf37da3487180ba"
-ISAACLAB_REPOSITORY="https://github.com/isaac-sim/IsaacLab.git"
-DEPLOY_ROOT="/data1/yanglei/robotactile_univtac_20260821"
+ISAACLAB_COMMIT="$(resolve_external_pin isaaclab commit_sha)"
+ISAACLAB_REPOSITORY="$(resolve_external_pin isaaclab repository_url)"
+ISAACLAB_SOURCE_DIRECTORY="$(resolve_external_pin isaaclab source_directory)"
+DEPLOY_ROOT="$(default_deployment_root)"
 
 usage() {
   cat <<'EOF'
@@ -41,7 +42,7 @@ trap release_lock EXIT
 
 ISAAC_SIM_PATH="$DEPLOY_ROOT/runtime/isaac-sim-4.5.0"
 ISAAC_INSTALL_RECEIPT="$DEPLOY_ROOT/artifacts/deployment/isaac_sim_install.json"
-SOURCE_PATH="$DEPLOY_ROOT/src/IsaacLab"
+SOURCE_PATH="$DEPLOY_ROOT/sources/$ISAACLAB_SOURCE_DIRECTORY"
 RECEIPT_PATH="$DEPLOY_ROOT/artifacts/deployment/isaaclab_install.json"
 export ISAAC_SIM_PATH
 
@@ -115,7 +116,7 @@ write_receipt \
   "status=installed" \
   "source_repository=$ISAACLAB_REPOSITORY" \
   "source_commit=$ISAACLAB_COMMIT" \
-  "source_path=src/IsaacLab" \
+  "source_path=sources/$ISAACLAB_SOURCE_DIRECTORY" \
   "isaac_sim_source_sha256=$ISAAC_SOURCE_SHA256" \
   "log_path=$(relative_to_deploy_root "$LOG_PATH")" \
   "log_sha256=$LOG_SHA256"

@@ -16,6 +16,10 @@ from robotactile_benchmark.closed_loop.smoke import (
     write_cpu_smoke_bundle,
 )
 from robotactile_benchmark.constants import REST_REFERENCE_OPERATOR_IDS
+from robotactile_benchmark.deployment.cli import (
+    add_deployment_subcommands,
+    handle_deployment_command,
+)
 from robotactile_benchmark.execution.preflight_cli import (
     add_live_preflight_parser,
     handle_live_preflight_command,
@@ -36,32 +40,59 @@ from robotactile_benchmark.severity import severity_value
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="robotactile")
+    parser = argparse.ArgumentParser(
+        prog="robotactile",
+        description=(
+            "Auditable optical-tactile robustness evaluation. Start with "
+            "'deployment init', 'integrations list', or 'setup --model act'."
+        ),
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
-    subparsers.add_parser("validate-registry")
-    replay = subparsers.add_parser("smoke-replay")
-    replay.add_argument("--output", type=Path, required=True)
+    subparsers.add_parser(
+        "validate-registry", help="validate and list the frozen 14-operator registry"
+    )
+    replay = subparsers.add_parser(
+        "smoke-replay", help="run one deterministic operator replay smoke"
+    )
+    replay.add_argument("--output", type=Path, required=True, help="artifact output")
     replay.add_argument(
         "--operator",
         default="F6_history_residual_imprint",
         choices=sorted(EXPECTED_OPERATOR_IDS),
     )
-    replay.add_argument("--severity", type=int, default=3, choices=range(1, 6))
-    matrix = subparsers.add_parser("smoke-matrix")
-    matrix.add_argument("--output", type=Path, required=True)
-    closed_loop = subparsers.add_parser("closed-loop-smoke")
-    closed_loop.add_argument("--output", type=Path, required=True)
-    live = subparsers.add_parser("live-univtac-run")
-    live.add_argument("--request", type=Path, required=True)
-    live.add_argument("--official-act-artifact-root", type=Path, required=True)
-    live.add_argument("--stats-sha256", required=True)
-    live.add_argument("--encoder-sha256", required=True)
-    report = subparsers.add_parser("report-matrix")
+    replay.add_argument(
+        "--severity", type=int, default=3, choices=range(1, 6), help="level 1-5"
+    )
+    matrix = subparsers.add_parser(
+        "smoke-matrix", help="run the deterministic software smoke matrix"
+    )
+    matrix.add_argument("--output", type=Path, required=True, help="artifact output")
+    closed_loop = subparsers.add_parser(
+        "closed-loop-smoke", help="exercise the causal closed-loop runner with fakes"
+    )
+    closed_loop.add_argument(
+        "--output", type=Path, required=True, help="artifact output"
+    )
+    live = subparsers.add_parser(
+        "live-univtac-run", help="execute one unqualified live UniVTAC request"
+    )
+    live.add_argument("--request", type=Path, required=True, help="request JSON")
+    live.add_argument("--root", type=Path)
+    live.add_argument("--config", type=Path)
+    live.add_argument("--official-act-artifact-root", type=Path)
+    live.add_argument("--stats-sha256")
+    live.add_argument("--encoder-sha256")
+    report = subparsers.add_parser(
+        "report-matrix", help="render a source-bound benchmark report bundle"
+    )
+    report.add_argument("--root", type=Path)
     report.add_argument("--matrix-manifest", type=Path, required=True)
-    report.add_argument("--matrix-output", type=Path, required=True)
+    report.add_argument("--matrix-output", type=Path)
     report.add_argument("--reporting-spec", type=Path, required=True)
-    report.add_argument("--output", type=Path, required=True)
-    calibration = subparsers.add_parser("build-rest-references")
+    report.add_argument("--output", type=Path)
+    calibration = subparsers.add_parser(
+        "build-rest-references", help="derive measured no-contact references"
+    )
     calibration.add_argument("--source-live-artifact", type=Path, required=True)
     calibration.add_argument(
         "--dataset-split",
@@ -74,11 +105,23 @@ def _parser() -> argparse.ArgumentParser:
     add_live_matrix_subcommands(subparsers)
     add_integration_subcommands(subparsers)
     add_live_preflight_parser(subparsers)
+    add_deployment_subcommands(subparsers)
     return parser
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = _parser().parse_args(argv)
+    deployment_result = handle_deployment_command(args)
+    if deployment_result is not None:
+        print(
+            json.dumps(
+                deployment_result.payload,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+        )
+        return deployment_result.exit_code
     integration_result = handle_integration_command(args)
     if integration_result is not None:
         print(
@@ -140,6 +183,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print(json.dumps(summary, sort_keys=True, separators=(",", ":")))
         return 0
     if args.command == "live-univtac-run":
+        from robotactile_benchmark.deployment.layout import (
+            DeploymentLayout,
+            resolve_deployment_root,
+        )
         from robotactile_benchmark.execution.loading import (
             load_live_univtac_request,
         )
@@ -147,13 +194,37 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             execute_official_act_live_run,
             official_act_live_summary,
         )
+        from robotactile_benchmark.integrations.runtime_config import (
+            resolve_act_runtime_artifacts,
+        )
 
         live_request = load_live_univtac_request(args.request)
+        legacy = (
+            args.official_act_artifact_root,
+            args.stats_sha256,
+            args.encoder_sha256,
+        )
+        if args.config is not None or any(value is None for value in legacy):
+            layout = DeploymentLayout(resolve_deployment_root(args.root))
+            config_path = args.config or (
+                layout.model_artifacts / "act/integration_config.json"
+            )
+            resolved = resolve_act_runtime_artifacts(config_path)
+            artifact_root = resolved.artifact_root
+            stats_sha256 = resolved.stats_sha256
+            encoder_sha256 = resolved.encoder_sha256
+        else:
+            artifact_root = args.official_act_artifact_root
+            stats_sha256 = args.stats_sha256
+            encoder_sha256 = args.encoder_sha256
+        assert artifact_root is not None
+        assert stats_sha256 is not None
+        assert encoder_sha256 is not None
         live_artifact = execute_official_act_live_run(
             live_request,
-            artifact_root=args.official_act_artifact_root,
-            stats_sha256=args.stats_sha256,
-            encoder_sha256=args.encoder_sha256,
+            artifact_root=artifact_root,
+            stats_sha256=stats_sha256,
+            encoder_sha256=encoder_sha256,
         )
         print(
             json.dumps(
@@ -165,15 +236,35 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         )
         return 0
     if args.command == "report-matrix":
+        from robotactile_benchmark.deployment.layout import (
+            DeploymentLayout,
+            initialize_deployment_layout,
+            resolve_deployment_root,
+        )
         from robotactile_benchmark.reporting.matrix_adapter import (
+            load_matrix_manifest,
             write_matrix_report,
         )
 
+        matrix_output = args.matrix_output
+        report_output = args.output
+        if matrix_output is None or report_output is None:
+            layout = DeploymentLayout(resolve_deployment_root(args.root))
+            initialize_deployment_layout(layout)
+            matrix_manifest = load_matrix_manifest(args.matrix_manifest)
+            matrix_output = (
+                matrix_output or layout.outputs / "matrices" / matrix_manifest.matrix_id
+            )
+            report_output = (
+                report_output or layout.outputs / "reports" / matrix_manifest.matrix_id
+            )
+        assert matrix_output is not None
+        assert report_output is not None
         exported = write_matrix_report(
             args.matrix_manifest,
-            args.matrix_output,
+            matrix_output,
             args.reporting_spec,
-            args.output,
+            report_output,
         )
         print(
             json.dumps(
@@ -228,8 +319,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.command == "generate-calibration-request":
         from robotactile_benchmark.calibration.cli_support import (
             generate_calibration_request,
+            resolve_calibration_command_paths,
         )
 
+        paths = resolve_calibration_command_paths(
+            root=args.root,
+            task_id=args.task,
+            dataset_split=args.dataset_split,
+            initial_seed=args.initial_seed,
+            exogenous_seed=args.exogenous_seed,
+            upstream_root=args.upstream_root,
+            runtime_dir=args.runtime_dir,
+            live_artifact_output=args.live_artifact_output,
+            output=args.output,
+        )
         payload = generate_calibration_request(
             task_id=args.task,
             dataset_split=args.dataset_split,
@@ -242,12 +345,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             max_control_cycles=args.max_control_cycles,
             max_observation_steps=args.max_observation_steps,
             wall_timeout_s=args.wall_timeout_s,
-            upstream_root=args.upstream_root,
-            runtime_dir=args.runtime_dir,
-            live_artifact_output=args.live_artifact_output,
+            upstream_root=paths.upstream_root,
+            runtime_dir=paths.runtime_dir,
+            live_artifact_output=paths.live_artifact_output,
             act_device_name=args.act_device_name,
             simulator_device=args.simulator_device,
-            output=args.output,
+            output=paths.output,
         )
         print(
             json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)

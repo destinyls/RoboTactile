@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from pathlib import PurePosixPath
 from typing import Tuple
 
+from robotactile_benchmark.artifacts.primitives import (
+    require_lowercase_sha256,
+    validate_posix_member_path,
+)
 from robotactile_benchmark.closed_loop.capture import ClosedLoopExecutionEvidence
 from robotactile_benchmark.closed_loop.contracts import ClosedLoopRunSpec
 from robotactile_benchmark.contracts import freeze_value
@@ -39,7 +41,6 @@ LIVE_REQUIRED_JSON_MEMBERS = frozenset(
         "validation_report.json",
     }
 )
-_SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
 class LiveArtifactValidationError(ValueError):
@@ -47,9 +48,7 @@ class LiveArtifactValidationError(ValueError):
 
 
 def require_live_sha256(value: object, name: str) -> str:
-    if not isinstance(value, str) or _SHA256.fullmatch(value) is None:
-        raise LiveArtifactValidationError(f"{name} must be a lowercase SHA256")
-    return value
+    return require_lowercase_sha256(value, name, LiveArtifactValidationError)
 
 
 def require_optional_live_sha256(value: object, name: str) -> str | None:
@@ -57,14 +56,11 @@ def require_optional_live_sha256(value: object, name: str) -> str | None:
 
 
 def validate_live_member_path(value: object) -> str:
-    if not isinstance(value, str) or not value or "\\" in value or ":" in value:
-        raise LiveArtifactValidationError("live artifact path is not normalized POSIX")
-    path = PurePosixPath(value)
-    if path.is_absolute() or path.as_posix() != value or ".." in path.parts:
-        raise LiveArtifactValidationError("live artifact path escapes the bundle")
-    if any(part in {"", "."} for part in path.parts):
-        raise LiveArtifactValidationError("live artifact path is not normalized")
-    return value
+    return validate_posix_member_path(
+        value,
+        label="live artifact path",
+        error_type=LiveArtifactValidationError,
+    )
 
 
 def _strict_int(value: object, name: str, minimum: int = 0) -> int:

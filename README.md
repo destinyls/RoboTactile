@@ -13,6 +13,8 @@ distribution remains `robotactile-benchmark`, the stable Python import is
 Start here: [Installation](docs/installation.md) ·
 [Quickstart](docs/quickstart.md) ·
 [Isaac Sim installation and execution](docs/isaac_sim.md) ·
+[Deployment layout](docs/deployment_layout.md) ·
+[External dependencies](docs/external_dependencies.md) ·
 [Model integrations](docs/model_integrations.md) ·
 [Benchmark workflow](docs/benchmark_workflow.md) ·
 [Evidence levels](docs/evidence_levels.md) ·
@@ -31,6 +33,7 @@ as an Availability fault or as the matched no-touch control.
 | Goal | Start with | Hardware |
 |---|---|---|
 | Inspect the benchmark and both model integrations | `robotactile integrations list` | Any supported Python host |
+| Prepare the canonical ACT workspace and see missing gates | `robotactile setup --model act` | Any supported Python host |
 | Install Isaac and run a headless GPU smoke | [Isaac Sim guide](docs/isaac_sim.md) | NVIDIA Linux |
 | Run one four-condition ACT/UniVTAC trial | [Isaac Sim guide](docs/isaac_sim.md#8-generate-one-four-condition-request-set) | NVIDIA Linux + artifacts |
 | Run the complete 14 x 5 evaluation and report | [Benchmark workflow](docs/benchmark_workflow.md) | Qualified deployment |
@@ -56,8 +59,31 @@ RoboTactile/
 ├── integrations/                    # external pins and install scripts
 ├── examples/{act,n0_twam}/          # model-specific examples
 ├── scripts/live_univtac/            # Isaac/UniVTAC deployment entry points
-└── docs/                             # installation and evaluation guides
+├── docs/                             # installation and evaluation guides
+└── deployment/                       # ignored writable workspace
+    ├── sources/{UniVTAC,WorldArena,N0-TWAM,IsaacLab,curobo}/
+    ├── runtime/isaac-sim-4.5.0/
+    ├── artifacts/models/{act,n0_twam}/
+    ├── requests/{calibration,four-condition,primary-matrix}/
+    └── outputs/{matrices,reports}/
 ```
+
+Create and inspect the complete tree with `robotactile deployment init` and
+`robotactile deployment show`. The default root is this checkout's
+`deployment/`; `ROBOTACTILE_DEPLOY_ROOT` provides an absolute HPC override
+without changing the subdirectory contract. See the
+[deployment layout guide](docs/deployment_layout.md).
+
+The shortest fail-closed preparation path is:
+
+```bash
+robotactile integrations list
+robotactile setup --model act
+```
+
+`setup` initializes the canonical tree, generates model configuration only
+when the required files exist, and reports every remaining source, artifact,
+transport, or release gate. It never starts Isaac or claims live inference.
 
 ## Implemented surface
 
@@ -112,20 +138,20 @@ Isaac Sim 4.5.0 standalone, IsaacLab v2.1.1, and cuRobo v0.7.7. Installation
 is explicit: the core wheel never downloads or embeds these dependencies.
 
 ```bash
-export DEPLOY_ROOT=/data/robotactile-univtac
+robotactile deployment init
+export DEPLOY_ROOT="${ROBOTACTILE_DEPLOY_ROOT:-$PWD/deployment}"
 export ISAAC_ARCHIVE="$DEPLOY_ROOT/runtime/isaac-sim-standalone-4.5.0-linux-x86_64.zip"
 export ISAAC_ARCHIVE_SHA256='<independently-recorded-64-hex-sha256>'
 
 bash scripts/live_univtac/install_isaac_sim_4_5.sh \
-  --root "$DEPLOY_ROOT" \
   --archive "$ISAAC_ARCHIVE" \
   --sha256 "$ISAAC_ARCHIVE_SHA256"
 
 bash scripts/live_univtac/smoke_isaac_sim_4_5.sh \
-  --root "$DEPLOY_ROOT" --gpu 0 --run-id rtx3090-headless-v1
+  --gpu 0 --run-id rtx3090-headless-v1
 
-bash scripts/live_univtac/install_isaaclab_v2_1_1.sh --root "$DEPLOY_ROOT"
-bash scripts/live_univtac/install_curobo_v0_7_7.sh --root "$DEPLOY_ROOT"
+bash scripts/live_univtac/install_isaaclab_v2_1_1.sh
+bash scripts/live_univtac/install_curobo_v0_7_7.sh
 ```
 
 The standalone runtime must use its bundled `python.sh`; a core development process
@@ -145,12 +171,7 @@ Before starting UniVTAC, validate the exact request and deployment resources:
 ```bash
 robotactile preflight-live \
   --request "$REQUEST_PATH" \
-  --act-checkout "$DEPLOY_ROOT/src/WorldArena" \
-  --official-act-artifact-root "$DEPLOY_ROOT/artifacts/checkpoints" \
-  --stats-sha256 "$STATS_SHA256" \
-  --encoder-sha256 "$ENCODER_SHA256" \
-  --isaac-python "$ISAAC_SIM_PATH/python.sh" \
-  --output "$DEPLOY_ROOT/artifacts/preflight/live.json"
+  --config "$DEPLOY_ROOT/artifacts/models/act/integration_config.json"
 ```
 
 The receipt always records `simulator_execution_claimed=false` and does not
@@ -177,10 +198,8 @@ The reporting command is:
 ```bash
 source .venv/bin/activate
 python -m robotactile_benchmark.cli report-matrix \
-  --matrix-manifest outputs/primary/matrix_manifest.json \
-  --matrix-output outputs/primary \
-  --reporting-spec configs/reporting_spec.json \
-  --output outputs/report
+  --matrix-manifest "$DEPLOY_ROOT/requests/primary-matrix/run/matrix_manifest.json" \
+  --reporting-spec configs/reporting_spec.json
 ```
 
 It strict-loads `matrix_summary.json`, every cell receipt, and each referenced
@@ -232,6 +251,7 @@ The N0-TWAM checkout is frozen at branch `UniVTAC-PostTraining`, commit
 `9036c130409f8cf5494b12489fea339f7213b9d6`. The package does not modify or
 import private paths from N0-TWAM or UniVTAC. See
 [`docs/upstream_provenance.md`](docs/upstream_provenance.md) and
+[`docs/external_dependencies.md`](docs/external_dependencies.md), plus
 [`docs/paper_code_traceability.md`](docs/paper_code_traceability.md) for the
 frozen sources and evidence limits.
 

@@ -10,7 +10,18 @@ source-tree commands below:
 ```bash
 bash scripts/bootstrap_pip.sh
 source .venv/bin/activate
+robotactile deployment init
+export DEPLOY_ROOT="${ROBOTACTILE_DEPLOY_ROOT:-$PWD/deployment}"
+export UNIVTAC_ROOT="$DEPLOY_ROOT/sources/UniVTAC"
+export CHECKPOINT_ROOT="$DEPLOY_ROOT/artifacts/models/act"
+export ACT_CONFIG="$CHECKPOINT_ROOT/integration_config.json"
+export ISAAC_SIM_PATH="$DEPLOY_ROOT/runtime/isaac-sim-4.5.0"
 ```
+
+See [Deployment layout](deployment_layout.md),
+[External dependencies](external_dependencies.md), and
+[Model integrations](model_integrations.md) for ownership, pins, and config
+generation.
 
 ## Two different matrices
 
@@ -44,24 +55,18 @@ python -m robotactile_benchmark.cli generate-calibration-request \
   --checkpoint-sha256 '<univtac-policy-last-sha256>' \
   --config-sha256 acdab30e50fa7280918804c4a196f75a6db6e854a3c7a86a0ddd84791c533397 \
   --initial-seed 17 \
-  --exogenous-seed 29 \
-  --upstream-root "$UNIVTAC_ROOT" \
-  --runtime-dir "$DEPLOY_ROOT/runtime/calibration/pull_out_key" \
-  --live-artifact-output outputs/calibration-clean/live-artifact \
-  --output requests/calibration-clean
+  --exogenous-seed 29
 
 CUDA_VISIBLE_DEVICES=1 "$ISAAC_SIM_PATH/python.sh" \
   -m robotactile_benchmark.cli live-univtac-run \
-  --request requests/calibration-clean/request.json \
-  --official-act-artifact-root "$CHECKPOINT_ROOT" \
-  --stats-sha256 '<dataset-stats-sha256>' \
-  --encoder-sha256 '<encoder-sha256>'
+  --request "$DEPLOY_ROOT/requests/calibration/pull_out_key-calibration-i17-e29/request.json" \
+  --config "$ACT_CONFIG"
 
 python -m robotactile_benchmark.cli build-rest-references \
-  --source-live-artifact outputs/calibration-clean/live-artifact \
+  --source-live-artifact "$DEPLOY_ROOT/artifacts/live-univtac/calibration/pull_out_key-calibration-i17-e29" \
   --dataset-split calibration \
   --minimum-consecutive-free-records 5 \
-  --output artifacts/rest-references/pull_out_key-v1
+  --output "$DEPLOY_ROOT/artifacts/rest-references/pull_out_key-v1"
 ```
 
 The selector uses the evaluator-private UniVTAC phase provenance produced by
@@ -89,14 +94,7 @@ source root hash must remain externally pinned.
 Record the hashes independently before invoking the generator:
 
 ```bash
-DEPLOY_ROOT=/data1/yanglei/robotactile_univtac_20260821
-UNIVTAC_ROOT="$DEPLOY_ROOT/src/UniVTAC"
-CHECKPOINT_ROOT="$DEPLOY_ROOT/artifacts/checkpoints"
-
 python scripts/live_univtac/generate_pull_out_key_matrix.py \
-  --deployment-root "$DEPLOY_ROOT" \
-  --univtac-root "$UNIVTAC_ROOT" \
-  --checkpoint-root "$CHECKPOINT_ROOT" \
   --tactile-checkpoint-sha256 '<univtac-policy-last-sha256>' \
   --vision-checkpoint-sha256 '<vision-only-policy-last-sha256>' \
   --stats-sha256 '<dataset-stats-sha256>' \
@@ -115,7 +113,7 @@ For a rest-reference operator, pass the strict artifact directory explicitly:
 python scripts/live_univtac/generate_pull_out_key_matrix.py \
   ... \
   --operator F2_spatial_sensitivity_loss \
-  --rest-reference-artifact artifacts/rest-references/pull_out_key-v1
+  --rest-reference-artifact "$DEPLOY_ROOT/artifacts/rest-references/pull_out_key-v1"
 ```
 
 The command prints the output directory and a receipt-file hash. The directory
@@ -152,18 +150,10 @@ Isaac's bundled Python:
 
 ```bash
 REQUEST_ROOT='<generator-output-directory>'
-ISAAC_SIM_PATH="$DEPLOY_ROOT/runtime/isaac-sim-4.5.0"
-STATS_SHA256='<dataset-stats-sha256>'
-ENCODER_SHA256='<encoder-sha256>'
 
 robotactile preflight-live \
   --request "$REQUEST_ROOT/requests/clean.json" \
-  --act-checkout "$DEPLOY_ROOT/src/WorldArena" \
-  --official-act-artifact-root "$CHECKPOINT_ROOT" \
-  --stats-sha256 "$STATS_SHA256" \
-  --encoder-sha256 "$ENCODER_SHA256" \
-  --isaac-python "$ISAAC_SIM_PATH/python.sh" \
-  --output "$DEPLOY_ROOT/artifacts/preflight/pull-out-key.json"
+  --config "$ACT_CONFIG"
 ```
 
 The command rejects non-canonical requests, unreleased or dirty pins, artifact
@@ -180,18 +170,12 @@ Select the physical GPU outside the request. The request itself uses logical
 
 ```bash
 REQUEST_ROOT='<generator-output-directory>'
-CHECKPOINT_ROOT=/data1/yanglei/robotactile_univtac_20260821/artifacts/checkpoints
-ISAAC_SIM_PATH=/data1/yanglei/robotactile_univtac_20260821/runtime/isaac-sim-4.5.0
-STATS_SHA256='<dataset-stats-sha256>'
-ENCODER_SHA256='<encoder-sha256>'
 
 for condition in clean faulted no_touch restored; do
   CUDA_VISIBLE_DEVICES=1 "$ISAAC_SIM_PATH/python.sh" \
     -m robotactile_benchmark.cli live-univtac-run \
     --request "$REQUEST_ROOT/requests/$condition.json" \
-    --official-act-artifact-root "$CHECKPOINT_ROOT" \
-    --stats-sha256 "$STATS_SHA256" \
-    --encoder-sha256 "$ENCODER_SHA256"
+    --config "$ACT_CONFIG"
 done
 ```
 
@@ -229,11 +213,7 @@ python -m robotactile_benchmark.cli generate-primary-matrix \
   --exogenous-seed 29 \
   --fault-start-index 16 \
   --restoration-index 180 \
-  --upstream-root "$UNIVTAC_ROOT" \
-  --runtime-root "$DEPLOY_ROOT/runtime/live-matrix" \
-  --official-act-artifact-root "$CHECKPOINT_ROOT" \
-  --rest-reference-artifact "$CALIBRATION_ROOT" \
-  --output requests/primary
+  --rest-reference-artifact "$CALIBRATION_ROOT"
 ```
 
 `--dataset-sha256` is the content hash of the frozen trial/split identity, not
@@ -247,7 +227,7 @@ member, or existing non-identical output fails closed.
 The resulting request directory contains:
 
 ```text
-requests/primary/
+deployment/requests/primary-matrix/pull_out_key-i17-e29/
 ├── matrix_manifest.json
 ├── live_matrix_run_config.json
 ├── primary_matrix_receipt.json
@@ -262,10 +242,11 @@ devices, and one exact resource entry for every content-addressed cell. First
 perform a no-execution materialization check:
 
 ```bash
+PRIMARY_REQUEST_ROOT="$DEPLOY_ROOT/requests/primary-matrix/pull_out_key-i17-e29"
+
 python -m robotactile_benchmark.cli run-live-matrix \
-  --matrix-manifest requests/primary/matrix_manifest.json \
-  --run-config requests/primary/live_matrix_run_config.json \
-  --matrix-output outputs/primary \
+  --matrix-manifest "$PRIMARY_REQUEST_ROOT/matrix_manifest.json" \
+  --run-config "$PRIMARY_REQUEST_ROOT/live_matrix_run_config.json" \
   --max-new-cells 0
 ```
 
@@ -274,9 +255,8 @@ Then execute a bounded batch and resume with the same command:
 ```bash
 CUDA_VISIBLE_DEVICES=1 "$ISAAC_SIM_PATH/python.sh" \
   -m robotactile_benchmark.cli run-live-matrix \
-  --matrix-manifest requests/primary/matrix_manifest.json \
-  --run-config requests/primary/live_matrix_run_config.json \
-  --matrix-output outputs/primary \
+  --matrix-manifest "$PRIMARY_REQUEST_ROOT/matrix_manifest.json" \
+  --run-config "$PRIMARY_REQUEST_ROOT/live_matrix_run_config.json" \
   --max-new-cells 8
 ```
 
@@ -362,13 +342,17 @@ def official_act_policy_factory(loaded):
 
 
 executor = LiveMatrixCellExecutor(
-    matrix_output=Path("outputs/primary"),
+    matrix_output=Path("deployment/outputs/matrices/pull-out-key-primary-v1"),
     template=template,
     resource_resolver=resolve_resources,
     policy_factory=official_act_policy_factory,
 )
 
-result = run_matrix(Path("outputs/primary"), manifest, executor)
+result = run_matrix(
+    Path("deployment/outputs/matrices/pull-out-key-primary-v1"),
+    manifest,
+    executor,
+)
 ```
 
 Here `official_act_policy_factory` is the hash-pinned factory constructed from
@@ -397,7 +381,7 @@ renaming another bundle or substituting cached score fields.
 The final primary layout is:
 
 ```text
-outputs/primary/
+deployment/outputs/matrices/<matrix-id>/
   matrix_manifest.json
   matrix_summary.json
   cells/<cell_sha256>.json
@@ -475,7 +459,9 @@ evidence = RecoveryEvidence.evaluate(
     tolerance=0.02,
     consecutive_steps=5,
 )
-write_recovery_evidence(Path("outputs/primary/recovery"), evidence)
+write_recovery_evidence(
+    Path("deployment/outputs/matrices/<matrix-id>/recovery"), evidence
+)
 ```
 
 `report-matrix` independently reloads and recomputes the lag. If the sidecar is
@@ -488,10 +474,8 @@ separate simulator qualification.
 
 ```bash
 python -m robotactile_benchmark.cli report-matrix \
-  --matrix-manifest outputs/primary/matrix_manifest.json \
-  --matrix-output outputs/primary \
-  --reporting-spec configs/reporting_spec.json \
-  --output outputs/report
+  --matrix-manifest "$PRIMARY_REQUEST_ROOT/matrix_manifest.json" \
+  --reporting-spec configs/reporting_spec.json
 ```
 
 The command currently accepts only a complete primary matrix. Focused phase or

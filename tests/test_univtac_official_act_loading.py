@@ -14,6 +14,8 @@ import numpy as np
 
 import robotactile_benchmark.policies.univtac_official_act as official_policy
 import robotactile_benchmark.policies.univtac_official_act_loading as loading
+import robotactile_benchmark.policies.univtac_official_act_manifest as manifest_contracts
+import robotactile_benchmark.policies.univtac_official_act_validation as artifact_validation
 from robotactile_benchmark.backends.univtac_contracts import UPSTREAM_COMMIT
 from robotactile_benchmark.closed_loop.contracts import ACTION_SPEC, PolicyIdentity
 from robotactile_benchmark.policies.univtac_official_act import OfficialACTProfile
@@ -168,8 +170,12 @@ class OfficialManifestTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             fixture = _Fixture(Path(temporary), OfficialACTProfile.UNIVTAC)
             with (
-                patch.object(loading, "_ACT_SOURCE_SHA256", _sha(fixture.source)),
-                patch.object(loading, "_PROFILE_SPECS", fixture.profile_specs()),
+                patch.object(
+                    manifest_contracts, "_ACT_SOURCE_SHA256", _sha(fixture.source)
+                ),
+                patch.object(
+                    manifest_contracts, "_PROFILE_SPECS", fixture.profile_specs()
+                ),
             ):
                 manifest = fixture.manifest()
 
@@ -187,8 +193,10 @@ class OfficialManifestTests(unittest.TestCase):
             fixture = _Fixture(Path(temporary), OfficialACTProfile.VISION_ONLY)
             specs = fixture.profile_specs()
             with (
-                patch.object(loading, "_ACT_SOURCE_SHA256", _sha(fixture.source)),
-                patch.object(loading, "_PROFILE_SPECS", specs),
+                patch.object(
+                    manifest_contracts, "_ACT_SOURCE_SHA256", _sha(fixture.source)
+                ),
+                patch.object(manifest_contracts, "_PROFILE_SPECS", specs),
             ):
                 manifest = fixture.manifest()
                 mutations = (
@@ -213,9 +221,13 @@ class OfficialLoaderTests(unittest.TestCase):
         fake_torch = _FakeTorch()
         fake_runtime = runtime or _FakeRuntime()
         with (
-            patch.object(loading, "_ACT_SOURCE_SHA256", _sha(fixture.source)),
-            patch.object(loading, "_PROFILE_SPECS", fixture.profile_specs()),
-            patch.object(loading, "_git_head", return_value=UPSTREAM_COMMIT),
+            patch.object(
+                manifest_contracts, "_ACT_SOURCE_SHA256", _sha(fixture.source)
+            ),
+            patch.object(manifest_contracts, "_PROFILE_SPECS", fixture.profile_specs()),
+            patch.object(
+                artifact_validation, "_git_head", return_value=UPSTREAM_COMMIT
+            ),
             patch.object(loading, "_import_torch", return_value=fake_torch),
             patch.object(
                 loading, "_construct_upstream_runtime", return_value=fake_runtime
@@ -253,9 +265,15 @@ class OfficialLoaderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             fixture = _Fixture(Path(temporary), OfficialACTProfile.UNIVTAC)
             with (
-                patch.object(loading, "_ACT_SOURCE_SHA256", _sha(fixture.source)),
-                patch.object(loading, "_PROFILE_SPECS", fixture.profile_specs()),
-                patch.object(loading, "_git_head", return_value=UPSTREAM_COMMIT),
+                patch.object(
+                    manifest_contracts, "_ACT_SOURCE_SHA256", _sha(fixture.source)
+                ),
+                patch.object(
+                    manifest_contracts, "_PROFILE_SPECS", fixture.profile_specs()
+                ),
+                patch.object(
+                    artifact_validation, "_git_head", return_value=UPSTREAM_COMMIT
+                ),
             ):
                 manifest = fixture.manifest()
                 request = OfficialUniVTACACTLoadRequest(
@@ -293,8 +311,12 @@ class OfficialLoaderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             fixture = _Fixture(Path(temporary), OfficialACTProfile.VISION_ONLY)
             with (
-                patch.object(loading, "_ACT_SOURCE_SHA256", _sha(fixture.source)),
-                patch.object(loading, "_PROFILE_SPECS", fixture.profile_specs()),
+                patch.object(
+                    manifest_contracts, "_ACT_SOURCE_SHA256", _sha(fixture.source)
+                ),
+                patch.object(
+                    manifest_contracts, "_PROFILE_SPECS", fixture.profile_specs()
+                ),
             ):
                 manifest = fixture.manifest()
                 base = OfficialUniVTACACTLoadRequest(
@@ -322,9 +344,15 @@ class OfficialLoaderTests(unittest.TestCase):
             fixture = _Fixture(Path(temporary), OfficialACTProfile.UNIVTAC)
             _write_stats(fixture.stats, dtype=np.dtype("float64"))
             with (
-                patch.object(loading, "_ACT_SOURCE_SHA256", _sha(fixture.source)),
-                patch.object(loading, "_PROFILE_SPECS", fixture.profile_specs()),
-                patch.object(loading, "_git_head", return_value=UPSTREAM_COMMIT),
+                patch.object(
+                    manifest_contracts, "_ACT_SOURCE_SHA256", _sha(fixture.source)
+                ),
+                patch.object(
+                    manifest_contracts, "_PROFILE_SPECS", fixture.profile_specs()
+                ),
+                patch.object(
+                    artifact_validation, "_git_head", return_value=UPSTREAM_COMMIT
+                ),
             ):
                 manifest = fixture.manifest()
                 request = OfficialUniVTACACTLoadRequest(
@@ -349,9 +377,15 @@ class OfficialLoaderTests(unittest.TestCase):
             marker = Path(temporary) / "should-not-exist"
             fixture.stats.write_bytes(pickle.dumps(Exploit(), protocol=4))
             with (
-                patch.object(loading, "_ACT_SOURCE_SHA256", _sha(fixture.source)),
-                patch.object(loading, "_PROFILE_SPECS", fixture.profile_specs()),
-                patch.object(loading, "_git_head", return_value=UPSTREAM_COMMIT),
+                patch.object(
+                    manifest_contracts, "_ACT_SOURCE_SHA256", _sha(fixture.source)
+                ),
+                patch.object(
+                    manifest_contracts, "_PROFILE_SPECS", fixture.profile_specs()
+                ),
+                patch.object(
+                    artifact_validation, "_git_head", return_value=UPSTREAM_COMMIT
+                ),
             ):
                 manifest = fixture.manifest()
                 request = OfficialUniVTACACTLoadRequest(

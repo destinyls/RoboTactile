@@ -6,18 +6,24 @@
   "additionalProperties": false,
   "required": [
     "bundle_root",
+    "checkpoint_path",
     "checkpoint_sha256",
+    "config_path",
     "config_sha256",
     "external_commit",
+    "normalizer_path",
     "normalizer_sha256",
     "schema_version"
   ],
   "properties": {
     "bundle_root": {"type": "string", "minLength": 1},
+    "checkpoint_path": {"type": "string", "minLength": 1},
     "checkpoint_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "config_path": {"type": "string", "minLength": 1},
     "config_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "external_commit": {"const": "9036c130409f8cf5494b12489fea339f7213b9d6"},
+    "normalizer_path": {"type": "string", "minLength": 1},
     "normalizer_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-    "schema_version": {"const": "robotactile-n0-artifact-v1"}
+    "schema_version": {"const": "robotactile-n0-artifact-v2"}
   }
 }

@@ -48,7 +48,7 @@ _N0_TWAM = ModelIntegrationSpec(
     factory_path=(
         "robotactile_benchmark.integrations.n0_twam.factory:load_n0_twam_adapter"
     ),
-    artifact_schema="robotactile-n0-artifact-v1",
+    artifact_schema="robotactile-n0-artifact-v2",
     qualification_protocol="external-live-gateway-qualification-v1",
     license_spdx="CC-BY-NC-SA-4.0",
     capabilities=ModelIntegrationCapabilities(
@@ -92,8 +92,15 @@ class ModelIntegrationConfig:
         if self.schema_version != _CONFIG_VERSION:
             raise ValueError("model integration config version mismatch")
         spec = get_model_integration(self.integration_id)
-        if not self.artifact_manifest.startswith(f"examples/{self.integration_id}/"):
-            raise ValueError("artifact_manifest must use the registered example root")
+        if (
+            not self.artifact_manifest
+            or self.artifact_manifest.strip() != self.artifact_manifest
+            or "\x00" in self.artifact_manifest
+        ):
+            raise ValueError("artifact_manifest must be a non-empty safe path")
+        manifest_path = Path(self.artifact_manifest)
+        if not manifest_path.is_absolute() and ".." in manifest_path.parts:
+            raise ValueError("relative artifact_manifest cannot escape its root")
         if not self.device or self.device.strip() != self.device:
             raise ValueError("device must be a non-empty string")
         expected_transport = (

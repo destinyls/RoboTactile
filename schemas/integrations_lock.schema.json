@@ -8,8 +8,8 @@
   "properties": {
     "entries": {
       "type": "array",
-      "minItems": 3,
-      "maxItems": 3,
+      "minItems": 5,
+      "maxItems": 5,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -21,20 +21,22 @@
           "license_spdx",
           "release_ready",
           "repository_url",
+          "source_directory",
           "source_inventory_required"
         ],
         "properties": {
           "artifact_schema": {"type": "string", "minLength": 1},
           "commit_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
-          "install_script": {"type": "string", "pattern": "^integrations/[a-z0-9_]+\\.sh$"},
-          "integration_id": {"enum": ["act_runtime", "n0_twam", "univtac"]},
-          "license_spdx": {"enum": ["Apache-2.0", "CC-BY-NC-SA-4.0"]},
+          "install_script": {"type": "string", "pattern": "^(integrations|scripts/live_univtac)/[a-z0-9_]+\\.sh$"},
+          "integration_id": {"enum": ["act_runtime", "curobo", "isaaclab", "n0_twam", "univtac"]},
+          "license_spdx": {"enum": ["Apache-2.0", "BSD-3-Clause", "CC-BY-NC-SA-4.0", "LicenseRef-NVIDIA-NonCommercial"]},
           "release_ready": {"type": "boolean"},
           "repository_url": {"type": "string", "pattern": "^https://github\\.com/"},
+          "source_directory": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"},
           "source_inventory_required": {"const": true}
         }
       }
     },
-    "schema_version": {"const": "robotactile-integrations-lock-v1"}
+    "schema_version": {"const": "robotactile-integrations-lock-v2"}
   }
 }

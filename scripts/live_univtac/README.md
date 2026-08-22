@@ -10,11 +10,14 @@ RoboTactile qualification path. They deliberately do not call UniVTAC's
 all-in-one `scripts/install.sh`: no command uses `sudo`, sources a shell rc
 file, or writes to the invoking user's `HOME`.
 
-Choose a writable, task-specific absolute deployment root, for example:
+The default root is the checkout's ignored directory:
 
 ```text
-/data/robotactile-univtac
+RoboTactile/deployment
 ```
+
+Set `ROBOTACTILE_DEPLOY_ROOT` only when an absolute HPC/shared-storage
+override is required. See [`docs/deployment_layout.md`](../../docs/deployment_layout.md).
 
 Every upstream process receives deployment-local cache, temporary, Omni,
 Python bytecode, CUDA, Torch, pip, and `HOME` paths below `runtime/`.
@@ -26,12 +29,11 @@ to the NVIDIA host. Supply the independently recorded 64-character SHA-256;
 the installer will not derive trust from the archive it is about to install.
 
 ```bash
-DEPLOY_ROOT=/data/robotactile-univtac
+DEPLOY_ROOT="${ROBOTACTILE_DEPLOY_ROOT:-$PWD/deployment}"
 ARCHIVE="$DEPLOY_ROOT/runtime/isaac-sim-standalone-4.5.0-linux-x86_64.zip"
 ARCHIVE_SHA256='<verified-sha256>'
 
 bash RoboTactile/scripts/live_univtac/install_isaac_sim_4_5.sh \
-  --root "$DEPLOY_ROOT" \
   --archive "$ARCHIVE" \
   --sha256 "$ARCHIVE_SHA256"
 ```
@@ -51,7 +53,6 @@ destination is rejected rather than overwritten.
 
 ```bash
 bash RoboTactile/scripts/live_univtac/smoke_isaac_sim_4_5.sh \
-  --root "$DEPLOY_ROOT" \
   --gpu 1 \
   --run-id initial-gpu1
 ```
@@ -67,11 +68,9 @@ artifacts/deployment/isaac_sim_smoke_initial-gpu1.json
 ## 3. Install pinned IsaacLab and cuRobo sources
 
 ```bash
-bash RoboTactile/scripts/live_univtac/install_isaaclab_v2_1_1.sh \
-  --root "$DEPLOY_ROOT"
+bash RoboTactile/scripts/live_univtac/install_isaaclab_v2_1_1.sh
 
-bash RoboTactile/scripts/live_univtac/install_curobo_v0_7_7.sh \
-  --root "$DEPLOY_ROOT"
+bash RoboTactile/scripts/live_univtac/install_curobo_v0_7_7.sh
 ```
 
 The immutable source pins are:
@@ -79,7 +78,7 @@ The immutable source pins are:
 - IsaacLab `v2.1.1`: `90b79bb2d44feb8d833f260f2bf37da3487180ba`
 - cuRobo `v0.7.7`: `0a50de1ba72db304195d59d9d0b1ed269696047f`
 
-The source trees live under `src/`; all Python installation commands run
+The source trees live under `sources/`; all Python installation commands run
 through the standalone Isaac Sim `python.sh`. Matching receipts make reruns
 no-ops, while a wrong commit or modified tracked worktree fails before an
 installer runs.
@@ -91,15 +90,12 @@ the official `policy_last.ckpt`, `dataset_stats.pkl`, and `encoder.pth` files
 are transferred to the target host:
 
 ```bash
-DEPLOY_ROOT=/data/robotactile-univtac
-UNIVTAC_ROOT="$DEPLOY_ROOT/src/UniVTAC"
-CHECKPOINT_ROOT="$DEPLOY_ROOT/artifacts/checkpoints"
+DEPLOY_ROOT="${ROBOTACTILE_DEPLOY_ROOT:-$PWD/deployment}"
+UNIVTAC_ROOT="$DEPLOY_ROOT/sources/UniVTAC"
+CHECKPOINT_ROOT="$DEPLOY_ROOT/artifacts/models/act"
 
 source "$ROBOTACTILE_ROOT/.venv/bin/activate"
 python scripts/live_univtac/generate_pull_out_key_matrix.py \
-  --deployment-root "$DEPLOY_ROOT" \
-  --univtac-root "$UNIVTAC_ROOT" \
-  --checkpoint-root "$CHECKPOINT_ROOT" \
   --tactile-checkpoint-sha256 '<univtac-policy-last-sha256>' \
   --vision-checkpoint-sha256 '<vision-only-policy-last-sha256>' \
   --stats-sha256 '<dataset-stats-sha256>' \

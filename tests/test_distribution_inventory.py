@@ -37,6 +37,6 @@ def test_external_lock_and_installers_are_separate_artifacts() -> None:
 def test_gitignore_excludes_data_outputs_weights_and_secrets() -> None:
     ignored = set((ROOT / ".gitignore").read_text(encoding="utf-8").splitlines())
 
-    assert {"data/", "outputs/", "checkpoints/"} <= ignored
+    assert {"data/", "/deployment/", "outputs/", "checkpoints/"} <= ignored
     assert {"*.ckpt", "*.pth", "*.pt"} <= ignored
     assert {".env", "*.pem", "*.key", "credentials.json", "settings.json"} <= ignored

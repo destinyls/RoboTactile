@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
-from pathlib import PurePosixPath
 from typing import Tuple
 
+from robotactile_benchmark.artifacts.primitives import (
+    require_lowercase_sha256,
+    validate_posix_member_path,
+)
 from robotactile_benchmark.closed_loop.capture import ActionTraceEntry
 from robotactile_benchmark.closed_loop.contracts import ClosedLoopRunSpec
 from robotactile_benchmark.closed_loop.delivery import DeliveryFinalization
@@ -31,7 +33,6 @@ REQUIRED_JSON_MEMBERS = frozenset(
         "validation_report.json",
     }
 )
-_SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 
 
 class ArtifactValidationError(ValueError):
@@ -39,20 +40,15 @@ class ArtifactValidationError(ValueError):
 
 
 def require_sha256(value: object, name: str) -> str:
-    if not isinstance(value, str) or _SHA256_PATTERN.fullmatch(value) is None:
-        raise ArtifactValidationError(f"{name} must be a lowercase SHA256")
-    return value
+    return require_lowercase_sha256(value, name, ArtifactValidationError)
 
 
 def validate_member_path(value: object) -> str:
-    if not isinstance(value, str) or not value or "\\" in value or ":" in value:
-        raise ArtifactValidationError("artifact member path is not normalized POSIX")
-    path = PurePosixPath(value)
-    if path.is_absolute() or path.as_posix() != value or ".." in path.parts:
-        raise ArtifactValidationError("artifact member path escapes the bundle")
-    if any(part in {"", "."} for part in path.parts):
-        raise ArtifactValidationError("artifact member path is not normalized")
-    return value
+    return validate_posix_member_path(
+        value,
+        label="artifact member path",
+        error_type=ArtifactValidationError,
+    )
 
 
 def _strict_int(value: object, name: str, minimum: int = 0) -> int:

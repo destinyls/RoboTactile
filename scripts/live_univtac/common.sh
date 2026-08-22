@@ -5,8 +5,11 @@
 set -Eeuo pipefail
 umask 022
 
-ROBOTACTILE_DEPLOY_ROOT=""
+ROBOTACTILE_DEPLOY_ROOT="${ROBOTACTILE_DEPLOY_ROOT:-}"
 ROBOTACTILE_LOCK_DIR=""
+ROBOTACTILE_REPOSITORY_ROOT="$(
+  cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P
+)"
 
 die() {
   printf 'ERROR: %s\n' "$*" >&2
@@ -21,6 +24,21 @@ require_command() {
   command -v "$1" >/dev/null 2>&1 || die "required command is unavailable: $1"
 }
 
+default_deployment_root() {
+  printf '%s\n' "${ROBOTACTILE_DEPLOY_ROOT:-$ROBOTACTILE_REPOSITORY_ROOT/deployment}"
+}
+
+resolve_external_pin() {
+  local integration_id="$1"
+  local field="$2"
+  local python_bin="${ROBOTACTILE_SYSTEM_PYTHON:-python3}"
+  require_command "$python_bin"
+  "$python_bin" \
+    "$ROBOTACTILE_REPOSITORY_ROOT/integrations/resolve_pin.py" \
+    "$integration_id" \
+    "$field"
+}
+
 validate_absolute_root() {
   local root="$1"
   case "$root" in
@@ -28,7 +46,7 @@ validate_absolute_root() {
     *) die "deployment root must be an absolute path: $root" ;;
   esac
   case "$root" in
-    /|/data1|/data2|/mnt|/mnt/data) die "deployment root is too broad: $root" ;;
+    /|/data|/data1|/data2|/mnt|/mnt/data) die "deployment root is too broad: $root" ;;
   esac
   case "$root" in
     *$'\n'*) die "deployment root must not contain a newline" ;;
@@ -42,9 +60,19 @@ initialize_layout() {
   export ROBOTACTILE_DEPLOY_ROOT
 
   mkdir -p \
+    "$root/sources" \
+    "$root/artifacts/models/act" \
+    "$root/artifacts/models/n0_twam" \
     "$root/artifacts/deployment" \
+    "$root/artifacts/preflight" \
+    "$root/artifacts/rest-references" \
+    "$root/artifacts/live-univtac" \
+    "$root/requests/calibration" \
+    "$root/requests/four-condition" \
+    "$root/requests/primary-matrix" \
+    "$root/outputs/matrices" \
+    "$root/outputs/reports" \
     "$root/logs" \
-    "$root/src" \
     "$root/runtime/cache/cuda" \
     "$root/runtime/cache/pycache" \
     "$root/runtime/cache/torch" \
@@ -279,7 +307,7 @@ ensure_pinned_git_source() {
     die "failed to resolve existing source commit: $destination"
   [ "$resolved" = "$commit" ] || \
     die "refusing existing source at commit $resolved; expected $commit"
-  tracked_changes="$(git -C "$destination" status --porcelain --untracked-files=no)" || \
+  tracked_changes="$(git -C "$destination" status --porcelain --untracked-files=all)" || \
     die "failed to inspect source worktree: $destination"
   [ -z "$tracked_changes" ] || die "refusing a modified source worktree: $destination"
   [ -e "$destination/$required_relative_path" ] || \

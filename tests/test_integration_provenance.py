@@ -30,9 +30,11 @@ def _canonical(value: object) -> bytes:
 def test_packaged_lock_has_exact_external_sources_and_license_boundary() -> None:
     lock = load_integration_lock()
 
-    assert lock.schema_version == "robotactile-integrations-lock-v1"
+    assert lock.schema_version == "robotactile-integrations-lock-v2"
     assert tuple(pin.integration_id for pin in lock.entries) == (
         "act_runtime",
+        "curobo",
+        "isaaclab",
         "n0_twam",
         "univtac",
     )
@@ -46,6 +48,10 @@ def test_packaged_lock_has_exact_external_sources_and_license_boundary() -> None
     assert lock.by_id("n0_twam").license_spdx == "CC-BY-NC-SA-4.0"
     assert lock.by_id("act_runtime").release_ready is False
     assert lock.by_id("n0_twam").release_ready is False
+    assert lock.by_id("isaaclab").license_spdx == "BSD-3-Clause"
+    assert lock.by_id("isaaclab").source_directory == "IsaacLab"
+    assert lock.by_id("curobo").license_spdx == ("LicenseRef-NVIDIA-NonCommercial")
+    assert lock.by_id("curobo").source_directory == "curobo"
 
 
 def test_lock_and_nested_entries_are_immutable() -> None:

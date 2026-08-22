@@ -39,17 +39,23 @@ python -m hatchling build
 
 ## External repositories
 
-Choose explicit absolute destinations:
+Initialize the repo-contained workspace, then install to its canonical source
+directories:
 
 ```bash
-bash integrations/install_univtac.sh /absolute/external/UniVTAC
-bash integrations/install_act_runtime.sh /absolute/external/WorldArena
-bash integrations/install_n0_twam.sh /absolute/external/N0-TWAM
+robotactile deployment init
+bash integrations/install_univtac.sh
+bash integrations/install_act_runtime.sh
+bash integrations/install_n0_twam.sh
 ```
 
 Each script verifies the exact origin and commit and writes a sibling canonical
 install receipt. Existing mismatched or dirty checkouts are never overwritten.
 The scripts do not install weights, datasets, Isaac Sim, or GPU dependencies.
+An explicit absolute destination remains available as the final script
+argument. See [Deployment layout](deployment_layout.md) and
+[External dependencies](external_dependencies.md) for the complete tree,
+immutable commit links, licenses, and HPC override.
 
 ACT and N0-TWAM currently remain release-blocked until reviewed local runtime
 changes are published in externally accessible commits. Their base commits are

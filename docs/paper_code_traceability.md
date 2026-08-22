@@ -71,10 +71,8 @@ For a materialized primary matrix, regenerate the paper report with:
 
 ```bash
 python -m robotactile_benchmark.cli report-matrix \
-  --matrix-manifest outputs/primary/matrix_manifest.json \
-  --matrix-output outputs/primary \
-  --reporting-spec configs/reporting_spec.json \
-  --output outputs/report
+  --matrix-manifest deployment/requests/primary-matrix/<run>/matrix_manifest.json \
+  --reporting-spec configs/reporting_spec.json
 ```
 
 The report bridge strict-loads every matrix receipt and referenced artifact.

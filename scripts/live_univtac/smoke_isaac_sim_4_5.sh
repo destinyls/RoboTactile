@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=common.sh
 source "$SCRIPT_DIR/common.sh"
 
-DEPLOY_ROOT="/data1/yanglei/robotactile_univtac_20260821"
+DEPLOY_ROOT="$(default_deployment_root)"
 GPU_INDEX="1"
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 

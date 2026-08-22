@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robotactile.invalid/schemas/deployment_layout_receipt.schema.json",
+  "title": "RoboTactile Deployment Layout Receipt",
+  "description": "Directory-initialization evidence only; never simulator or task execution.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "directories",
+    "evidence_level",
+    "layout_id",
+    "receipt_sha256",
+    "root_path_sha256",
+    "semantic_version",
+    "simulator_execution_claimed",
+    "task_execution_claimed"
+  ],
+  "properties": {
+    "directories": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "pattern": "^[^/].*"}
+    },
+    "evidence_level": {"const": "deployment_layout_initialization_only_v1"},
+    "layout_id": {"const": "robotactile_repo_contained_v1"},
+    "receipt_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "root_path_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "semantic_version": {"const": "1.0"},
+    "simulator_execution_claimed": {"const": false},
+    "task_execution_claimed": {"const": false}
+  }
+}

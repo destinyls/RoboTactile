@@ -1,0 +1,152 @@
+"""Generated deployment configuration for both first-class models."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+
+import pytest
+
+from robotactile_benchmark.cli import main
+from robotactile_benchmark.integrations.act.artifacts import (
+    ACTArtifactManifest,
+    act_artifact_manifest_from_dict,
+    act_artifact_manifest_to_dict,
+)
+from robotactile_benchmark.integrations.n0_twam.artifacts import (
+    load_n0_twam_artifact_manifest,
+)
+from robotactile_benchmark.integrations.registry import ModelIntegrationConfig
+from robotactile_benchmark.policies.univtac_official_act import OfficialACTProfile
+
+
+def _sha(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_n0_configure_hashes_real_files_and_is_idempotent(
+    tmp_path: Path, capsys: object
+) -> None:
+    root = tmp_path / "deployment"
+    bundle = root / "artifacts/models/n0_twam"
+    bundle.mkdir(parents=True)
+    checkpoint = bundle / "checkpoint.pt"
+    config = bundle / "config.json"
+    normalizer = bundle / "normalizer.json"
+    checkpoint.write_bytes(b"n0 checkpoint")
+    config.write_bytes(b'{"model":"n0"}\n')
+    normalizer.write_bytes(b'{"mean":[0.0]}\n')
+    command = ["integrations", "configure", "--model", "n0_twam", "--root", str(root)]
+
+    assert main(command) == 0
+    first = json.loads(capsys.readouterr().out)  # type: ignore[attr-defined]
+    assert main(command) == 0
+    second = json.loads(capsys.readouterr().out)  # type: ignore[attr-defined]
+
+    assert first == second
+    manifest = load_n0_twam_artifact_manifest(bundle / "artifact_manifest.json")
+    assert manifest.checkpoint_sha256 == _sha(checkpoint)
+    assert manifest.config_sha256 == _sha(config)
+    assert manifest.normalizer_sha256 == _sha(normalizer)
+    generated_config = json.loads(
+        (bundle / "integration_config.json").read_text(encoding="utf-8")
+    )
+    assert generated_config["artifact_manifest"] == str(
+        bundle / "artifact_manifest.json"
+    )
+
+
+def test_model_specific_configure_syntax_matches_legacy_command(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = tmp_path / "deployment"
+    bundle = root / "artifacts/models/n0_twam"
+    bundle.mkdir(parents=True)
+    (bundle / "checkpoint.pt").write_bytes(b"n0 checkpoint")
+    (bundle / "config.json").write_bytes(b'{"model":"n0"}\n')
+    (bundle / "normalizer.json").write_bytes(b'{"mean":[0.0]}\n')
+
+    assert main(["integrations", "configure", "n0-twam", "--root", str(root)]) == 0
+    preferred = json.loads(capsys.readouterr().out)
+    assert (
+        main(["integrations", "configure", "--model", "n0_twam", "--root", str(root)])
+        == 0
+    )
+    legacy = json.loads(capsys.readouterr().out)
+
+    assert preferred == legacy
+
+
+def test_setup_initializes_and_reports_blocked_prerequisites(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = tmp_path / "deployment"
+
+    assert main(["setup", "--model", "n0-twam", "--root", str(root)]) == 2
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["configuration"]["status"] == "blocked"
+    assert payload["doctor"]["passed"] is False
+    assert payload["evidence_level"] == "model_setup_diagnostic_only_v1"
+    assert payload["live_inference_claimed"] is False
+    assert payload["model"] == "n0_twam"
+    assert (root / "artifacts/deployment/layout_receipt.json").is_file()
+
+
+def test_n0_doctor_verifies_artifact_but_fails_closed_without_sources_or_gateway(
+    tmp_path: Path, capsys: object
+) -> None:
+    root = tmp_path / "deployment"
+    bundle = root / "artifacts/models/n0_twam"
+    bundle.mkdir(parents=True)
+    (bundle / "checkpoint.pt").write_bytes(b"checkpoint")
+    (bundle / "config.json").write_bytes(b"config")
+    (bundle / "normalizer.json").write_bytes(b"normalizer")
+    assert (
+        main(["integrations", "configure", "--model", "n0_twam", "--root", str(root)])
+        == 0
+    )
+    capsys.readouterr()  # type: ignore[attr-defined]
+
+    assert (
+        main(["integrations", "doctor", "--model", "n0_twam", "--root", str(root)]) == 2
+    )
+    payload = json.loads(capsys.readouterr().out)  # type: ignore[attr-defined]
+    checks = {item["check_id"]: item for item in payload["checks"]}
+
+    assert checks["integration_config"]["passed"] is True
+    assert checks["artifact_manifest"]["passed"] is True
+    assert checks["source_n0_twam"]["passed"] is False
+    assert checks["source_univtac"]["passed"] is False
+    assert checks["transport"]["passed"] is False
+    assert payload["live_inference_claimed"] is False
+
+
+def test_act_manifest_codec_preserves_absolute_frozen_layout(tmp_path: Path) -> None:
+    artifact = (tmp_path / "act").absolute()
+    upstream = (tmp_path / "UniVTAC").absolute()
+    manifest = ACTArtifactManifest.for_shared_root(
+        task_id="pull_out_key",
+        profile=OfficialACTProfile.UNIVTAC,
+        artifact_root=artifact,
+        upstream_root=upstream,
+        checkpoint_sha256="a" * 64,
+        stats_sha256="b" * 64,
+        encoder_sha256="c" * 64,
+    )
+
+    restored = act_artifact_manifest_from_dict(act_artifact_manifest_to_dict(manifest))
+
+    assert restored == manifest
+
+
+def test_config_rejects_relative_manifest_escape() -> None:
+    with pytest.raises(ValueError, match="escape"):
+        ModelIntegrationConfig(
+            schema_version="robotactile-model-integration-config-v1",
+            integration_id="act",
+            artifact_manifest="../outside.json",
+            device="cuda:0",
+            transport="in_process",
+        )

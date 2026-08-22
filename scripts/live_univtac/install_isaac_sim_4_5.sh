@@ -7,7 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
 
 ISAAC_SIM_VERSION="4.5.0"
-DEPLOY_ROOT="/data1/yanglei/robotactile_univtac_20260821"
+DEPLOY_ROOT="$(default_deployment_root)"
 ARCHIVE=""
 EXPECTED_SHA256=""
 STAGE_DIR=""

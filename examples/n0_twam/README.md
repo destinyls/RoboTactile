@@ -13,6 +13,16 @@ replaced by a content-addressed model-bundle manifest.
 robotactile integrations validate --model n0_twam
 ```
 
+After placing real files under
+`deployment/artifacts/models/n0_twam/`, generate and diagnose the runnable
+deployment config without hand-editing hashes:
+
+```bash
+robotactile deployment init
+robotactile integrations configure n0-twam
+robotactile integrations doctor --model n0_twam
+```
+
 Live N0 execution remains fail-closed until a production transport and published
 serving bundle are registered. Contract tests do not establish live TWAM
 inference or simulator success.

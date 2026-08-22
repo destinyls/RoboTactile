@@ -7,9 +7,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
 
 CUROBO_VERSION="v0.7.7"
-CUROBO_COMMIT="0a50de1ba72db304195d59d9d0b1ed269696047f"
-CUROBO_REPOSITORY="https://github.com/NVlabs/curobo.git"
-DEPLOY_ROOT="/data1/yanglei/robotactile_univtac_20260821"
+CUROBO_COMMIT="$(resolve_external_pin curobo commit_sha)"
+CUROBO_REPOSITORY="$(resolve_external_pin curobo repository_url)"
+CUROBO_SOURCE_DIRECTORY="$(resolve_external_pin curobo source_directory)"
+DEPLOY_ROOT="$(default_deployment_root)"
 
 usage() {
   cat <<'EOF'
@@ -42,7 +43,7 @@ trap release_lock EXIT
 ISAAC_SIM_PATH="$DEPLOY_ROOT/runtime/isaac-sim-4.5.0"
 ISAAC_INSTALL_RECEIPT="$DEPLOY_ROOT/artifacts/deployment/isaac_sim_install.json"
 ISAACLAB_RECEIPT="$DEPLOY_ROOT/artifacts/deployment/isaaclab_install.json"
-SOURCE_PATH="$DEPLOY_ROOT/src/curobo"
+SOURCE_PATH="$DEPLOY_ROOT/sources/$CUROBO_SOURCE_DIRECTORY"
 RECEIPT_PATH="$DEPLOY_ROOT/artifacts/deployment/curobo_install.json"
 export ISAAC_SIM_PATH
 
@@ -122,7 +123,7 @@ write_receipt \
   "status=installed" \
   "source_repository=$CUROBO_REPOSITORY" \
   "source_commit=$CUROBO_COMMIT" \
-  "source_path=src/curobo" \
+  "source_path=sources/$CUROBO_SOURCE_DIRECTORY" \
   "isaac_sim_source_sha256=$ISAAC_SOURCE_SHA256" \
   "isaaclab_source_commit=$ISAACLAB_SOURCE_COMMIT" \
   "log_path=$(relative_to_deploy_root "$LOG_PATH")" \

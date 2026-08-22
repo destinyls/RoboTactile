@@ -14,6 +14,8 @@ REQUIRED = (
     "SECURITY.md",
     "THIRD_PARTY_NOTICES.md",
     "docs/installation.md",
+    "docs/deployment_layout.md",
+    "docs/external_dependencies.md",
     "docs/isaac_sim.md",
     "docs/quickstart.md",
     "docs/model_integrations.md",
@@ -56,6 +58,8 @@ def test_notice_and_examples_present_symmetric_model_boundaries() -> None:
 
     assert "Apache-2.0" in notice
     assert "CC-BY-NC-SA-4.0" in notice
+    assert "BSD-3-Clause" in notice
+    assert "NVIDIA non-commercial" in notice
     assert "ACT" in act and "PolicyAdapter" in act
     assert "N0-TWAM" in n0 and "PolicyAdapter" in n0
     assert "unsupported_contract" in n0
@@ -80,6 +84,8 @@ def test_readme_links_to_public_release_guides() -> None:
         "CONTRIBUTING.md",
         "SECURITY.md",
         "docs/installation.md",
+        "docs/deployment_layout.md",
+        "docs/external_dependencies.md",
         "docs/isaac_sim.md",
         "docs/model_integrations.md",
         "docs/quickstart.md",
@@ -122,6 +128,33 @@ def test_isaac_guide_references_existing_repository_entry_points() -> None:
         "scripts/live_univtac/generate_pull_out_key_matrix.py",
     ):
         assert (ROOT / relative).is_file()
+
+
+def test_public_sources_contain_no_personal_deployment_root() -> None:
+    suffixes = {".md", ".py", ".sh", ".json", ".toml", ".yml", ".yaml"}
+    paths = tuple(
+        path
+        for path in ROOT.rglob("*")
+        if path.is_file()
+        and path != Path(__file__)
+        and path.suffix in suffixes
+        and not (
+            {
+                ".git",
+                ".mypy_cache",
+                ".pytest_cache",
+                ".ruff_cache",
+                ".venv",
+                "deployment",
+                "dist",
+            }
+            & set(path.parts)
+        )
+    )
+    text = "\n".join(path.read_text(encoding="utf-8") for path in paths)
+
+    assert "/data1/yanglei" not in text
+    assert "/Users/yanglei" not in text
 
 
 def test_pip_workflow_is_hash_locked_and_does_not_require_uv() -> None:

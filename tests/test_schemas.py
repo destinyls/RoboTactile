@@ -41,6 +41,7 @@ class SchemaSynchronizationTests(unittest.TestCase):
             "calibration_request_receipt.schema.json",
             "closed_loop_result.schema.json",
             "closed_loop_root_receipt.schema.json",
+            "deployment_layout_receipt.schema.json",
             "fault_manifest.schema.json",
             "live_univtac_request.schema.json",
             "live_univtac_root_receipt.schema.json",
@@ -100,6 +101,10 @@ class SchemaSynchronizationTests(unittest.TestCase):
             CALIBRATION_REQUEST_SEMANTIC_VERSION,
             CalibrationRequestReceipt,
         )
+        from robotactile_benchmark.deployment.contracts import (
+            DEPLOYMENT_LAYOUT_SEMANTIC_VERSION,
+            DeploymentLayoutReceipt,
+        )
         from robotactile_benchmark.execution.contracts import (
             LIVE_REQUEST_SEMANTIC_VERSION,
             LiveUniVTACRunRequest,
@@ -138,6 +143,9 @@ class SchemaSynchronizationTests(unittest.TestCase):
             for path in sorted((ROOT / "schemas").glob("*.json"))
         }
         exact_fields = {
+            "deployment_layout_receipt.schema.json": set(
+                DeploymentLayoutReceipt.__dataclass_fields__
+            ),
             "calibration_request_receipt.schema.json": set(
                 CalibrationRequestReceipt.__dataclass_fields__
             ),
@@ -177,6 +185,9 @@ class SchemaSynchronizationTests(unittest.TestCase):
             ),
         }
         versions = {
+            "deployment_layout_receipt.schema.json": (
+                DEPLOYMENT_LAYOUT_SEMANTIC_VERSION
+            ),
             "calibration_request_receipt.schema.json": (
                 CALIBRATION_REQUEST_SEMANTIC_VERSION
             ),

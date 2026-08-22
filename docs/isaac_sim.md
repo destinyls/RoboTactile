@@ -7,6 +7,9 @@ auditable UniVTAC ACT trial.
 
 The commands below are not executed by installing the RoboTactile wheel. They
 must be run explicitly on a compatible NVIDIA Linux host.
+Directory ownership is defined in [Deployment layout](deployment_layout.md);
+all Git pins and license boundaries are in
+[External dependencies](external_dependencies.md).
 
 ## Evidence ladder
 
@@ -55,13 +58,15 @@ bash scripts/bootstrap_pip.sh
 source .venv/bin/activate
 ```
 
-Choose an explicit writable location. Do not use `/`, `/data`, `/mnt`, or a
-shared storage root directly.
+Initialize the repository-contained default. For HPC, set
+`ROBOTACTILE_DEPLOY_ROOT` to one absolute task-specific directory before this
+command. Do not use `/`, `/data`, `/mnt`, or a shared storage root directly.
 
 ```bash
 export ROBOTACTILE_ROOT="$(pwd -P)"
-export DEPLOY_ROOT=/data/robotactile-univtac
-mkdir -p "$DEPLOY_ROOT/runtime"
+robotactile deployment init
+export DEPLOY_ROOT="${ROBOTACTILE_DEPLOY_ROOT:-$ROBOTACTILE_ROOT/deployment}"
+robotactile deployment doctor --profile core
 ```
 
 The deployment scripts redirect their temporary files, caches, Omni user
@@ -182,9 +187,9 @@ RoboTactile does not copy third-party source into its wheel. Install the exact
 checkouts into the deployment root:
 
 ```bash
-bash integrations/install_univtac.sh "$DEPLOY_ROOT/src/UniVTAC"
-bash integrations/install_act_runtime.sh "$DEPLOY_ROOT/src/WorldArena"
-bash integrations/install_n0_twam.sh "$DEPLOY_ROOT/src/N0-TWAM"
+bash integrations/install_univtac.sh
+bash integrations/install_act_runtime.sh
+bash integrations/install_n0_twam.sh
 ```
 
 Each installer verifies origin, commit, cleanliness, and license identity and
@@ -228,17 +233,14 @@ artifact root. Record the checkpoint, statistics, and encoder hashes before
 generating requests:
 
 ```bash
-export UNIVTAC_ROOT="$DEPLOY_ROOT/src/UniVTAC"
-export CHECKPOINT_ROOT="$DEPLOY_ROOT/artifacts/checkpoints"
+export UNIVTAC_ROOT="$DEPLOY_ROOT/sources/UniVTAC"
+export CHECKPOINT_ROOT="$DEPLOY_ROOT/artifacts/models/act"
 export TACTILE_CHECKPOINT_SHA256='<64-hex-tactile-checkpoint-sha256>'
 export VISION_CHECKPOINT_SHA256='<64-hex-vision-only-checkpoint-sha256>'
 export STATS_SHA256='<64-hex-dataset-stats-sha256>'
 export ENCODER_SHA256='<64-hex-encoder-sha256>'
 
 python scripts/live_univtac/generate_pull_out_key_matrix.py \
-  --deployment-root "$DEPLOY_ROOT" \
-  --univtac-root "$UNIVTAC_ROOT" \
-  --checkpoint-root "$CHECKPOINT_ROOT" \
   --tactile-checkpoint-sha256 "$TACTILE_CHECKPOINT_SHA256" \
   --vision-checkpoint-sha256 "$VISION_CHECKPOINT_SHA256" \
   --stats-sha256 "$STATS_SHA256" \
@@ -254,6 +256,14 @@ python scripts/live_univtac/generate_pull_out_key_matrix.py \
 The generator creates `clean`, `faulted`, `no_touch`, and `restored` requests
 with one matched pair identity. It does not launch Isaac or a policy.
 
+Generate the tactile ACT runtime config from those real files before
+preflight. The command computes the hashes; do not edit the all-zero example:
+
+```bash
+robotactile integrations configure act --task pull_out_key
+robotactile integrations doctor --model act
+```
+
 ## 9. Run the no-allocation live preflight
 
 Validate the request, both pinned source checkouts, official ACT artifacts,
@@ -264,12 +274,7 @@ export REQUEST_ROOT='<generated-request-directory>'
 
 robotactile preflight-live \
   --request "$REQUEST_ROOT/requests/clean.json" \
-  --act-checkout "$DEPLOY_ROOT/src/WorldArena" \
-  --official-act-artifact-root "$CHECKPOINT_ROOT" \
-  --stats-sha256 "$STATS_SHA256" \
-  --encoder-sha256 "$ENCODER_SHA256" \
-  --isaac-python "$ISAAC_SIM_PATH/python.sh" \
-  --output "$DEPLOY_ROOT/artifacts/preflight/live.json"
+  --config "$DEPLOY_ROOT/artifacts/models/act/integration_config.json"
 ```
 
 The command fails while either external model pin has `release_ready=false`, a
@@ -294,9 +299,7 @@ for condition in clean faulted no_touch restored; do
     "$ISAAC_SIM_PATH/python.sh" -m robotactile_benchmark.cli \
       live-univtac-run \
       --request "$REQUEST_ROOT/requests/$condition.json" \
-      --official-act-artifact-root "$CHECKPOINT_ROOT" \
-      --stats-sha256 "$STATS_SHA256" \
-      --encoder-sha256 "$ENCODER_SHA256"
+      --config "$DEPLOY_ROOT/artifacts/models/act/integration_config.json"
 done
 ```
 

@@ -28,8 +28,11 @@ def _identity() -> PolicyIdentity:
 def _manifest(tmp_path: Path) -> N0TWAMArtifactManifest:
     return N0TWAMArtifactManifest(
         bundle_root=tmp_path.absolute(),
+        checkpoint_path=(tmp_path / "checkpoint.pt").absolute(),
         checkpoint_sha256="a" * 64,
+        config_path=(tmp_path / "config.json").absolute(),
         config_sha256="b" * 64,
+        normalizer_path=(tmp_path / "normalizer.json").absolute(),
         normalizer_sha256="c" * 64,
         external_commit="9036c130409f8cf5494b12489fea339f7213b9d6",
     )
@@ -65,8 +68,11 @@ def test_n0_factory_rejects_artifact_mismatch_before_client_effect(
     manifest = _manifest(tmp_path)
     mismatched = N0TWAMArtifactManifest(
         bundle_root=manifest.bundle_root,
+        checkpoint_path=manifest.checkpoint_path,
         checkpoint_sha256="d" * 64,
+        config_path=manifest.config_path,
         config_sha256=manifest.config_sha256,
+        normalizer_path=manifest.normalizer_path,
         normalizer_sha256=manifest.normalizer_sha256,
         external_commit=manifest.external_commit,
     )

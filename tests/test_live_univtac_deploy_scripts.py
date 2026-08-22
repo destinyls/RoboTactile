@@ -365,6 +365,6 @@ def test_pinned_isaaclab_and_curobo_installers_record_exact_commits() -> None:
         assert "warp-lang==1.0.0" in python_calls
         assert "pip install -e" in python_calls
         assert (
-            deploy_root / "src/IsaacLab/_isaac_sim"
+            deploy_root / "sources/IsaacLab/_isaac_sim"
         ).readlink() == deploy_root / "runtime/isaac-sim-4.5.0"
         assert (user_home / ".bashrc").read_text() == "sentinel\n"

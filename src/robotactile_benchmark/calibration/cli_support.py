@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -13,6 +14,11 @@ from robotactile_benchmark.calibration.request_artifacts import (
     write_calibration_request_bundle,
 )
 from robotactile_benchmark.calibration.request_contracts import CalibrationRequestSpec
+from robotactile_benchmark.deployment.layout import (
+    DeploymentLayout,
+    initialize_deployment_layout,
+    resolve_deployment_root,
+)
 from robotactile_benchmark.rest_references import ReferenceSplit
 
 
@@ -21,7 +27,10 @@ def add_calibration_request_parser(
 ) -> None:
     """Register the dependency-light calibration request command."""
 
-    parser = subparsers.add_parser("generate-calibration-request")
+    parser = subparsers.add_parser(
+        "generate-calibration-request",
+        help="materialize a clean, no-allocation calibration request",
+    )
     parser.add_argument("--task", required=True)
     parser.add_argument(
         "--dataset-split",
@@ -37,12 +46,63 @@ def add_calibration_request_parser(
     parser.add_argument("--max-control-cycles", type=int)
     parser.add_argument("--max-observation-steps", type=int)
     parser.add_argument("--wall-timeout-s", type=float, default=1800.0)
-    parser.add_argument("--upstream-root", type=Path, required=True)
-    parser.add_argument("--runtime-dir", type=Path, required=True)
-    parser.add_argument("--live-artifact-output", type=Path, required=True)
+    parser.add_argument("--root", type=Path)
+    parser.add_argument("--upstream-root", type=Path)
+    parser.add_argument("--runtime-dir", type=Path)
+    parser.add_argument("--live-artifact-output", type=Path)
     parser.add_argument("--act-device-name", default="cuda:0")
     parser.add_argument("--simulator-device", default="cuda:0")
-    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--output", type=Path)
+
+
+@dataclass(frozen=True)
+class CalibrationCommandPaths:
+    upstream_root: Path
+    runtime_dir: Path
+    live_artifact_output: Path
+    output: Path
+
+
+def resolve_calibration_command_paths(
+    *,
+    root: Optional[Path],
+    task_id: str,
+    dataset_split: str,
+    initial_seed: int,
+    exogenous_seed: int,
+    upstream_root: Optional[Path],
+    runtime_dir: Optional[Path],
+    live_artifact_output: Optional[Path],
+    output: Optional[Path],
+) -> CalibrationCommandPaths:
+    """Resolve omitted paths into the typed deployment layout."""
+
+    if all(
+        value is not None
+        for value in (upstream_root, runtime_dir, live_artifact_output, output)
+    ):
+        assert upstream_root is not None
+        assert runtime_dir is not None
+        assert live_artifact_output is not None
+        assert output is not None
+        return CalibrationCommandPaths(
+            upstream_root=upstream_root,
+            runtime_dir=runtime_dir,
+            live_artifact_output=live_artifact_output,
+            output=output,
+        )
+    layout = DeploymentLayout(resolve_deployment_root(root))
+    initialize_deployment_layout(layout)
+    request_id = f"{task_id}-{dataset_split}-i{initial_seed}-e{exogenous_seed}"
+    return CalibrationCommandPaths(
+        upstream_root=upstream_root or layout.sources / "UniVTAC",
+        runtime_dir=runtime_dir or layout.runtime / "calibration" / request_id,
+        live_artifact_output=(
+            live_artifact_output
+            or layout.artifacts / "live-univtac" / "calibration" / request_id
+        ),
+        output=output or layout.requests / "calibration" / request_id,
+    )
 
 
 def generate_calibration_request(
@@ -103,3 +163,11 @@ def generate_calibration_request(
         "task_id": loaded.receipt.task_id,
         "trial_manifest_sha256": loaded.receipt.trial_manifest_sha256,
     }
+
+
+__all__ = [
+    "CalibrationCommandPaths",
+    "add_calibration_request_parser",
+    "generate_calibration_request",
+    "resolve_calibration_command_paths",
+]

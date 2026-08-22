@@ -30,6 +30,11 @@ from robotactile_benchmark.backends.univtac_contracts import (
 from robotactile_benchmark.closed_loop.contracts import ACTION_SPEC
 from robotactile_benchmark.constants import CORE_OPERATOR_IDS
 from robotactile_benchmark.contracts import canonical_hash
+from robotactile_benchmark.deployment.layout import (
+    DeploymentLayout,
+    initialize_deployment_layout,
+    resolve_deployment_root,
+)
 from robotactile_benchmark.execution import (
     load_live_univtac_request,
     load_live_univtac_run,
@@ -56,9 +61,9 @@ EVIDENCE_LEVEL = "request_generation_only_no_simulator_execution"
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--deployment-root", type=Path, required=True)
-    parser.add_argument("--univtac-root", type=Path, required=True)
-    parser.add_argument("--checkpoint-root", type=Path, required=True)
+    parser.add_argument("--deployment-root", type=Path)
+    parser.add_argument("--univtac-root", type=Path)
+    parser.add_argument("--checkpoint-root", type=Path)
     parser.add_argument("--tactile-checkpoint-sha256", required=True)
     parser.add_argument("--vision-checkpoint-sha256", required=True)
     parser.add_argument("--stats-sha256", required=True)
@@ -163,7 +168,7 @@ def _request_document(
             deployment_root / "runtime/live_univtac" / matrix_id / condition.value
         ),
         "output_dir": str(
-            deployment_root / "artifacts/live_univtac" / matrix_id / condition.value
+            deployment_root / "artifacts/live-univtac" / matrix_id / condition.value
         ),
         "fault_manifest_path": (
             f"../fault_manifests/{'restored' if condition is Condition.RESTORED else 'persistent'}.json"
@@ -195,9 +200,11 @@ def _request_document(
 
 
 def _generate(args: argparse.Namespace) -> dict[str, Any]:
-    deployment_root = _absolute(args.deployment_root)
-    univtac_root = _absolute(args.univtac_root)
-    checkpoint_root = _absolute(args.checkpoint_root)
+    deployment_root = resolve_deployment_root(args.deployment_root)
+    layout = DeploymentLayout(deployment_root)
+    initialize_deployment_layout(layout)
+    univtac_root = _absolute(args.univtac_root or layout.sources / "UniVTAC")
+    checkpoint_root = _absolute(args.checkpoint_root or layout.model_artifacts / "act")
     tactile = _artifact_manifest(
         profile=OfficialACTProfile.UNIVTAC,
         checkpoint_root=checkpoint_root,
@@ -254,7 +261,7 @@ def _generate(args: argparse.Namespace) -> dict[str, Any]:
     output = (
         _absolute(args.output)
         if args.output is not None
-        else (deployment_root / "requests/live_univtac" / matrix_id)
+        else (layout.requests / "four-condition" / matrix_id)
     )
     output.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=f".{matrix_id}.staging-", dir=output.parent))

@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robotactile.invalid/schemas/n0_protocol_alignment.schema.json",
+  "title": "N0-TWAM UniVTAC protocol alignment report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "evaluation_semantics",
+    "reference_id",
+    "reference_sha256",
+    "reference_report_url",
+    "campaign_id",
+    "campaign_manifest_sha256",
+    "protocol_id",
+    "planned_trial_count",
+    "loaded_artifact_count",
+    "completed_task_count",
+    "eligible_trial_count",
+    "success_count",
+    "observed_success_rate",
+    "reported_macro_success_rate",
+    "reported_rate_difference",
+    "go_for_integration_diagnostic",
+    "go_for_paper_comparison",
+    "blocker_codes",
+    "gates",
+    "trials",
+    "claim_boundaries",
+    "evidence_level",
+    "semantic_version",
+    "report_content_sha256"
+  ],
+  "properties": {
+    "evaluation_semantics": {"const": "official_reproduction"},
+    "reference_id": {"type": "string", "minLength": 1},
+    "reference_sha256": {"$ref": "#/$defs/sha256"},
+    "reference_report_url": {"type": "string", "pattern": "^https://"},
+    "campaign_id": {"type": "string", "minLength": 1},
+    "campaign_manifest_sha256": {"$ref": "#/$defs/sha256"},
+    "protocol_id": {"enum": ["diagnostic_v1", "pilot_v1", "paper_v1"]},
+    "planned_trial_count": {"type": "integer", "minimum": 1},
+    "loaded_artifact_count": {"type": "integer", "minimum": 0},
+    "completed_task_count": {"type": "integer", "minimum": 0, "maximum": 8},
+    "eligible_trial_count": {"type": "integer", "minimum": 0},
+    "success_count": {"type": "integer", "minimum": 0},
+    "observed_success_rate": {"$ref": "#/$defs/optionalRate"},
+    "reported_macro_success_rate": {"type": "number", "minimum": 0, "maximum": 1},
+    "reported_rate_difference": {
+      "oneOf": [
+        {"type": "null"},
+        {"type": "number", "minimum": -1, "maximum": 1}
+      ]
+    },
+    "go_for_integration_diagnostic": {"type": "boolean"},
+    "go_for_paper_comparison": {"type": "boolean"},
+    "blocker_codes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "gates": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/gate"}},
+    "trials": {"type": "array", "items": {"$ref": "#/$defs/trial"}},
+    "claim_boundaries": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "evidence_level": {"const": "verified_clean_artifact_protocol_alignment_v1"},
+    "semantic_version": {"const": "1.0"},
+    "report_content_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "optionalRate": {
+      "oneOf": [
+        {"type": "null"},
+        {"type": "number", "minimum": 0, "maximum": 1}
+      ]
+    },
+    "optionalBoolean": {"type": ["boolean", "null"]},
+    "optionalString": {"type": ["string", "null"]},
+    "status": {"enum": ["pass", "fail", "unknown"]},
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gate_id", "status", "code", "detail", "affected_tasks",
+        "paper_blocking"
+      ],
+      "properties": {
+        "gate_id": {"type": "string", "minLength": 1},
+        "status": {"$ref": "#/$defs/status"},
+        "code": {"type": "string", "minLength": 1},
+        "detail": {"type": "string", "minLength": 1},
+        "affected_tasks": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "paper_blocking": {"type": "boolean"}
+      }
+    },
+    "trial": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ordinal", "task_id", "artifact_root_sha256", "terminal_status",
+        "score_success", "observation_count", "control_cycle_count",
+        "transition_count", "executed_action_count", "first_signal", "last_signal",
+        "classification", "immediate_terminal", "initial_success_check",
+        "initial_early_stop", "detailed_predicate_witness",
+        "transition_contract_status", "execution_contract_status", "cadence_status",
+        "reset_mode", "action_execution_mode", "failure_stage", "failure_code"
+      ],
+      "properties": {
+        "ordinal": {"type": "integer", "minimum": 0},
+        "task_id": {"type": "string", "minLength": 1},
+        "artifact_root_sha256": {"$ref": "#/$defs/sha256"},
+        "terminal_status": {"type": "string", "minLength": 1},
+        "score_success": {"$ref": "#/$defs/optionalBoolean"},
+        "observation_count": {"type": "integer", "minimum": 0},
+        "control_cycle_count": {"type": "integer", "minimum": 0},
+        "transition_count": {"type": "integer", "minimum": 0},
+        "executed_action_count": {"type": "integer", "minimum": 0},
+        "first_signal": {"$ref": "#/$defs/optionalString"},
+        "last_signal": {"$ref": "#/$defs/optionalString"},
+        "classification": {"type": "string", "minLength": 1},
+        "immediate_terminal": {"type": "boolean"},
+        "initial_success_check": {"$ref": "#/$defs/optionalBoolean"},
+        "initial_early_stop": {"$ref": "#/$defs/optionalBoolean"},
+        "detailed_predicate_witness": {"type": "boolean"},
+        "transition_contract_status": {"$ref": "#/$defs/status"},
+        "execution_contract_status": {"$ref": "#/$defs/status"},
+        "cadence_status": {"$ref": "#/$defs/status"},
+        "reset_mode": {"$ref": "#/$defs/optionalString"},
+        "action_execution_mode": {"$ref": "#/$defs/optionalString"},
+        "failure_stage": {"$ref": "#/$defs/optionalString"},
+        "failure_code": {"$ref": "#/$defs/optionalString"}
+      }
+    }
+  }
+}

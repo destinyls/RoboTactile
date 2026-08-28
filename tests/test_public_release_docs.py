@@ -6,7 +6,22 @@ import re
 import subprocess
 from pathlib import Path
 
+from robotactile_benchmark.execution.contracts import (
+    production_univtac_launcher_args,
+)
+from robotactile_benchmark.execution.loading import (
+    load_live_univtac_request,
+    load_live_univtac_run,
+)
+from robotactile_benchmark.integrations.act.artifacts import (
+    load_act_artifact_manifest,
+)
+from robotactile_benchmark.integrations.n0_twam.artifacts import (
+    load_n0_twam_artifact_manifest,
+)
+
 ROOT = Path(__file__).resolve().parents[1]
+N0_TWAM_COMMIT = "c43a2160dd31c449d92b28eab52c0e2f09e4738a"
 REQUIRED = (
     "BENCHMARK_CARD.md",
     "CITATION.cff",
@@ -19,14 +34,20 @@ REQUIRED = (
     "docs/isaac_sim.md",
     "docs/quickstart.md",
     "docs/model_integrations.md",
+    "docs/reproducibility.md",
     "docs/evidence_levels.md",
+    "configs/reporting_spec.example.json",
     "requirements/README.md",
     "requirements/core.lock.txt",
     "requirements/dev.lock.txt",
+    "requirements/visualization.lock.txt",
     "scripts/bootstrap_pip.sh",
+    "scripts/README.md",
     "examples/act/README.md",
+    "examples/act/artifact_manifest.example.json",
     "examples/act/request.json",
     "examples/n0_twam/README.md",
+    "examples/n0_twam/artifact_manifest.example.json",
     "examples/n0_twam/request.json",
     "integrations/install_pinned_repo.sh",
     "integrations/install_act_runtime.sh",
@@ -63,6 +84,39 @@ def test_notice_and_examples_present_symmetric_model_boundaries() -> None:
     assert "ACT" in act and "PolicyAdapter" in act
     assert "N0-TWAM" in n0 and "PolicyAdapter" in n0
     assert "unsupported_contract" in n0
+    assert N0_TWAM_COMMIT in notice
+
+
+def test_public_model_examples_pass_runtime_structure_gates() -> None:
+    """Examples are structurally loadable before real-file/hash validation."""
+
+    act_request = load_live_univtac_request(ROOT / "examples/act/request.json")
+    n0_request = load_live_univtac_request(ROOT / "examples/n0_twam/request.json")
+
+    for request in (act_request, n0_request):
+        assert dict(request.launcher_args) == production_univtac_launcher_args()
+        assert (
+            request.upstream_root.resolve()
+            == (ROOT / "deployment/sources/UniVTAC").resolve()
+        )
+        assert request.checkpoint_sha256 == "0" * 64
+        assert load_live_univtac_run(request).run_spec.execute_action_steps == (
+            request.execute_action_steps
+        )
+
+    assert act_request.execute_action_steps == 1
+    assert n0_request.execute_action_steps == 24
+    assert n0_request.n0_source_commit == N0_TWAM_COMMIT
+
+    act_manifest = load_act_artifact_manifest(
+        ROOT / "examples/act/artifact_manifest.example.json"
+    )
+    n0_manifest = load_n0_twam_artifact_manifest(
+        ROOT / "examples/n0_twam/artifact_manifest.example.json"
+    )
+    assert act_manifest.checkpoint_sha256 == "0" * 64
+    assert n0_manifest.checkpoint_sha256 == "0" * 64
+    assert n0_manifest.external_commit == N0_TWAM_COMMIT
 
 
 def test_install_scripts_are_syntax_valid_and_contain_no_secret() -> None:
@@ -89,6 +143,7 @@ def test_readme_links_to_public_release_guides() -> None:
         "docs/isaac_sim.md",
         "docs/model_integrations.md",
         "docs/quickstart.md",
+        "docs/reproducibility.md",
         "requirements/README.md",
         "THIRD_PARTY_NOTICES.md",
     ):
@@ -111,9 +166,10 @@ def test_isaac_guide_covers_install_run_and_evidence_boundaries() -> None:
         "install_curobo_v0_7_7.sh",
         "generate_pull_out_key_matrix.py",
         "robotactile preflight-live",
-        "robotactile live-univtac-run",
+        "live-univtac-paired-run",
         "infrastructure_launch_only",
         "unqualified_live_univtac_execution_v1",
+        "unqualified_paired_live_univtac_execution_v1",
         "simulator_qualification_claimed=false",
     )
     assert all(token in guide for token in required_tokens)

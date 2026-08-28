@@ -1,0 +1,280 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robotactile.invalid/schemas/clean_baseline_summary.schema.json",
+  "title": "RoboTactile CleanBaselineSummary",
+  "description": "Strict aggregate of verified clean live artifacts. It is not itself simulator qualification evidence.",
+  "type": "object",
+  "oneOf": [
+    {"$ref": "#/$defs/summaryV1"},
+    {"$ref": "#/$defs/summaryV2"}
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "rate": {"type": "number", "minimum": 0, "maximum": 1},
+    "nullableRate": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+    "nullableSha256": {
+      "oneOf": [{"type": "null"}, {"$ref": "#/$defs/sha256"}]
+    },
+    "nullableString": {
+      "oneOf": [{"type": "null"}, {"type": "string", "minLength": 1}]
+    },
+    "terminalStatusCounts": {
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    },
+    "wilsonInterval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "estimate", "lower", "upper", "confidence_level", "success_count",
+        "trial_count"
+      ],
+      "properties": {
+        "estimate": {"$ref": "#/$defs/rate"},
+        "lower": {"$ref": "#/$defs/rate"},
+        "upper": {"$ref": "#/$defs/rate"},
+        "confidence_level": {
+          "type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1
+        },
+        "success_count": {"type": "integer", "minimum": 0},
+        "trial_count": {"type": "integer", "minimum": 1}
+      }
+    },
+    "bootstrapInterval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "estimate", "lower", "upper", "confidence_level", "valid_resamples",
+        "task_count", "pair_count"
+      ],
+      "properties": {
+        "estimate": {"$ref": "#/$defs/rate"},
+        "lower": {"$ref": "#/$defs/rate"},
+        "upper": {"$ref": "#/$defs/rate"},
+        "confidence_level": {
+          "type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1
+        },
+        "valid_resamples": {"type": "integer", "minimum": 1},
+        "task_count": {"type": "integer", "minimum": 1},
+        "pair_count": {"type": "integer", "minimum": 1}
+      }
+    },
+    "protocolInvalidTrial": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["trial_manifest_sha256", "reason_code"],
+      "properties": {
+        "trial_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "reason_code": {
+          "enum": [
+            "artifact_validation_failed", "attempt_receipt_missing",
+            "attempt_receipt_invalid", "attempt_return_code_nonzero",
+            "attempt_artifact_binding_mismatch", "multiple_attempt_receipts"
+          ]
+        }
+      }
+    },
+    "candidateProvenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task", "ordinal", "trial_manifest_sha256", "classification",
+        "attempt_receipt_sha256", "artifact_root_sha256", "exception_code"
+      ],
+      "properties": {
+        "task": {"type": "string", "minLength": 1},
+        "ordinal": {"type": "integer", "minimum": 0},
+        "trial_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "classification": {
+          "enum": [
+            "valid_outcome", "exception_replaced", "unused_reserve",
+            "missing_required_candidate"
+          ]
+        },
+        "attempt_receipt_sha256": {"$ref": "#/$defs/nullableSha256"},
+        "artifact_root_sha256": {"$ref": "#/$defs/nullableSha256"},
+        "exception_code": {"$ref": "#/$defs/nullableString"}
+      }
+    },
+    "taskBase": {
+      "type": "object",
+      "required": [
+        "task", "planned", "loaded", "missing", "eligible", "successes",
+        "failures", "ineligible", "protocol_invalid", "eligible_success_rate",
+        "wilson", "unique_initial_state_count", "terminal_status_counts"
+      ],
+      "properties": {
+        "task": {"type": "string", "minLength": 1},
+        "planned": {"type": "integer", "minimum": 0},
+        "loaded": {"type": "integer", "minimum": 0},
+        "missing": {"type": "integer", "minimum": 0},
+        "eligible": {"type": "integer", "minimum": 0},
+        "successes": {"type": "integer", "minimum": 0},
+        "failures": {"type": "integer", "minimum": 0},
+        "ineligible": {"type": "integer", "minimum": 0},
+        "protocol_invalid": {"type": "integer", "minimum": 0},
+        "eligible_success_rate": {"$ref": "#/$defs/nullableRate"},
+        "wilson": {
+          "oneOf": [{"type": "null"}, {"$ref": "#/$defs/wilsonInterval"}]
+        },
+        "unique_initial_state_count": {"type": "integer", "minimum": 0},
+        "terminal_status_counts": {"$ref": "#/$defs/terminalStatusCounts"}
+      }
+    },
+    "taskV1": {
+      "allOf": [{"$ref": "#/$defs/taskBase"}],
+      "unevaluatedProperties": false
+    },
+    "taskV2": {
+      "allOf": [
+        {"$ref": "#/$defs/taskBase"},
+        {
+          "type": "object",
+          "required": [
+            "target_valid_trial_count", "candidate_trial_count",
+            "attempted_candidate_count", "exception_replacement_count",
+            "unused_reserve_count", "valid_outcome_count",
+            "missing_required_candidate_count"
+          ],
+          "properties": {
+            "target_valid_trial_count": {"type": "integer", "minimum": 0},
+            "candidate_trial_count": {"type": "integer", "minimum": 0},
+            "attempted_candidate_count": {"type": "integer", "minimum": 0},
+            "exception_replacement_count": {"type": "integer", "minimum": 0},
+            "unused_reserve_count": {"type": "integer", "minimum": 0},
+            "valid_outcome_count": {"type": "integer", "minimum": 0},
+            "missing_required_candidate_count": {"type": "integer", "minimum": 0}
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "summaryBase": {
+      "type": "object",
+      "required": [
+        "campaign_id", "campaign_manifest_sha256", "protocol_id",
+        "protocol_allows_paper_claim", "paper_claim_eligible",
+        "paper_claim_blockers", "evidence_level", "simulator_qualification_claimed",
+        "policy_kind", "task_registry_sha256", "planned_trial_count",
+        "loaded_artifact_count", "missing_artifact_count", "eligible_trial_count",
+        "success_count", "failure_count", "ineligible_count", "protocol_invalid_count",
+        "protocol_invalid_trials", "artifact_completion_rate", "eligible_success_rate",
+        "macro_task_success_rate", "pooled_wilson", "task_stratified_bootstrap",
+        "terminal_status_counts", "missing_trial_manifest_sha256s",
+        "artifact_root_sha256s", "attempt_receipt_sha256s", "statistically_complete",
+        "confidence_level", "bootstrap_resamples", "bootstrap_seed",
+        "semantic_version"
+      ],
+      "properties": {
+        "campaign_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+        "campaign_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "protocol_id": {"enum": ["diagnostic_v1", "pilot_v1", "paper_v1"]},
+        "protocol_allows_paper_claim": {"type": "boolean"},
+        "paper_claim_eligible": {"const": false},
+        "paper_claim_blockers": {
+          "type": "array", "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "evidence_level": {"type": "string", "minLength": 1},
+        "simulator_qualification_claimed": {"const": false},
+        "policy_kind": {"enum": ["act", "n0"]},
+        "task_registry_sha256": {"$ref": "#/$defs/sha256"},
+        "planned_trial_count": {"type": "integer", "minimum": 1},
+        "loaded_artifact_count": {"type": "integer", "minimum": 0},
+        "missing_artifact_count": {"type": "integer", "minimum": 0},
+        "eligible_trial_count": {"type": "integer", "minimum": 0},
+        "success_count": {"type": "integer", "minimum": 0},
+        "failure_count": {"type": "integer", "minimum": 0},
+        "ineligible_count": {"type": "integer", "minimum": 0},
+        "protocol_invalid_count": {"type": "integer", "minimum": 0},
+        "protocol_invalid_trials": {
+          "type": "array", "uniqueItems": true,
+          "items": {"$ref": "#/$defs/protocolInvalidTrial"}
+        },
+        "artifact_completion_rate": {"$ref": "#/$defs/rate"},
+        "eligible_success_rate": {"$ref": "#/$defs/nullableRate"},
+        "macro_task_success_rate": {"$ref": "#/$defs/nullableRate"},
+        "pooled_wilson": {
+          "oneOf": [{"type": "null"}, {"$ref": "#/$defs/wilsonInterval"}]
+        },
+        "task_stratified_bootstrap": {
+          "oneOf": [{"type": "null"}, {"$ref": "#/$defs/bootstrapInterval"}]
+        },
+        "terminal_status_counts": {"$ref": "#/$defs/terminalStatusCounts"},
+        "missing_trial_manifest_sha256s": {
+          "type": "array", "uniqueItems": true,
+          "items": {"$ref": "#/$defs/sha256"}
+        },
+        "artifact_root_sha256s": {
+          "type": "array", "uniqueItems": true,
+          "items": {"$ref": "#/$defs/sha256"}
+        },
+        "attempt_receipt_sha256s": {
+          "type": "array", "uniqueItems": true,
+          "items": {"$ref": "#/$defs/sha256"}
+        },
+        "statistically_complete": {"type": "boolean"},
+        "confidence_level": {
+          "type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1
+        },
+        "bootstrap_resamples": {"type": "integer", "minimum": 1},
+        "bootstrap_seed": {"type": "integer", "minimum": 0}
+      }
+    },
+    "summaryV1": {
+      "allOf": [
+        {"$ref": "#/$defs/summaryBase"},
+        {
+          "type": "object",
+          "required": ["task_summaries"],
+          "properties": {
+            "task_summaries": {
+              "type": "array", "minItems": 1,
+              "items": {"$ref": "#/$defs/taskV1"}
+            },
+            "semantic_version": {"const": "1.0"}
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "summaryV2": {
+      "allOf": [
+        {"$ref": "#/$defs/summaryBase"},
+        {
+          "type": "object",
+          "required": [
+            "task_summaries", "target_valid_trial_count", "candidate_trial_count",
+            "attempted_candidate_count", "exception_replacement_count",
+            "unused_reserve_count", "valid_outcome_count",
+            "missing_required_candidate_count", "candidate_provenance",
+            "exception_attempt_receipt_sha256s"
+          ],
+          "properties": {
+            "task_summaries": {
+              "type": "array", "minItems": 1,
+              "items": {"$ref": "#/$defs/taskV2"}
+            },
+            "target_valid_trial_count": {"type": "integer", "minimum": 0},
+            "candidate_trial_count": {"type": "integer", "minimum": 0},
+            "attempted_candidate_count": {"type": "integer", "minimum": 0},
+            "exception_replacement_count": {"type": "integer", "minimum": 0},
+            "unused_reserve_count": {"type": "integer", "minimum": 0},
+            "valid_outcome_count": {"type": "integer", "minimum": 0},
+            "missing_required_candidate_count": {"type": "integer", "minimum": 0},
+            "candidate_provenance": {
+              "type": "array", "minItems": 1,
+              "items": {"$ref": "#/$defs/candidateProvenance"}
+            },
+            "exception_attempt_receipt_sha256s": {
+              "type": "array", "uniqueItems": true,
+              "items": {"$ref": "#/$defs/sha256"}
+            },
+            "semantic_version": {"const": "2.0"}
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    }
+  }
+}

@@ -161,10 +161,11 @@ def delivery_trace_to_live_dict(
     return {
         "finalization": {
             "clean_records": [
-                _record_to_dict(record, arrays) for record in finalization.clean_records
+                evaluation_record_to_live_dict(record, arrays)
+                for record in finalization.clean_records
             ],
             "delivered_records": [
-                _record_to_dict(record, arrays)
+                evaluation_record_to_live_dict(record, arrays)
                 for record in finalization.delivered_records
             ],
             "clean_trace_sha256": finalization.clean_trace_sha256,
@@ -217,10 +218,12 @@ def delivery_trace_from_live_dict(
         raise LiveArtifactValidationError("live observation lists are outside bounds")
     return DeliveryFinalization(
         clean_records=tuple(
-            _record_from_dict(item, snapshot, referenced_paths) for item in clean
+            evaluation_record_from_live_dict(item, snapshot, referenced_paths)
+            for item in clean
         ),
         delivered_records=tuple(
-            _record_from_dict(item, snapshot, referenced_paths) for item in delivered
+            evaluation_record_from_live_dict(item, snapshot, referenced_paths)
+            for item in delivered
         ),
         validation=validation,
         clean_trace_sha256=require_live_sha256(
@@ -233,6 +236,32 @@ def delivery_trace_from_live_dict(
             finalization["manifest_sha256"], "finalization manifest"
         ),
     )
+
+
+def evaluation_record_to_live_dict(
+    record: EvaluationRecord, arrays: LiveArrayWriter
+) -> dict[str, object]:
+    """Encode one evaluation record with content-addressed live arrays."""
+
+    if not isinstance(record, EvaluationRecord):
+        raise TypeError("live record encoder requires EvaluationRecord")
+    if not isinstance(arrays, LiveArrayWriter):
+        raise TypeError("live record encoder requires LiveArrayWriter")
+    return _record_to_dict(record, arrays)
+
+
+def evaluation_record_from_live_dict(
+    value: object,
+    snapshot: LiveBundleSnapshot,
+    referenced_paths: set[str],
+) -> EvaluationRecord:
+    """Strictly reconstruct one evaluation record from a live bundle."""
+
+    if not isinstance(snapshot, LiveBundleSnapshot):
+        raise TypeError("live record decoder requires LiveBundleSnapshot")
+    if not isinstance(referenced_paths, set):
+        raise TypeError("referenced_paths must be a set")
+    return _record_from_dict(value, snapshot, referenced_paths)
 
 
 def _record_to_dict(

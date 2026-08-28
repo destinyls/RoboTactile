@@ -17,10 +17,8 @@ from robotactile_benchmark.backends.univtac_contracts import UniVTACBackendConfi
 from robotactile_benchmark.backends.univtac_conversion import (
     UniVTACConversionError,
 )
-from robotactile_benchmark.backends.univtac_isaac import (
-    UniVTACIsaacBackend,
-    resolve_backend_signal,
-)
+from robotactile_benchmark.backends.univtac_isaac import UniVTACIsaacBackend
+from robotactile_benchmark.backends.univtac_signals import resolve_backend_signal
 from robotactile_benchmark.closed_loop.contracts import (
     ACTION_SPEC,
     BackendSignal,

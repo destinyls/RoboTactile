@@ -8,6 +8,11 @@ from pathlib import Path
 from robotactile_benchmark.integrations.act.artifacts import (
     load_act_artifact_manifest,
 )
+from robotactile_benchmark.integrations.n0_twam.artifacts import (
+    N0TWAMArtifactManifest,
+    load_n0_twam_artifact_manifest,
+    validate_n0_twam_artifact,
+)
 from robotactile_benchmark.integrations.registry import (
     load_model_integration_config,
 )
@@ -18,6 +23,14 @@ class ACTRuntimeArtifacts:
     artifact_root: Path
     stats_sha256: str
     encoder_sha256: str
+    manifest_path: Path
+
+
+@dataclass(frozen=True)
+class N0RuntimeArtifacts:
+    """Validated official N0 serving artifacts selected by one config."""
+
+    manifest: N0TWAMArtifactManifest
     manifest_path: Path
 
 
@@ -38,4 +51,22 @@ def resolve_act_runtime_artifacts(config_path: Path) -> ACTRuntimeArtifacts:
     )
 
 
-__all__ = ["ACTRuntimeArtifacts", "resolve_act_runtime_artifacts"]
+def resolve_n0_runtime_artifacts(config_path: Path) -> N0RuntimeArtifacts:
+    """Strict-load and re-hash the official N0 artifact configuration."""
+
+    selected_config = Path(config_path).absolute()
+    config = load_model_integration_config("n0_twam", selected_config)
+    manifest_path = Path(config.artifact_manifest)
+    if not manifest_path.is_absolute():
+        manifest_path = selected_config.parent / manifest_path
+    manifest = load_n0_twam_artifact_manifest(manifest_path)
+    validate_n0_twam_artifact(manifest)
+    return N0RuntimeArtifacts(manifest=manifest, manifest_path=manifest_path)
+
+
+__all__ = [
+    "ACTRuntimeArtifacts",
+    "N0RuntimeArtifacts",
+    "resolve_act_runtime_artifacts",
+    "resolve_n0_runtime_artifacts",
+]

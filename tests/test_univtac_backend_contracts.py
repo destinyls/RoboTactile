@@ -7,10 +7,15 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
+from robotactile_benchmark.action_specs import EE8_ACTION_SPEC
 from robotactile_benchmark.backends.univtac_contracts import (
     ACTION_MODE,
     DECIMATION,
     EARLY_STOP_NONE_IS_FALSE_TASK_IDS,
+    FIXED_NATIVE_STEP_CONTRACT,
+    N0_DECIMATION,
+    N0_PHYSICS_STEPS_PER_ACTION,
+    N0_TRAINING_60HZ_ACTION_EXECUTION_CONTRACT,
     PHYSICS_STEPS_PER_ACTION,
     SIM_HZ,
     UPSTREAM_COMMIT,
@@ -91,6 +96,28 @@ print(json.dumps(blocked))
             config.canonical_joint_names,
             tuple(f"panda_joint{index}" for index in range(1, 8))
             + ("panda_finger_joint1", "panda_finger_joint2"),
+        )
+
+    def test_n0_ee8_uses_released_checkpoint_tactile_payload(self) -> None:
+        config = build_univtac_backend_config(
+            "lift_bottle", action_spec=EE8_ACTION_SPEC
+        )
+
+        self.assertEqual(config.action_spec, EE8_ACTION_SPEC)
+        self.assertEqual(config.aliases.tactile_payload, "rgb")
+        self.assertEqual(config.decimation, N0_DECIMATION)
+        self.assertEqual(
+            config.physics_steps_per_action,
+            N0_PHYSICS_STEPS_PER_ACTION,
+        )
+        self.assertEqual(config.fixed_physics_steps_per_action, 2)
+        self.assertEqual(
+            config.action_execution_contract,
+            N0_TRAINING_60HZ_ACTION_EXECUTION_CONTRACT,
+        )
+        self.assertEqual(
+            config.native_step_contract,
+            FIXED_NATIVE_STEP_CONTRACT,
         )
 
     def test_registry_and_handshake_tampering_fail_closed(self) -> None:

@@ -1,0 +1,307 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robotactile.invalid/schemas/univtac_all_tasks_qualification.schema.json",
+  "title": "RoboTactile UniVTAC All-Task Qualification",
+  "type": "object",
+  "oneOf": [
+    {"$ref": "#/$defs/qualificationV1"},
+    {"$ref": "#/$defs/qualificationV2"},
+    {"$ref": "#/$defs/qualificationV3"}
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "deploymentPath": {
+      "type": "string",
+      "pattern": "^(artifacts|outputs|requests)/[A-Za-z0-9._/-]+$"
+    },
+    "receiptPath": {
+      "type": "string",
+      "pattern": "^artifacts/deployment/[A-Za-z0-9._/-]+\\.json$"
+    },
+    "hashes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/sha256"}
+    },
+    "paths": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/receiptPath"}
+    },
+    "taskId": {
+      "enum": [
+        "grasp_classify",
+        "insert_HDMI",
+        "insert_hole",
+        "insert_tube",
+        "lift_bottle",
+        "lift_can",
+        "pull_out_key",
+        "put_bottle_in_shelf"
+      ]
+    },
+    "taskBase": {
+      "type": "object",
+      "required": [
+        "exogenous_seed",
+        "import_receipt_relpath",
+        "import_receipt_sha256",
+        "initial_seed",
+        "pairing_receipt_relpaths",
+        "pairing_receipt_sha256s",
+        "reset_receipt_relpaths",
+        "reset_receipt_sha256s",
+        "task_id"
+      ],
+      "properties": {
+        "exogenous_seed": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+        "import_receipt_relpath": {"$ref": "#/$defs/receiptPath"},
+        "import_receipt_sha256": {"$ref": "#/$defs/sha256"},
+        "initial_seed": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+        "pairing_receipt_relpaths": {"$ref": "#/$defs/paths"},
+        "pairing_receipt_sha256s": {"$ref": "#/$defs/hashes"},
+        "reset_receipt_relpaths": {"$ref": "#/$defs/paths"},
+        "reset_receipt_sha256s": {"$ref": "#/$defs/hashes"},
+        "task_id": {"$ref": "#/$defs/taskId"}
+      }
+    },
+    "taskV1": {
+      "allOf": [{"$ref": "#/$defs/taskBase"}],
+      "unevaluatedProperties": false
+    },
+    "taskV2": {
+      "allOf": [
+        {"$ref": "#/$defs/taskBase"},
+        {
+          "required": ["observation_parity_relpath", "observation_parity_sha256"],
+          "properties": {
+            "observation_parity_relpath": {"$ref": "#/$defs/deploymentPath"},
+            "observation_parity_sha256": {"$ref": "#/$defs/sha256"}
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "sourceBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action_execution_contract",
+        "checkpoint_sha256",
+        "config_sha256",
+        "input_profile_sha256",
+        "integrations_lock_sha256",
+        "n0_source_commit",
+        "native_step_contract",
+        "normalizer_sha256",
+        "prompt_manifest_sha256",
+        "robotactile_source_manifest_sha256",
+        "robotactile_wheel_sha256",
+        "serve_bundle_sha256",
+        "univtac_source_commit"
+      ],
+      "properties": {
+        "action_execution_contract": {"type": "string", "minLength": 1},
+        "checkpoint_sha256": {"$ref": "#/$defs/sha256"},
+        "config_sha256": {"$ref": "#/$defs/sha256"},
+        "input_profile_sha256": {"$ref": "#/$defs/sha256"},
+        "integrations_lock_sha256": {"$ref": "#/$defs/sha256"},
+        "n0_source_commit": {"$ref": "#/$defs/commit"},
+        "native_step_contract": {"type": "string", "minLength": 1},
+        "normalizer_sha256": {"$ref": "#/$defs/sha256"},
+        "prompt_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "robotactile_source_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "robotactile_wheel_sha256": {"$ref": "#/$defs/sha256"},
+        "serve_bundle_sha256": {"$ref": "#/$defs/sha256"},
+        "univtac_source_commit": {"$ref": "#/$defs/commit"}
+      }
+    },
+    "taskV3": {
+      "allOf": [
+        {"$ref": "#/$defs/taskBase"},
+        {
+          "required": [
+            "observation_parity_relpath",
+            "observation_parity_sha256",
+            "source_binding"
+          ],
+          "properties": {
+            "observation_parity_relpath": {"$ref": "#/$defs/deploymentPath"},
+            "observation_parity_sha256": {"$ref": "#/$defs/sha256"},
+            "source_binding": {"$ref": "#/$defs/sourceBinding"}
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "evidenceBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["content_sha256", "kind", "relpath", "sha256"],
+      "properties": {
+        "content_sha256": {"type": "null"},
+        "kind": {"type": "string"},
+        "relpath": {"$ref": "#/$defs/receiptPath"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "isaacInstallReceipt": {
+      "allOf": [
+        {"$ref": "#/$defs/evidenceBinding"},
+        {"properties": {"kind": {"const": "isaac_install_receipt"}}}
+      ]
+    },
+    "n0ClientInstallReceipt": {
+      "allOf": [
+        {"$ref": "#/$defs/evidenceBinding"},
+        {"properties": {"kind": {"const": "n0_client_install_receipt"}}}
+      ]
+    },
+    "n0RuntimeReceipt": {
+      "allOf": [
+        {"$ref": "#/$defs/evidenceBinding"},
+        {"properties": {"kind": {"const": "n0_runtime_receipt"}}}
+      ]
+    },
+    "tacexInstallReceipt": {
+      "allOf": [
+        {"$ref": "#/$defs/evidenceBinding"},
+        {"properties": {"kind": {"const": "tacex_install_receipt"}}}
+      ]
+    },
+    "qualificationBase": {
+      "type": "object",
+      "required": [
+        "action_spec",
+        "campaign_id",
+        "closed_loop_episode_executed",
+        "master_seed",
+        "policy_loaded",
+        "repetitions",
+        "recorded_at_utc",
+        "seed_derivation",
+        "success_rate_claimed"
+      ],
+      "properties": {
+        "action_spec": {"type": "string"},
+        "campaign_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+        "closed_loop_episode_executed": {"const": false},
+        "master_seed": {"type": "integer", "minimum": 0},
+        "policy_loaded": {"const": false},
+        "repetitions": {"type": "integer", "minimum": 1},
+        "recorded_at_utc": {"type": "string", "minLength": 1},
+        "seed_derivation": {"const": "sha256_signed31_v1"},
+        "success_rate_claimed": {"const": false}
+      }
+    },
+    "qualificationV1": {
+      "allOf": [
+        {"$ref": "#/$defs/qualificationBase"},
+        {
+          "required": ["evidence_level", "semantic_version", "tasks"],
+          "properties": {
+            "action_spec": {"enum": ["qpos8_next_step", "ee8_absolute"]},
+            "evidence_level": {"const": "all_tasks_reset_action_contract_qualification_v1"},
+            "semantic_version": {"const": "1.0"},
+            "tasks": {
+              "type": "array",
+              "minItems": 8,
+              "maxItems": 8,
+              "items": {"$ref": "#/$defs/taskV1"}
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "qualificationV2": {
+      "allOf": [
+        {"$ref": "#/$defs/qualificationBase"},
+        {
+          "required": [
+            "campaign_manifest_relpath",
+            "campaign_manifest_sha256",
+            "evidence_level",
+            "installation_receipts",
+            "semantic_version",
+            "source_binding",
+            "tasks"
+          ],
+          "properties": {
+            "action_spec": {"const": "ee8_absolute"},
+            "campaign_manifest_relpath": {"$ref": "#/$defs/deploymentPath"},
+            "campaign_manifest_sha256": {"$ref": "#/$defs/sha256"},
+            "evidence_level": {
+              "const": "source_bound_all_tasks_observation_action_contract_qualification_v2"
+            },
+            "installation_receipts": {
+              "type": "array",
+              "minItems": 4,
+              "maxItems": 4,
+              "prefixItems": [
+                {"$ref": "#/$defs/isaacInstallReceipt"},
+                {"$ref": "#/$defs/n0ClientInstallReceipt"},
+                {"$ref": "#/$defs/n0RuntimeReceipt"},
+                {"$ref": "#/$defs/tacexInstallReceipt"}
+              ],
+              "items": false
+            },
+            "semantic_version": {"const": "2.0"},
+            "source_binding": {"$ref": "#/$defs/sourceBinding"},
+            "tasks": {
+              "type": "array",
+              "minItems": 8,
+              "maxItems": 8,
+              "items": {"$ref": "#/$defs/taskV2"}
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "qualificationV3": {
+      "allOf": [
+        {"$ref": "#/$defs/qualificationBase"},
+        {
+          "required": [
+            "campaign_manifest_relpath",
+            "campaign_manifest_sha256",
+            "evidence_level",
+            "installation_receipts",
+            "semantic_version",
+            "tasks"
+          ],
+          "properties": {
+            "action_spec": {"const": "ee8_absolute"},
+            "campaign_manifest_relpath": {"$ref": "#/$defs/deploymentPath"},
+            "campaign_manifest_sha256": {"$ref": "#/$defs/sha256"},
+            "evidence_level": {
+              "const": "task_source_bound_all_tasks_observation_action_contract_qualification_v3"
+            },
+            "installation_receipts": {
+              "type": "array",
+              "minItems": 4,
+              "maxItems": 4,
+              "prefixItems": [
+                {"$ref": "#/$defs/isaacInstallReceipt"},
+                {"$ref": "#/$defs/n0ClientInstallReceipt"},
+                {"$ref": "#/$defs/n0RuntimeReceipt"},
+                {"$ref": "#/$defs/tacexInstallReceipt"}
+              ],
+              "items": false
+            },
+            "semantic_version": {"const": "3.0"},
+            "tasks": {
+              "type": "array",
+              "minItems": 8,
+              "maxItems": 8,
+              "items": {"$ref": "#/$defs/taskV3"}
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    }
+  }
+}

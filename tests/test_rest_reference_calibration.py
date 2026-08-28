@@ -45,6 +45,9 @@ from robotactile_benchmark.execution import (
     load_live_univtac_run,
     write_live_univtac_artifact,
 )
+from robotactile_benchmark.execution.contracts import (
+    production_univtac_launcher_args,
+)
 from robotactile_benchmark.fixtures import make_synthetic_episode
 from robotactile_benchmark.rest_references import ReferenceSplit
 from robotactile_benchmark.trials import Condition
@@ -120,7 +123,7 @@ def _request(root: Path, task: str = "pull_out_key") -> LiveUniVTACRunRequest:
         matched_no_touch_artifact_path=None,
         act_device_name="cpu",
         simulator_device=None,
-        launcher_args={"headless": True},
+        launcher_args=production_univtac_launcher_args(),
     )
 
 

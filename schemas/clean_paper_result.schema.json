@@ -1,0 +1,246 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robotactile.invalid/schemas/clean_paper_result.schema.json",
+  "title": "RoboTactile Qualified Clean Paper Result",
+  "type": "object",
+  "oneOf": [
+    {"$ref": "#/$defs/paperResultV1"},
+    {"$ref": "#/$defs/paperResultV2"},
+    {"$ref": "#/$defs/paperResultV3"}
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "path": {"type": "string", "pattern": "^[A-Za-z0-9._/-]+$"},
+    "nullableRate": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+    "sourceBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action_execution_contract",
+        "checkpoint_sha256",
+        "config_sha256",
+        "input_profile_sha256",
+        "integrations_lock_sha256",
+        "n0_source_commit",
+        "native_step_contract",
+        "normalizer_sha256",
+        "prompt_manifest_sha256",
+        "robotactile_source_manifest_sha256",
+        "robotactile_wheel_sha256",
+        "serve_bundle_sha256",
+        "univtac_source_commit"
+      ],
+      "properties": {
+        "action_execution_contract": {"type": "string", "minLength": 1},
+        "checkpoint_sha256": {"$ref": "#/$defs/sha256"},
+        "config_sha256": {"$ref": "#/$defs/sha256"},
+        "input_profile_sha256": {"$ref": "#/$defs/sha256"},
+        "integrations_lock_sha256": {"$ref": "#/$defs/sha256"},
+        "n0_source_commit": {"$ref": "#/$defs/commit"},
+        "native_step_contract": {"type": "string", "minLength": 1},
+        "normalizer_sha256": {"$ref": "#/$defs/sha256"},
+        "prompt_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "robotactile_source_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "robotactile_wheel_sha256": {"$ref": "#/$defs/sha256"},
+        "serve_bundle_sha256": {"$ref": "#/$defs/sha256"},
+        "univtac_source_commit": {"$ref": "#/$defs/commit"}
+      }
+    },
+    "taskRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["eligible", "failures", "success_rate", "successes", "task", "wilson"],
+      "properties": {
+        "eligible": {"type": "integer", "minimum": 0},
+        "failures": {"type": "integer", "minimum": 0},
+        "success_rate": {"$ref": "#/$defs/nullableRate"},
+        "successes": {"type": "integer", "minimum": 0},
+        "task": {"type": "string", "minLength": 1},
+        "wilson": {"type": ["object", "null"]}
+      }
+    },
+    "attemptAttestation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_root_sha256",
+        "attempt_receipt_sha256",
+        "isaac_attestation_sha256",
+        "n0_server_attestation_sha256",
+        "ordinal",
+        "qualification_sha256",
+        "task"
+      ],
+      "properties": {
+        "artifact_root_sha256": {"$ref": "#/$defs/sha256"},
+        "attempt_receipt_sha256": {"$ref": "#/$defs/sha256"},
+        "isaac_attestation_sha256": {"$ref": "#/$defs/sha256"},
+        "n0_server_attestation_sha256": {"$ref": "#/$defs/sha256"},
+        "ordinal": {"type": "integer", "minimum": 0},
+        "qualification_sha256": {"$ref": "#/$defs/sha256"},
+        "task": {"type": "string", "minLength": 1}
+      }
+    },
+    "paperResultBase": {
+      "type": "object",
+      "required": [
+        "bootstrap_interval",
+        "campaign_id",
+        "campaign_manifest_sha256",
+        "csv_relpath",
+        "csv_sha256",
+        "eligible_trial_count",
+        "failure_count",
+        "latex_relpath",
+        "latex_sha256",
+        "macro_task_success_rate",
+        "paper_claim_blockers",
+        "paper_claim_eligible",
+        "planned_trial_count",
+        "policy_kind",
+        "pooled_success_rate",
+        "pooled_wilson",
+        "protocol_id",
+        "qualification_action_spec",
+        "qualification_campaign_id",
+        "qualification_relpath",
+        "qualification_repetitions",
+        "qualification_sha256",
+        "success_count",
+        "summary_relpath",
+        "summary_sha256",
+        "task_registry_sha256",
+        "task_rows"
+      ],
+      "properties": {
+        "bootstrap_interval": {"type": ["object", "null"]},
+        "campaign_id": {"type": "string", "minLength": 1},
+        "campaign_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "csv_relpath": {"$ref": "#/$defs/path"},
+        "csv_sha256": {"$ref": "#/$defs/sha256"},
+        "eligible_trial_count": {"type": "integer", "minimum": 0},
+        "failure_count": {"type": "integer", "minimum": 0},
+        "latex_relpath": {"$ref": "#/$defs/path"},
+        "latex_sha256": {"$ref": "#/$defs/sha256"},
+        "macro_task_success_rate": {"$ref": "#/$defs/nullableRate"},
+        "paper_claim_blockers": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "paper_claim_eligible": {"type": "boolean"},
+        "planned_trial_count": {"type": "integer", "minimum": 1},
+        "policy_kind": {"enum": ["act", "n0"]},
+        "pooled_success_rate": {"$ref": "#/$defs/nullableRate"},
+        "pooled_wilson": {"type": ["object", "null"]},
+        "protocol_id": {"enum": ["diagnostic_v1", "pilot_v1", "paper_v1"]},
+        "qualification_action_spec": {"enum": ["qpos8_next_step", "ee8_absolute"]},
+        "qualification_campaign_id": {"type": "string", "minLength": 1},
+        "qualification_relpath": {"$ref": "#/$defs/path"},
+        "qualification_repetitions": {"type": "integer", "minimum": 1},
+        "qualification_sha256": {"$ref": "#/$defs/sha256"},
+        "success_count": {"type": "integer", "minimum": 0},
+        "summary_relpath": {"$ref": "#/$defs/path"},
+        "summary_sha256": {"$ref": "#/$defs/sha256"},
+        "task_registry_sha256": {"$ref": "#/$defs/sha256"},
+        "task_rows": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/taskRow"}
+        }
+      }
+    },
+    "paperResultV1": {
+      "allOf": [
+        {"$ref": "#/$defs/paperResultBase"},
+        {
+          "required": ["evidence_level", "semantic_version"],
+          "properties": {
+            "evidence_level": {"const": "qualified_clean_closed_loop_result_v1"},
+            "semantic_version": {"const": "1.0"}
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "paperResultV2": {
+      "allOf": [
+        {"$ref": "#/$defs/paperResultBase"},
+        {
+          "required": [
+            "evidence_level",
+            "qualification_campaign_manifest_sha256",
+            "qualification_observation_parity_sha256s",
+            "qualification_semantic_version",
+            "qualification_source_binding",
+            "qualification_source_bound",
+            "semantic_version"
+          ],
+          "properties": {
+            "evidence_level": {"const": "qualified_clean_closed_loop_result_v2"},
+            "qualification_campaign_manifest_sha256": {
+              "anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]
+            },
+            "qualification_observation_parity_sha256s": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {"$ref": "#/$defs/sha256"}
+            },
+            "qualification_semantic_version": {"enum": ["1.0", "2.0"]},
+            "qualification_source_binding": {
+              "anyOf": [{"$ref": "#/$defs/sourceBinding"}, {"type": "null"}]
+            },
+            "qualification_source_bound": {"type": "boolean"},
+            "semantic_version": {"const": "2.0"}
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "paperResultV3": {
+      "allOf": [
+        {"$ref": "#/$defs/paperResultBase"},
+        {
+          "required": [
+            "evidence_level",
+            "qualification_campaign_manifest_sha256",
+            "qualification_observation_parity_sha256s",
+            "qualification_semantic_version",
+            "qualification_source_binding",
+            "qualification_source_bound",
+            "qualification_task_source_bindings",
+            "semantic_version",
+            "valid_attempt_attestations"
+          ],
+          "properties": {
+            "evidence_level": {"const": "dual_attested_clean_closed_loop_result_v3"},
+            "qualification_campaign_manifest_sha256": {"$ref": "#/$defs/sha256"},
+            "qualification_observation_parity_sha256s": {
+              "type": "array",
+              "minItems": 8,
+              "maxItems": 8,
+              "uniqueItems": true,
+              "items": {"$ref": "#/$defs/sha256"}
+            },
+            "qualification_semantic_version": {"const": "3.0"},
+            "qualification_source_binding": {"type": "null"},
+            "qualification_source_bound": {"const": true},
+            "qualification_task_source_bindings": {
+              "type": "object",
+              "minProperties": 8,
+              "maxProperties": 8,
+              "additionalProperties": {"$ref": "#/$defs/sourceBinding"}
+            },
+            "semantic_version": {"const": "3.0"},
+            "valid_attempt_attestations": {
+              "type": "array",
+              "items": {"$ref": "#/$defs/attemptAttestation"}
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    }
+  }
+}

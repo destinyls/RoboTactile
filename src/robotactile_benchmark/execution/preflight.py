@@ -46,6 +46,19 @@ from robotactile_benchmark.policies.univtac_official_act_loading import (
 
 _MAX_RECEIPT_BYTES = 1024 * 1024
 _MAX_REQUEST_BYTES = 1024 * 1024
+_LIVE_ISAAC_MODULES = (
+    "curobo",
+    "isaaclab.app",
+    "numpy",
+    "robotactile_benchmark",
+    "tacex",
+    "tacex_assets",
+    "tacex_tasks",
+    "tacex_uipc",
+    "torch_scatter",
+    "typing_extensions",
+    "uipc",
+)
 
 
 class LiveHostProbe(Protocol):
@@ -135,9 +148,10 @@ class SystemLiveHostProbe:
         resolved = selected.resolve(strict=True)
         if resolved != selected or not os.access(resolved, os.X_OK):
             raise LivePreflightError("Isaac Python must be executable without symlinks")
+        module_names = repr(_LIVE_ISAAC_MODULES)
         probe = (
             "import importlib.util,json,platform,sys;"
-            "names=('isaaclab.app','numpy','robotactile_benchmark','typing_extensions');"
+            f"names={module_names};"
             "found={name:importlib.util.find_spec(name) is not None for name in names};"
             "print(json.dumps({'found':found,'machine':platform.machine(),"
             "'python':platform.python_version(),'system':platform.system()},"

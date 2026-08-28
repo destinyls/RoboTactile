@@ -8,11 +8,14 @@ from robotactile_benchmark.closed_loop.artifact_contracts import (
     ArtifactValidationError,
     require_sha256,
 )
-from robotactile_benchmark.closed_loop.contracts import ClosedLoopRunSpec
+from robotactile_benchmark.closed_loop.contracts import (
+    ClosedLoopRunSpec,
+    WallTimeoutRole,
+)
 from robotactile_benchmark.closed_loop.results import ClosedLoopTrialResult
 from robotactile_benchmark.trials import TerminalStatus
 
-_RUN_SPEC_FIELDS = frozenset(
+_LEGACY_RUN_SPEC_FIELDS = frozenset(
     {
         "prompt",
         "success_predicate_id",
@@ -23,6 +26,7 @@ _RUN_SPEC_FIELDS = frozenset(
         "semantic_version",
     }
 )
+_WATCHDOG_RUN_SPEC_FIELDS = _LEGACY_RUN_SPEC_FIELDS | frozenset({"wall_timeout_role"})
 _RESULT_FIELDS = frozenset(
     {
         "trial_manifest_sha256",
@@ -77,7 +81,7 @@ def _optional_bool(value: object, name: str) -> Optional[bool]:
 
 
 def run_spec_to_dict(value: ClosedLoopRunSpec) -> dict[str, object]:
-    return {
+    document: dict[str, object] = {
         "prompt": value.prompt,
         "success_predicate_id": value.success_predicate_id,
         "max_control_cycles": value.max_control_cycles,
@@ -86,10 +90,27 @@ def run_spec_to_dict(value: ClosedLoopRunSpec) -> dict[str, object]:
         "wall_timeout_s": value.wall_timeout_s,
         "semantic_version": value.semantic_version,
     }
+    if value.wall_timeout_role is not WallTimeoutRole.SCORING_BOUNDARY_V1:
+        document["wall_timeout_role"] = value.wall_timeout_role.value
+    return document
 
 
 def run_spec_from_dict(value: object) -> ClosedLoopRunSpec:
-    document = _mapping(value, _RUN_SPEC_FIELDS, "run spec")
+    if not isinstance(value, dict) or set(value) not in {
+        _LEGACY_RUN_SPEC_FIELDS,
+        _WATCHDOG_RUN_SPEC_FIELDS,
+    }:
+        raise ArtifactValidationError("run spec fields mismatch")
+    document = value
+    timeout_role = document.get(
+        "wall_timeout_role", WallTimeoutRole.SCORING_BOUNDARY_V1.value
+    )
+    if "wall_timeout_role" in document and timeout_role != (
+        WallTimeoutRole.INFRASTRUCTURE_WATCHDOG_V1.value
+    ):
+        raise ArtifactValidationError(
+            "explicit wall timeout role must select infrastructure watchdog"
+        )
     timeout = document["wall_timeout_s"]
     if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
         raise ArtifactValidationError("wall timeout must be a JSON number")
@@ -108,6 +129,7 @@ def run_spec_from_dict(value: object) -> ClosedLoopRunSpec:
             document["execute_action_steps"], "execute action steps"
         ),
         wall_timeout_s=float(timeout),
+        wall_timeout_role=WallTimeoutRole(timeout_role),
         semantic_version=_string(document["semantic_version"], "semantic version"),
     )
 

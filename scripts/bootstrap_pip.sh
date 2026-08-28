@@ -5,12 +5,27 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
-VENV_PATH="${1:-$PROJECT_ROOT/.venv}"
+
+usage() {
+  cat <<'EOF'
+Usage: bootstrap_pip.sh [VENV_PATH]
+
+Create a pip-only, hash-locked RoboTactile development environment.
+The default environment path is <repository>/.venv.
+EOF
+}
+
+if [[ $# -eq 1 && ( "$1" == "-h" || "$1" == "--help" ) ]]; then
+  usage
+  exit 0
+fi
 
 if [[ $# -gt 1 ]]; then
-  echo "usage: $0 [VENV_PATH]" >&2
+  usage >&2
   exit 2
 fi
+
+VENV_PATH="${1:-$PROJECT_ROOT/.venv}"
 if [[ -L "$VENV_PATH" ]]; then
   echo "virtual environment path must not be a symlink: $VENV_PATH" >&2
   exit 2

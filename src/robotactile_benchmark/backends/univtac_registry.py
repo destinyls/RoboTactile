@@ -10,11 +10,21 @@ from importlib import resources
 from pathlib import Path
 from typing import Any, Optional, Tuple, cast
 
+from robotactile_benchmark.action_specs import (
+    ACTION_MODE_BY_SPEC,
+    EE8_ACTION_SPEC,
+    EE8_LOWER_BOUNDS,
+    EE8_UPPER_BOUNDS,
+    QPOS8_ACTION_SPEC,
+    validate_action_spec,
+)
 from robotactile_benchmark.adapters.univtac import (
     DepthPhaseTracker,
     UniVTACAliasManifest,
 )
 from robotactile_benchmark.backends.univtac_contracts import (
+    N0_DECIMATION,
+    N0_PHYSICS_STEPS_PER_ACTION,
     REGISTRY_ID,
     REGISTRY_RESOURCE_SHA256,
     REGISTRY_SEMANTIC_VERSION,
@@ -187,38 +197,64 @@ def load_registry(
     )
 
 
-def build_config(task_id: str) -> UniVTACBackendConfig:
+def build_config(
+    task_id: str, *, action_spec: str = QPOS8_ACTION_SPEC
+) -> UniVTACBackendConfig:
     """Build one typed backend config from the strict packaged registry."""
 
     registry = load_registry()
     runtime = registry.runtime
+    selected_spec = validate_action_spec(action_spec)
+    is_n0 = selected_spec == EE8_ACTION_SPEC
+    lower_bounds: Tuple[float, ...]
+    upper_bounds: Tuple[float, ...]
+    if selected_spec == EE8_ACTION_SPEC:
+        lower_bounds = EE8_LOWER_BOUNDS
+        upper_bounds = EE8_UPPER_BOUNDS
+    else:
+        lower_bounds = _float_tuple(
+            runtime["action_lower_bounds"], "action lower bounds", 8
+        )
+        upper_bounds = _float_tuple(
+            runtime["action_upper_bounds"], "action upper bounds", 8
+        )
+    aliases = dict(registry.aliases)
+    if selected_spec == EE8_ACTION_SPEC:
+        # The released N0 UniVTAC checkpoint's bundled exact converter reads
+        # the marker-less HDF5 ``rgb`` field.  The legacy qpos benchmark keeps
+        # the registry's marker-bearing ``rgb_marker`` payload.
+        aliases["tactile_payload"] = "rgb"
     return UniVTACBackendConfig(
         task=registry.task(task_id),
         registry_resource_sha256=registry.resource_sha256,
         upstream_commit=registry.upstream_commit,
-        action_spec=cast(str, runtime["action_spec"]),
-        action_mode=cast(str, runtime["action_mode"]),
+        action_spec=selected_spec,
+        action_mode=ACTION_MODE_BY_SPEC[selected_spec],
         force=cast(bool, runtime["force"]),
         sim_hz=_positive_int(runtime["sim_hz"], "sim_hz"),
-        decimation=_positive_int(runtime["decimation"], "decimation"),
-        physics_steps_per_action=_positive_int(
-            runtime["physics_steps_per_action"], "physics_steps_per_action"
+        decimation=(
+            N0_DECIMATION
+            if is_n0
+            else _positive_int(runtime["decimation"], "decimation")
+        ),
+        physics_steps_per_action=(
+            N0_PHYSICS_STEPS_PER_ACTION
+            if is_n0
+            else _positive_int(
+                runtime["physics_steps_per_action"], "physics_steps_per_action"
+            )
         ),
         canonical_joint_names=tuple(
             cast(Sequence[str], runtime["canonical_joint_names"])
         ),
-        action_lower_bounds=_float_tuple(
-            runtime["action_lower_bounds"], "action lower bounds", 8
-        ),
-        action_upper_bounds=_float_tuple(
-            runtime["action_upper_bounds"], "action upper bounds", 8
-        ),
+        action_lower_bounds=lower_bounds,
+        action_upper_bounds=upper_bounds,
         head_shape=_shape(runtime["head_shape"], "head shape", 3),
         wrist_shape=_shape(runtime["wrist_shape"], "wrist shape", 3),
         tactile_rgb_shape=_shape(runtime["tactile_rgb_shape"], "tactile RGB shape", 3),
         tactile_depth_shape=_shape(
             runtime["tactile_depth_shape"], "tactile depth shape", 2
         ),
-        aliases=UniVTACAliasManifest(**dict(registry.aliases)),
+        aliases=UniVTACAliasManifest(**aliases),
         phase_tracker=DepthPhaseTracker(**dict(registry.phase_tracker)),
     )

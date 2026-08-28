@@ -7,6 +7,7 @@ from typing import Any, Callable, Optional, Tuple
 
 import numpy as np
 
+from robotactile_benchmark.action_specs import EE8_ACTION_SPEC
 from robotactile_benchmark.backends.univtac_contracts import UniVTACBackendConfig
 from robotactile_benchmark.backends.univtac_isaac import UniVTACTaskRuntime
 from robotactile_benchmark.contracts import Array, canonical_hash, freeze_array
@@ -67,6 +68,15 @@ class FakeTakeActionCall:
         object.__setattr__(self, "action", freeze_array(self.action))
 
 
+@dataclass(frozen=True)
+class _FakeRuntimeSnapshot:
+    native_step: int
+    action_count: int
+    state: float
+    plan_success: bool
+    eval_success: bool
+
+
 class StrictFakeCudaTensor:
     """CPU value that rejects any conversion order other than the CUDA contract."""
 
@@ -120,6 +130,8 @@ class FakeUpstreamTask:
         self.reset_count = 0
         self.observation_count = 0
         self.close_count = 0
+        self.capture_count = 0
+        self.restore_count = 0
         self.reset_calls: list[tuple[int, tuple[str, ...]]] = []
         self.reset_seed_arguments: list[int] = []
         self.take_action_calls: list[FakeTakeActionCall] = []
@@ -187,6 +199,37 @@ class FakeUpstreamTask:
     def close(self) -> None:
         self.close_count += 1
 
+    def capture_state(self) -> object:
+        self.capture_count += 1
+        return _FakeRuntimeSnapshot(
+            native_step=self._native_step,
+            action_count=self._action_count,
+            state=self._state,
+            plan_success=self.plan_success,
+            eval_success=self.eval_success,
+        )
+
+    def restore_state(self, value: object) -> None:
+        if not isinstance(value, _FakeRuntimeSnapshot):
+            raise TypeError("fake snapshot type mismatch")
+        self._native_step = value.native_step
+        self._action_count = value.action_count
+        self._state = value.state
+        self.plan_success = value.plan_success
+        self.eval_success = value.eval_success
+        self.restore_count += 1
+
+    def snapshot_state_sha256(self) -> str:
+        return canonical_hash(
+            _FakeRuntimeSnapshot(
+                native_step=self._native_step,
+                action_count=self._action_count,
+                state=self._state,
+                plan_success=self.plan_success,
+                eval_success=self.eval_success,
+            )
+        )
+
     def _wrap(self, value: Array) -> StrictFakeCudaTensor:
         return StrictFakeCudaTensor(
             value,
@@ -240,6 +283,13 @@ class FakeUpstreamTask:
             )
         else:
             joint = canonical_joint
+        embodiment: dict[str, Any] = {"joint": self._wrap(joint)}
+        if self._config.action_spec == EE8_ACTION_SPEC:
+            ee = np.asarray(
+                [self._state, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
+                dtype=np.float32,
+            )
+            embodiment["ee"] = self._wrap(ee)
         raw: dict[str, Any] = {
             "step": self._native_step,
             "observation": {
@@ -256,7 +306,7 @@ class FakeUpstreamTask:
                     "depth": self._wrap(right_depth),
                 },
             },
-            "embodiment": {"joint": self._wrap(joint)},
+            "embodiment": embodiment,
         }
         if self.scenario.missing_field == "head":
             del raw["observation"][self._config.aliases.head_camera]
@@ -273,6 +323,7 @@ def make_fake_runtime(
     config: UniVTACBackendConfig,
     scenario: Optional[FakeUpstreamScenario] = None,
     live_joint_names: Optional[Tuple[str, ...]] = None,
+    construction_seed: int = 11,
 ) -> Tuple[UniVTACTaskRuntime, FakeUpstreamTask]:
     """Construct one fresh task/runtime pair for a single benchmark reset."""
 
@@ -290,7 +341,12 @@ def make_fake_runtime(
     runtime = UniVTACTaskRuntime(
         task=task,
         handshake=config.expected_handshake(names),
+        construction_seed=construction_seed,
         encode_action=encode_action,
+        prepare_reset=lambda: None,
         close_runtime=task.close,
+        capture_state=task.capture_state,
+        restore_state=task.restore_state,
+        snapshot_state_sha256=task.snapshot_state_sha256,
     )
     return runtime, task

@@ -17,12 +17,43 @@ from robotactile_benchmark.integrations.act.artifacts import (
 from robotactile_benchmark.integrations.n0_twam.artifacts import (
     load_n0_twam_artifact_manifest,
 )
+from robotactile_benchmark.integrations.n0_twam.preparation import (
+    PreparedN0Artifacts,
+    prepare_official_n0_artifacts,
+)
 from robotactile_benchmark.integrations.registry import ModelIntegrationConfig
+from robotactile_benchmark.policies.n0_official import n0_training_prompt
 from robotactile_benchmark.policies.univtac_official_act import OfficialACTProfile
 
 
 def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _write_n0_fixture(bundle: Path) -> PreparedN0Artifacts:
+    base = bundle / "base"
+    checkpoint = bundle / "univtac-delta"
+    for component in ("vae", "tokenizer", "text_encoder"):
+        (base / component).mkdir(parents=True)
+        (base / component / "config.json").write_text("{}\n", encoding="utf-8")
+    (checkpoint / "transformer").mkdir(parents=True)
+    (checkpoint / "transformer/config.json").write_text(
+        '{"model":"n0"}\n', encoding="utf-8"
+    )
+    (checkpoint / "transformer/diffusion_pytorch_model.safetensors").write_bytes(
+        b"n0 checkpoint"
+    )
+    (checkpoint / "train_meta.json").write_text("{}\n", encoding="utf-8")
+    (checkpoint / "norm").mkdir()
+    task_key = "univtac_pull_out_key_rot6d_current"
+    normalizer = {task_key: {"q01": [0.0] * 20, "q99": [1.0] * 20}}
+    (checkpoint / "norm/pull_out_key.norm_stat_per_robot.json").write_text(
+        json.dumps(normalizer), encoding="utf-8"
+    )
+    (checkpoint / "norm/PROMPTS.json").write_text(
+        json.dumps({task_key: n0_training_prompt("pull_out_key")}), encoding="utf-8"
+    )
+    return prepare_official_n0_artifacts(bundle_root=bundle, task_id="pull_out_key")
 
 
 def test_n0_configure_hashes_real_files_and_is_idempotent(
@@ -31,12 +62,7 @@ def test_n0_configure_hashes_real_files_and_is_idempotent(
     root = tmp_path / "deployment"
     bundle = root / "artifacts/models/n0_twam"
     bundle.mkdir(parents=True)
-    checkpoint = bundle / "checkpoint.pt"
-    config = bundle / "config.json"
-    normalizer = bundle / "normalizer.json"
-    checkpoint.write_bytes(b"n0 checkpoint")
-    config.write_bytes(b'{"model":"n0"}\n')
-    normalizer.write_bytes(b'{"mean":[0.0]}\n')
+    prepared = _write_n0_fixture(bundle)
     command = ["integrations", "configure", "--model", "n0_twam", "--root", str(root)]
 
     assert main(command) == 0
@@ -45,15 +71,16 @@ def test_n0_configure_hashes_real_files_and_is_idempotent(
     second = json.loads(capsys.readouterr().out)  # type: ignore[attr-defined]
 
     assert first == second
-    manifest = load_n0_twam_artifact_manifest(bundle / "artifact_manifest.json")
-    assert manifest.checkpoint_sha256 == _sha(checkpoint)
-    assert manifest.config_sha256 == _sha(config)
-    assert manifest.normalizer_sha256 == _sha(normalizer)
+    config_root = bundle / "configs/pull_out_key"
+    manifest = load_n0_twam_artifact_manifest(config_root / "artifact_manifest.json")
+    assert manifest.checkpoint_sha256 == _sha(prepared.checkpoint_path)
+    assert manifest.config_sha256 == _sha(prepared.config_path)
+    assert manifest.normalizer_sha256 == _sha(prepared.normalizer_path)
     generated_config = json.loads(
-        (bundle / "integration_config.json").read_text(encoding="utf-8")
+        (config_root / "integration_config.json").read_text(encoding="utf-8")
     )
     assert generated_config["artifact_manifest"] == str(
-        bundle / "artifact_manifest.json"
+        config_root / "artifact_manifest.json"
     )
 
 
@@ -63,9 +90,7 @@ def test_model_specific_configure_syntax_matches_legacy_command(
     root = tmp_path / "deployment"
     bundle = root / "artifacts/models/n0_twam"
     bundle.mkdir(parents=True)
-    (bundle / "checkpoint.pt").write_bytes(b"n0 checkpoint")
-    (bundle / "config.json").write_bytes(b'{"model":"n0"}\n')
-    (bundle / "normalizer.json").write_bytes(b'{"mean":[0.0]}\n')
+    _write_n0_fixture(bundle)
 
     assert main(["integrations", "configure", "n0-twam", "--root", str(root)]) == 0
     preferred = json.loads(capsys.readouterr().out)
@@ -94,15 +119,13 @@ def test_setup_initializes_and_reports_blocked_prerequisites(
     assert (root / "artifacts/deployment/layout_receipt.json").is_file()
 
 
-def test_n0_doctor_verifies_artifact_but_fails_closed_without_sources_or_gateway(
+def test_n0_doctor_verifies_artifact_but_fails_closed_without_sources(
     tmp_path: Path, capsys: object
 ) -> None:
     root = tmp_path / "deployment"
     bundle = root / "artifacts/models/n0_twam"
     bundle.mkdir(parents=True)
-    (bundle / "checkpoint.pt").write_bytes(b"checkpoint")
-    (bundle / "config.json").write_bytes(b"config")
-    (bundle / "normalizer.json").write_bytes(b"normalizer")
+    _write_n0_fixture(bundle)
     assert (
         main(["integrations", "configure", "--model", "n0_twam", "--root", str(root)])
         == 0
@@ -119,7 +142,7 @@ def test_n0_doctor_verifies_artifact_but_fails_closed_without_sources_or_gateway
     assert checks["artifact_manifest"]["passed"] is True
     assert checks["source_n0_twam"]["passed"] is False
     assert checks["source_univtac"]["passed"] is False
-    assert checks["transport"]["passed"] is False
+    assert checks["transport"]["passed"] is True
     assert payload["live_inference_claimed"] is False
 
 

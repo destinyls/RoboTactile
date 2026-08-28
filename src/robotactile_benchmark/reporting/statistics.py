@@ -6,6 +6,7 @@ import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from numbers import Integral, Real
+from statistics import NormalDist
 
 import numpy as np
 from numpy.typing import NDArray
@@ -47,6 +48,117 @@ class IntervalEstimate:
     valid_resamples: int
     task_count: int
     pair_count: int
+
+
+@dataclass(frozen=True)
+class BinomialInterval:
+    """Wilson score interval for one observed Bernoulli proportion."""
+
+    estimate: float
+    lower: float
+    upper: float
+    confidence_level: float
+    success_count: int
+    trial_count: int
+
+    def __post_init__(self) -> None:
+        confidence = _confidence(self.confidence_level)
+        successes = _nonnegative_int(self.success_count, "success_count")
+        trials = _positive_int(self.trial_count, "trial_count")
+        if successes > trials:
+            raise ValueError("success_count cannot exceed trial_count")
+        values = tuple(
+            _finite(value, name)
+            for name, value in (
+                ("estimate", self.estimate),
+                ("lower", self.lower),
+                ("upper", self.upper),
+            )
+        )
+        estimate, lower, upper = values
+        if not 0.0 <= lower <= estimate <= upper <= 1.0:
+            raise ValueError("binomial interval bounds are inconsistent")
+        object.__setattr__(self, "confidence_level", confidence)
+        object.__setattr__(self, "success_count", successes)
+        object.__setattr__(self, "trial_count", trials)
+        object.__setattr__(self, "estimate", estimate)
+        object.__setattr__(self, "lower", lower)
+        object.__setattr__(self, "upper", upper)
+
+
+def _nonnegative_int(value: object, name: str) -> int:
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, Integral):
+        raise TypeError(f"{name} must be an integer")
+    result = int(value)
+    if result < 0:
+        raise ValueError(f"{name} must be non-negative")
+    return result
+
+
+def wilson_score_interval(
+    successes: int,
+    trials: int,
+    *,
+    confidence_level: float,
+) -> BinomialInterval:
+    """Return a two-sided Wilson score interval without a SciPy dependency."""
+
+    success_count = _nonnegative_int(successes, "successes")
+    trial_count = _positive_int(trials, "trials")
+    if success_count > trial_count:
+        raise ValueError("successes cannot exceed trials")
+    confidence = _confidence(confidence_level)
+    alpha = 1.0 - confidence
+    z_value = NormalDist().inv_cdf(1.0 - alpha / 2.0)
+    proportion = success_count / trial_count
+    z_squared = z_value * z_value
+    denominator = 1.0 + z_squared / trial_count
+    center = (proportion + z_squared / (2.0 * trial_count)) / denominator
+    half_width = (
+        z_value
+        * math.sqrt(
+            proportion * (1.0 - proportion) / trial_count
+            + z_squared / (4.0 * trial_count * trial_count)
+        )
+        / denominator
+    )
+    return BinomialInterval(
+        estimate=proportion,
+        lower=max(0.0, center - half_width),
+        upper=min(1.0, center + half_width),
+        confidence_level=confidence,
+        success_count=success_count,
+        trial_count=trial_count,
+    )
+
+
+def task_stratified_success_bootstrap(
+    successes_by_task: Mapping[str, Sequence[bool]],
+    *,
+    n_resamples: int,
+    confidence_level: float,
+    seed: int,
+) -> IntervalEstimate:
+    """Bootstrap binary trials within task, then macro-average tasks equally."""
+
+    normalized: dict[str, tuple[float, ...]] = {}
+    if not successes_by_task:
+        raise ValueError("successes_by_task must be non-empty")
+    for task in sorted(successes_by_task):
+        values = tuple(successes_by_task[task])
+        if not isinstance(task, str) or not task:
+            raise ValueError("task names must be non-empty strings")
+        if not values:
+            raise ValueError("each task stratum must contain at least one trial")
+        if any(type(value) is not bool for value in values):
+            raise TypeError("success outcomes must be exact booleans")
+        normalized[task] = tuple(1.0 if value else 0.0 for value in values)
+    return task_stratified_paired_bootstrap(
+        normalized,
+        n_resamples=n_resamples,
+        confidence_level=confidence_level,
+        seed=seed,
+    )
 
 
 @dataclass(frozen=True)

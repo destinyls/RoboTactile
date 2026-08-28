@@ -5,21 +5,284 @@ from __future__ import annotations
 import argparse
 import hashlib
 import importlib
+import json
+import os
+import random
 import subprocess
 import sys
-from collections.abc import Mapping
+import traceback
+from collections.abc import Callable, Mapping
+from contextlib import suppress
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Optional, Tuple, cast
 
 import numpy as np
 
+from robotactile_benchmark.action_specs import EE8_ACTION_SPEC, QPOS8_ACTION_SPEC
 from robotactile_benchmark.backends.univtac_contracts import (
+    N0_FIXED_ENDPOINT_ACTION_EXECUTION_CONTRACT,
+    N0_TRAINING_60HZ_ACTION_EXECUTION_CONTRACT,
     UniVTACBackendConfig,
     UniVTACContractError,
+    validate_n0_ee_action_execution_contract,
     validate_packaged_univtac_config,
 )
+from robotactile_benchmark.backends.univtac_diagnostics import (
+    install_planner_failure_diagnostics,
+)
+from robotactile_benchmark.backends.univtac_grasp_initialization import (
+    install_grasp_initialization_compatibility,
+)
+from robotactile_benchmark.backends.univtac_host import UniVTACSimulationAppHost
 from robotactile_benchmark.backends.univtac_isaac import UniVTACTaskRuntime
+from robotactile_benchmark.backends.univtac_lifecycle import (
+    install_runtime_signal_tracing,
+    require_hang_detector_disabled,
+)
+from robotactile_benchmark.backends.univtac_n0_cadence import (
+    install_n0_action_execution,
+    install_n0_evaluation_reset,
+)
+from robotactile_benchmark.backends.univtac_placement_compatibility import (
+    install_constrained_placement_compatibility as _install_constrained_placement_compatibility,
+)
+from robotactile_benchmark.backends.univtac_planner_compatibility import (
+    install_local_ik_fallback,
+)
+from robotactile_benchmark.backends.univtac_reuse import (
+    prepare_univtac_task_teardown,
+    reconstruct_univtac_stage,
+)
+from robotactile_benchmark.backends.univtac_snapshot import (
+    build_live_snapshot_callbacks,
+)
+from robotactile_benchmark.backends.univtac_tactile_attachment import (
+    install_gsmini_attachment_constructor_compatibility,
+    repair_gsmini_tactile_attachments,
+)
 from robotactile_benchmark.contracts import Array
+
+_UPSTREAM_HEADLESS_EXTENSION_IDS = ("omni.ui",)
+_ZERO_DISTANCE_GRASP_APPROACH_TASKS = frozenset({"insert_hole", "insert_tube"})
+_GRASP_APPROACH_DISTANCE_M = 0.05
+_ANTIALIASING_MODES = frozenset({"Off", "FXAA", "DLSS", "TAA", "DLAA"})
+N0_UNIVTAC_ANTIALIASING_MODE = "TAA"
+_N0_TRAINING_CADENCE_ENV = "ROBOTACTILE_N0_TRAINING_CADENCE_DIAGNOSTIC"
+
+
+@dataclass(frozen=True)
+class _UniVTACApplicationResources:
+    """Imports and application state that are safe to reuse across tasks."""
+
+    simulation_app: Any
+    torch: Any
+    task_cfg_type: Callable[..., Any]
+    task_type: Callable[..., Any]
+
+
+@dataclass(frozen=True)
+class _EncodedEEAction:
+    """Adapt canonical EE8 values to the pinned UniVTAC slice contract."""
+
+    _values: Array
+
+    def __post_init__(self) -> None:
+        values = np.array(self._values, dtype=np.float32, order="C", copy=True)
+        if values.shape != (8,) or not np.isfinite(values).all():
+            raise UniVTACContractError("EE8 action must be finite float32 [8]")
+        values.setflags(write=False)
+        object.__setattr__(self, "_values", values)
+
+    def __getitem__(self, key: int | slice) -> Any:
+        if key == slice(7, None, None):
+            return float(self._values[7])
+        selected = self._values[key]
+        if isinstance(selected, np.ndarray):
+            return np.array(selected, dtype=np.float32, order="C", copy=True)
+        return float(selected)
+
+
+def _close_runtime_component(close: Callable[[], None], name: str) -> None:
+    """Treat Isaac's clean ``SystemExit`` as a completed close operation."""
+
+    try:
+        close()
+    except SystemExit as error:
+        if error.code is not None and error.code != 0:
+            raise UniVTACContractError(
+                f"{name} close raised non-zero SystemExit: {error.code}"
+            ) from error
+
+
+def _emit_runtime_construction_failure(
+    stage: str,
+    error: BaseException,
+) -> None:
+    """Flush the Python failure before native Isaac cleanup can exit."""
+
+    payload = {
+        "error_message": str(error),
+        "error_type": type(error).__name__,
+        "event": "robotactile_univtac_runtime_construction_failure",
+        "stage": stage,
+    }
+    sys.stderr.write(json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n")
+    traceback.print_exception(type(error), error, error.__traceback__, file=sys.stderr)
+    sys.stderr.flush()
+
+
+def _record_lifecycle_stage(
+    observer: Optional[Callable[[str], None]], stage: str
+) -> None:
+    if observer is not None:
+        observer(stage)
+
+
+def _validated_initial_seed(value: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise UniVTACContractError("initial seed must be an integer")
+    if value < 0:
+        raise UniVTACContractError("initial seed must be non-negative")
+    return value
+
+
+def _validated_antialiasing_mode(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    if not isinstance(value, str) or value not in _ANTIALIASING_MODES:
+        raise UniVTACContractError("unsupported UniVTAC antialiasing mode")
+    return value
+
+
+def _n0_training_cadence_diagnostic_requested() -> bool:
+    """Return the legacy fixed-endpoint diagnostic alias opt-in."""
+
+    value = os.environ.get(_N0_TRAINING_CADENCE_ENV, "0")
+    if value not in {"0", "1"}:
+        raise UniVTACContractError(f"{_N0_TRAINING_CADENCE_ENV} must be either 0 or 1")
+    return value == "1"
+
+
+def _resolve_n0_action_execution_contract(requested: Optional[str]) -> tuple[str, bool]:
+    """Resolve production training cadence or an explicit diagnostic path."""
+
+    legacy_diagnostic = _n0_training_cadence_diagnostic_requested()
+    if requested is None:
+        return (
+            N0_FIXED_ENDPOINT_ACTION_EXECUTION_CONTRACT
+            if legacy_diagnostic
+            else N0_TRAINING_60HZ_ACTION_EXECUTION_CONTRACT,
+            legacy_diagnostic,
+        )
+    selected = validate_n0_ee_action_execution_contract(requested)
+    if legacy_diagnostic and selected != N0_FIXED_ENDPOINT_ACTION_EXECUTION_CONTRACT:
+        raise UniVTACContractError(
+            "explicit N0 action execution conflicts with the diagnostic cadence env"
+        )
+    return selected, selected == N0_FIXED_ENDPOINT_ACTION_EXECUTION_CONTRACT
+
+
+def _resolved_antialiasing_mode(
+    config: UniVTACBackendConfig,
+    value: Optional[str],
+) -> Optional[str]:
+    """Make the empirically matched N0 renderer explicit and reproducible."""
+
+    validated = _validated_antialiasing_mode(value)
+    if validated is None and config.action_spec == EE8_ACTION_SPEC:
+        return N0_UNIVTAC_ANTIALIASING_MODE
+    return validated
+
+
+def _prepare_process_determinism(initial_seed: int) -> None:
+    seed = _validated_initial_seed(initial_seed)
+    workspace = os.environ.get("CUBLAS_WORKSPACE_CONFIG")
+    if workspace not in {None, ":4096:8"}:
+        raise UniVTACContractError("CUBLAS_WORKSPACE_CONFIG is incompatible")
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+
+
+def _seed_torch_process(torch: Any, initial_seed: int) -> None:
+    seed = _validated_initial_seed(initial_seed)
+    manual_seed = getattr(torch, "manual_seed", None)
+    cuda = getattr(torch, "cuda", None)
+    manual_seed_all = getattr(cuda, "manual_seed_all", None)
+    deterministic = getattr(torch, "use_deterministic_algorithms", None)
+    cudnn = getattr(getattr(torch, "backends", None), "cudnn", None)
+    if (
+        not callable(manual_seed)
+        or not callable(manual_seed_all)
+        or not callable(deterministic)
+        or cudnn is None
+    ):
+        raise UniVTACContractError("torch deterministic seed contract is incomplete")
+    manual_seed(seed)
+    manual_seed_all(seed)
+    deterministic(True, warn_only=True)
+    cudnn.benchmark = False
+    cudnn.deterministic = True
+
+
+def _install_task_seed_hook(task: Any, torch: Any, construction_seed: int) -> None:
+    seed = _validated_initial_seed(construction_seed)
+    upstream_seed = getattr(task, "seed", None)
+    if not callable(upstream_seed):
+        raise UniVTACContractError("upstream task seed method is unavailable")
+
+    def deterministic_seed(requested_seed: int = -1) -> int:
+        if requested_seed != seed:
+            raise UniVTACContractError(
+                "upstream reset seed differs from the construction seed"
+            )
+        resolved = upstream_seed(requested_seed)
+        configured = getattr(getattr(task, "cfg", None), "seed", None)
+        if resolved not in {None, seed} or configured != seed:
+            raise UniVTACContractError("upstream task changed the requested seed")
+        _prepare_process_determinism(seed)
+        _seed_torch_process(torch, seed)
+        return seed
+
+    task.seed = deterministic_seed
+
+
+def _install_grasp_approach_compatibility(task: Any, task_id: str) -> bool:
+    """Enable cuRobo's approach metric without changing the final grasp pose."""
+
+    if task_id not in _ZERO_DISTANCE_GRASP_APPROACH_TASKS:
+        return False
+    atom = getattr(task, "atom", None)
+    if atom is None:
+        raise UniVTACContractError("upstream task atom is unavailable")
+    upstream_grasp = getattr(atom, "grasp_actor", None)
+    if not callable(upstream_grasp):
+        raise UniVTACContractError("upstream grasp_actor method is unavailable")
+
+    def compatible_grasp_actor(
+        actor: Any,
+        pre_dis: float = 0.1,
+        dis: float = 0.0,
+        gripper_pos: float = 0.0,
+        contact_point_id: Any = None,
+        is_close: bool = True,
+    ) -> Any:
+        approach_distance = (
+            _GRASP_APPROACH_DISTANCE_M if pre_dis == 0.0 and dis == 0.0 else pre_dis
+        )
+        return upstream_grasp(
+            actor,
+            pre_dis=approach_distance,
+            dis=dis,
+            gripper_pos=gripper_pos,
+            contact_point_id=contact_point_id,
+            is_close=is_close,
+        )
+
+    atom.grasp_actor = compatible_grasp_actor
+    return True
 
 
 def _git_output(root: Path, arguments: Tuple[str, ...]) -> str:
@@ -71,18 +334,25 @@ def _configure_task_cfg(
     config: UniVTACBackendConfig,
     runtime_dir: Path,
     device: Optional[str],
+    initial_seed: int,
 ) -> None:
+    initial_seed = _validated_initial_seed(initial_seed)
     if getattr(cfg, "step_lim", None) != config.task.action_horizon:
         raise UniVTACContractError("upstream task action horizon mismatch")
+    cfg.seed = initial_seed
     cfg.decimation = config.decimation
     cfg.sim.dt = 1.0 / float(config.sim_hz)
+    cfg.sim.render_interval = config.decimation
     if device is not None:
         cfg.sim.device = device
     cfg.scene.num_envs = 1
+    embodiment = ["joint"]
+    if config.action_spec == EE8_ACTION_SPEC:
+        embodiment.append("ee")
     cfg.obs_data_type = {
         "camera": ["rgb"],
         "tactile": [config.aliases.tactile_payload, "depth"],
-        "embodiment": ["joint"],
+        "embodiment": embodiment,
     }
     cfg.save_frequency = 0
     cfg.video_frequency = 0
@@ -104,19 +374,65 @@ def _live_joint_names(task: Any) -> Tuple[str, ...]:
     return cast(Tuple[str, ...], names)
 
 
-def launch_univtac_runtime(
+def _enable_upstream_headless_extensions() -> Tuple[str, ...]:
+    kit_app = importlib.import_module("omni.kit.app")
+    get_app = getattr(kit_app, "get_app", None)
+    if not callable(get_app):
+        raise UniVTACContractError("omni.kit.app.get_app is unavailable")
+    app = get_app()
+    get_manager = getattr(app, "get_extension_manager", None)
+    if not callable(get_manager):
+        raise UniVTACContractError("Isaac extension manager is unavailable")
+    manager = get_manager()
+    enable = getattr(manager, "set_extension_enabled_immediate", None)
+    is_enabled = getattr(manager, "is_extension_enabled", None)
+    if not callable(enable) or not callable(is_enabled):
+        raise UniVTACContractError("Isaac extension manager contract is incomplete")
+    for extension_id in _UPSTREAM_HEADLESS_EXTENSION_IDS:
+        enable(extension_id, True)
+        if not is_enabled(extension_id):
+            raise UniVTACContractError(
+                f"required Isaac extension did not enable: {extension_id}"
+            )
+    return _UPSTREAM_HEADLESS_EXTENSION_IDS
+
+
+def _build_action_encoder(
+    action_spec: str, task: Any, torch: Any
+) -> Callable[[Array], Any]:
+    """Build the exact host/device representation required by UniVTAC."""
+
+    if action_spec == EE8_ACTION_SPEC:
+
+        def encode_ee_action(row: Array) -> _EncodedEEAction:
+            return _EncodedEEAction(row)
+
+        return encode_ee_action
+    if action_spec != QPOS8_ACTION_SPEC:
+        raise UniVTACContractError("unsupported action spec for UniVTAC encoding")
+
+    as_tensor = getattr(torch, "as_tensor", None)
+    float32 = getattr(torch, "float32", None)
+    if not callable(as_tensor) or float32 is None:
+        raise UniVTACContractError("torch float32 tensor conversion is unavailable")
+
+    def encode_qpos_action(row: Array) -> Any:
+        contiguous = np.array(row, dtype=np.float32, order="C", copy=True)
+        return as_tensor(contiguous, dtype=float32, device=task.device)
+
+    return encode_qpos_action
+
+
+def _launch_univtac_application(
     config: UniVTACBackendConfig,
     *,
     upstream_root: Path,
-    runtime_dir: Path,
     launcher_args: Optional[Mapping[str, Any]] = None,
-    device: Optional[str] = None,
-) -> UniVTACTaskRuntime:
-    """Launch Isaac first, then import and construct one verified UniVTAC task."""
+    stage_observer: Optional[Callable[[str], None]] = None,
+) -> _UniVTACApplicationResources:
+    """Launch and prepare reusable application-scoped Isaac resources."""
 
-    upstream_root = upstream_root.resolve()
-    runtime_dir = runtime_dir.resolve()
-    _verify_checkout(upstream_root, config)
+    _record_lifecycle_stage(stage_observer, "app_launcher_import")
     isaac_app = importlib.import_module("isaaclab.app")
     app_launcher_type = getattr(isaac_app, "AppLauncher", None)
     if not callable(app_launcher_type):
@@ -124,12 +440,18 @@ def launch_univtac_runtime(
     arguments = {"headless": True}
     if launcher_args is not None:
         arguments.update(dict(launcher_args))
+    _record_lifecycle_stage(stage_observer, "app_launcher")
     launcher = app_launcher_type(argparse.Namespace(**arguments))
     simulation_app = getattr(launcher, "app", None)
     if simulation_app is None or not callable(getattr(simulation_app, "close", None)):
         raise UniVTACContractError("AppLauncher did not expose a closeable app")
-    task: Any = None
+    construction_stage = "runtime_preparation"
     try:
+        _record_lifecycle_stage(stage_observer, construction_stage)
+        require_hang_detector_disabled()
+        install_runtime_signal_tracing()
+        _enable_upstream_headless_extensions()
+        torch = importlib.import_module("torch")
         if str(upstream_root) not in sys.path:
             sys.path.insert(0, str(upstream_root))
         task_module = importlib.import_module(config.task.module_name)
@@ -144,39 +466,233 @@ def launch_univtac_runtime(
         task_type = getattr(task_module, config.task.class_name, None)
         if not callable(task_cfg_type) or not callable(task_type):
             raise UniVTACContractError("task module lacks TaskCfg/Task constructors")
-        cfg = task_cfg_type()
+        return _UniVTACApplicationResources(
+            simulation_app=simulation_app,
+            torch=torch,
+            task_cfg_type=task_cfg_type,
+            task_type=task_type,
+        )
+    except BaseException as error:
+        _emit_runtime_construction_failure(construction_stage, error)
+        with suppress(Exception):
+            _close_runtime_component(simulation_app.close, "Isaac application")
+        if isinstance(error, SystemExit):
+            raise UniVTACContractError(
+                "UniVTAC runtime construction aborted via SystemExit during "
+                f"{construction_stage}: {error.code!r}"
+            ) from error
+        raise
+
+
+def _construct_univtac_task_runtime(
+    config: UniVTACBackendConfig,
+    resources: _UniVTACApplicationResources,
+    *,
+    runtime_dir: Path,
+    initial_seed: int,
+    device: Optional[str],
+    antialiasing_mode: Optional[str],
+    n0_action_execution_contract: Optional[str],
+    stage_observer: Optional[Callable[[str], None]],
+) -> UniVTACTaskRuntime:
+    """Construct one seed-bound task whose close callback never closes the app."""
+
+    initial_seed = _validated_initial_seed(initial_seed)
+    runtime_dir = runtime_dir.resolve()
+    task: Any = None
+    construction_stage = "runtime_preparation"
+    try:
+        _prepare_process_determinism(initial_seed)
+        _seed_torch_process(resources.torch, initial_seed)
+        cfg = resources.task_cfg_type()
+        if antialiasing_mode is not None:
+            sim_cfg = getattr(cfg, "sim", None)
+            render_cfg = getattr(sim_cfg, "render", None)
+            if render_cfg is None or not hasattr(render_cfg, "antialiasing_mode"):
+                raise UniVTACContractError(
+                    "UniVTAC task config lacks render.antialiasing_mode"
+                )
+            render_cfg.antialiasing_mode = antialiasing_mode
         runtime_dir.mkdir(parents=True, exist_ok=True)
-        _configure_task_cfg(cfg, config, runtime_dir, device)
-        task = task_type(cfg, mode="eval")
+        _configure_task_cfg(cfg, config, runtime_dir, device, initial_seed)
+        construction_stage = "tactile_constructor_hook"
+        _record_lifecycle_stage(stage_observer, construction_stage)
+        install_gsmini_attachment_constructor_compatibility(config.task.task_id)
+        construction_stage = "univtac_task_construction"
+        _record_lifecycle_stage(stage_observer, construction_stage)
+        task = resources.task_type(cfg, mode="eval")
+        construction_stage = "tactile_attachment_validation"
+        _record_lifecycle_stage(stage_observer, construction_stage)
+        repair_gsmini_tactile_attachments(task, config.task.task_id)
+        construction_stage = "runtime_compatibility_installation"
+        _record_lifecycle_stage(stage_observer, construction_stage)
+        _install_task_seed_hook(task, resources.torch, initial_seed)
+        install_grasp_initialization_compatibility(task, config.task.task_id)
+        _install_grasp_approach_compatibility(task, config.task.task_id)
+        _install_constrained_placement_compatibility(task, config.task.task_id)
+        install_local_ik_fallback(task, config.task.task_id)
+        install_planner_failure_diagnostics(task, config.task.task_id)
+        install_n0_evaluation_reset(task, config)
+        if config.action_spec == EE8_ACTION_SPEC:
+            execution_contract, diagnostic_only = _resolve_n0_action_execution_contract(
+                n0_action_execution_contract
+            )
+            install_n0_action_execution(
+                task,
+                config,
+                execution_contract=execution_contract,
+                diagnostic_only=diagnostic_only,
+            )
         names = _live_joint_names(task)
         handshake = config.expected_handshake(names)
         config.validate_handshake(handshake)
-        torch = importlib.import_module("torch")
-        as_tensor = getattr(torch, "as_tensor", None)
-        float32 = getattr(torch, "float32", None)
-        if not callable(as_tensor) or float32 is None:
-            raise UniVTACContractError("torch float32 tensor conversion is unavailable")
+        encode_action = _build_action_encoder(config.action_spec, task, resources.torch)
 
-        def encode_action(row: Array) -> Any:
-            contiguous = np.ascontiguousarray(row, dtype=np.float32)
-            return as_tensor(contiguous, dtype=float32, device=task.device)
+        def prepare_reset() -> None:
+            _prepare_process_determinism(initial_seed)
+            _seed_torch_process(resources.torch, initial_seed)
 
         def close_runtime() -> None:
-            try:
-                task.close()
-            finally:
-                simulation_app.close()
+            _close_runtime_component(task.close, "UniVTAC task")
 
+        capture_state, restore_state, snapshot_state_sha256 = (
+            build_live_snapshot_callbacks(task)
+        )
+        construction_stage = "runtime_ready"
+        _record_lifecycle_stage(stage_observer, construction_stage)
         return UniVTACTaskRuntime(
             task=task,
             handshake=handshake,
+            construction_seed=initial_seed,
             encode_action=encode_action,
+            prepare_reset=prepare_reset,
             close_runtime=close_runtime,
+            capture_state=capture_state,
+            restore_state=restore_state,
+            snapshot_state_sha256=snapshot_state_sha256,
         )
-    except Exception:
-        try:
+    except BaseException as error:
+        _emit_runtime_construction_failure(construction_stage, error)
+        with suppress(Exception):
             if task is not None and callable(getattr(task, "close", None)):
-                task.close()
-        finally:
-            simulation_app.close()
+                _close_runtime_component(task.close, "UniVTAC task")
+        if isinstance(error, SystemExit):
+            raise UniVTACContractError(
+                "UniVTAC runtime construction aborted via SystemExit during "
+                f"{construction_stage}: {error.code!r}"
+            ) from error
         raise
+
+
+def launch_univtac_app_host(
+    config: UniVTACBackendConfig,
+    *,
+    upstream_root: Path,
+    initial_seed: int,
+    launcher_args: Optional[Mapping[str, Any]] = None,
+    device: Optional[str] = None,
+    antialiasing_mode: Optional[str] = None,
+    n0_action_execution_contract: Optional[str] = None,
+    stage_observer: Optional[Callable[[str], None]] = None,
+) -> UniVTACSimulationAppHost:
+    """Launch one app host that creates a fresh task runtime per episode."""
+
+    upstream_root = upstream_root.resolve()
+    initial_seed = _validated_initial_seed(initial_seed)
+    resolved_antialiasing = _resolved_antialiasing_mode(config, antialiasing_mode)
+    _verify_checkout(upstream_root, config)
+    _prepare_process_determinism(initial_seed)
+    resources = _launch_univtac_application(
+        config,
+        upstream_root=upstream_root,
+        launcher_args=launcher_args,
+        stage_observer=stage_observer,
+    )
+
+    def create_task_runtime(
+        runtime_dir: Path,
+        seed: int,
+        runtime_stage_observer: Optional[Callable[[str], None]],
+    ) -> UniVTACTaskRuntime:
+        return _construct_univtac_task_runtime(
+            config,
+            resources,
+            runtime_dir=runtime_dir,
+            initial_seed=seed,
+            device=device,
+            antialiasing_mode=resolved_antialiasing,
+            n0_action_execution_contract=n0_action_execution_contract,
+            stage_observer=runtime_stage_observer,
+        )
+
+    def close_application() -> None:
+        _close_runtime_component(resources.simulation_app.close, "Isaac application")
+
+    def finalize_task_runtime(
+        runtime: UniVTACTaskRuntime,
+        runtime_stage_observer: Optional[Callable[[str], None]],
+    ) -> None:
+        prepare_univtac_task_teardown(
+            runtime.task,
+            stage_observer=runtime_stage_observer,
+        )
+
+    def reconstruct_task_stage(
+        runtime_stage_observer: Optional[Callable[[str], None]],
+    ) -> None:
+        reconstruct_univtac_stage(
+            resources.simulation_app,
+            stage_observer=runtime_stage_observer,
+        )
+
+    return UniVTACSimulationAppHost(
+        task_runtime_factory=create_task_runtime,
+        close_application=close_application,
+        task_runtime_finalizer=finalize_task_runtime,
+        task_reconstruction_barrier=reconstruct_task_stage,
+    )
+
+
+def launch_univtac_runtime(
+    config: UniVTACBackendConfig,
+    *,
+    upstream_root: Path,
+    runtime_dir: Path,
+    initial_seed: int,
+    launcher_args: Optional[Mapping[str, Any]] = None,
+    device: Optional[str] = None,
+    antialiasing_mode: Optional[str] = None,
+    n0_action_execution_contract: Optional[str] = None,
+    stage_observer: Optional[Callable[[str], None]] = None,
+) -> UniVTACTaskRuntime:
+    """Launch a one-shot task runtime with the legacy task-plus-app close API."""
+
+    host = launch_univtac_app_host(
+        config,
+        upstream_root=upstream_root,
+        initial_seed=initial_seed,
+        launcher_args=launcher_args,
+        device=device,
+        antialiasing_mode=antialiasing_mode,
+        n0_action_execution_contract=n0_action_execution_contract,
+        stage_observer=stage_observer,
+    )
+    runtime = host.create_runtime(
+        runtime_dir=runtime_dir,
+        initial_seed=initial_seed,
+        stage_observer=stage_observer,
+    )
+    close_task_runtime = runtime.close_runtime
+    closed = False
+
+    def close_runtime() -> None:
+        nonlocal closed
+        if closed:
+            return
+        closed = True
+        try:
+            close_task_runtime()
+        finally:
+            host.close()
+
+    return replace(runtime, close_runtime=close_runtime)

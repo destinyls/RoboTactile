@@ -39,6 +39,9 @@ from robotactile_benchmark.execution import (
     load_live_univtac_request,
     load_live_univtac_run,
 )
+from robotactile_benchmark.execution.contracts import (
+    production_univtac_launcher_args,
+)
 from robotactile_benchmark.manifests import FaultManifest, Observability
 from robotactile_benchmark.policies.univtac_official_act import OfficialACTProfile
 from robotactile_benchmark.policies.univtac_official_act_loading import (
@@ -190,7 +193,7 @@ def _request_document(
         ),
         "act_device_name": "cuda:0",
         "simulator_device": "cuda:0",
-        "launcher_args": {"enable_cameras": True, "headless": True},
+        "launcher_args": production_univtac_launcher_args(),
         "n0_source_commit": None,
         "n0_normalizer_sha256": None,
         "n0_serve_bundle_sha256": None,

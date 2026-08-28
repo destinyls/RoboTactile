@@ -100,7 +100,15 @@ GPU_IDENTITY="$(nvidia-smi \
 export CUDA_VISIBLE_DEVICES="$GPU_INDEX"
 export ISAAC_SIM_PATH="$INSTALL_PATH"
 LOG_PATH="$(new_log_path "isaac-sim-headless-smoke-$RUN_ID")"
-if ! run_logged "$LOG_PATH" "$INSTALL_PATH/python.sh" "$EXAMPLE_PATH" --headless; then
+if ! run_logged \
+  "$LOG_PATH" \
+  env \
+  -u CONDA_PREFIX \
+  -u CONDA_DEFAULT_ENV \
+  -u CONDA_PROMPT_MODIFIER \
+  "$INSTALL_PATH/python.sh" \
+  "$EXAMPLE_PATH" \
+  --headless; then
   die "Isaac Sim headless smoke failed; see $LOG_PATH"
 fi
 

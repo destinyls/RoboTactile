@@ -8,14 +8,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional, Tuple, cast
 
+from robotactile_benchmark.action_specs import EE8_ACTION_SPEC, QPOS8_ACTION_SPEC
 from robotactile_benchmark.backends.univtac_contracts import (
     UniVTACBackendConfig,
     build_univtac_backend_config,
 )
 from robotactile_benchmark.closed_loop.contracts import (
-    ACTION_SPEC,
     ClosedLoopRunSpec,
+    InitialStatePolicy,
     PolicyIdentity,
+    WallTimeoutRole,
 )
 from robotactile_benchmark.constants import REST_REFERENCE_OPERATOR_IDS, SENSOR_SLOTS
 from robotactile_benchmark.contracts import Array, canonical_hash
@@ -70,6 +72,11 @@ _REQUEST_FIELDS = frozenset(
         "semantic_version",
     }
 )
+_ROBUST_REQUEST_FIELDS = _REQUEST_FIELDS | frozenset({"initial_state_policy"})
+_WATCHDOG_REQUEST_FIELDS = _REQUEST_FIELDS | frozenset({"wall_timeout_role"})
+_ROBUST_WATCHDOG_REQUEST_FIELDS = _ROBUST_REQUEST_FIELDS | frozenset(
+    {"wall_timeout_role"}
+)
 _REST_FIELDS = frozenset(
     {
         "reference_id",
@@ -123,11 +130,38 @@ def load_live_univtac_request(path: Path) -> LiveUniVTACRunRequest:
         raise TypeError("live request path must be a pathlib.Path")
     request_path = path.absolute()
     document = _read_object(request_path, "live UniVTAC request")
-    if set(document) != _REQUEST_FIELDS:
-        missing = sorted(_REQUEST_FIELDS - set(document))
-        extra = sorted(set(document) - _REQUEST_FIELDS)
+    fields = set(document)
+    if fields not in {
+        _REQUEST_FIELDS,
+        _ROBUST_REQUEST_FIELDS,
+        _WATCHDOG_REQUEST_FIELDS,
+        _ROBUST_WATCHDOG_REQUEST_FIELDS,
+    }:
+        missing = sorted(_REQUEST_FIELDS - fields)
+        extra = sorted(fields - _ROBUST_WATCHDOG_REQUEST_FIELDS)
         raise ValueError(
             f"live request fields mismatch: missing={missing}, extra={extra}"
+        )
+    initial_state_policy = document.get(
+        "initial_state_policy", InitialStatePolicy.OFFICIAL_REPRODUCTION.value
+    )
+    explicit_initial_state_policies = {
+        InitialStatePolicy.REPLACE_INITIAL_TERMINAL_V1.value,
+        InitialStatePolicy.DIAGNOSTIC_ALLOW_INVALID_V1.value,
+    }
+    if (
+        "initial_state_policy" in document
+        and initial_state_policy not in explicit_initial_state_policies
+    ):
+        raise ValueError("explicit initial_state_policy is invalid")
+    wall_timeout_role = document.get(
+        "wall_timeout_role", WallTimeoutRole.SCORING_BOUNDARY_V1.value
+    )
+    if "wall_timeout_role" in document and wall_timeout_role != (
+        WallTimeoutRole.INFRASTRUCTURE_WATCHDOG_V1.value
+    ):
+        raise ValueError(
+            "explicit wall_timeout_role must select infrastructure watchdog"
         )
     base = request_path.parent
     launcher_args = document["launcher_args"]
@@ -176,6 +210,8 @@ def load_live_univtac_request(path: Path) -> LiveUniVTACRunRequest:
         n0_normalizer_sha256=document["n0_normalizer_sha256"],
         n0_serve_bundle_sha256=document["n0_serve_bundle_sha256"],
         n0_prompt_manifest_sha256=document["n0_prompt_manifest_sha256"],
+        initial_state_policy=initial_state_policy,
+        wall_timeout_role=wall_timeout_role,
         semantic_version=document["semantic_version"],
     )
 
@@ -261,28 +297,32 @@ class LoadedLiveUniVTACRun:
     content_sha256: str = field(init=False)
 
     def __post_init__(self) -> None:
+        content_identity: dict[str, object] = {
+            "backend_config_sha256": self.backend_config.sha256,
+            "policy_identity_sha256": self.policy_identity.sha256,
+            "trial_manifest_sha256": self.trial.sha256,
+            "run_spec_sha256": self.run_spec.sha256,
+            "fault_manifest_sha256": (
+                None if self.fault_manifest is None else self.fault_manifest.sha256
+            ),
+            "rest_references_sha256": (
+                None if self.rest_references is None else self.rest_references.sha256
+            ),
+            "policy_kind": self.request.policy_kind.value,
+        }
+        if (
+            self.request.initial_state_policy
+            is not InitialStatePolicy.OFFICIAL_REPRODUCTION
+        ):
+            content_identity["initial_state_policy"] = (
+                self.request.initial_state_policy.value
+            )
+        if self.request.wall_timeout_role is not WallTimeoutRole.SCORING_BOUNDARY_V1:
+            content_identity["wall_timeout_role"] = self.request.wall_timeout_role.value
         object.__setattr__(
             self,
             "content_sha256",
-            canonical_hash(
-                {
-                    "backend_config_sha256": self.backend_config.sha256,
-                    "policy_identity_sha256": self.policy_identity.sha256,
-                    "trial_manifest_sha256": self.trial.sha256,
-                    "run_spec_sha256": self.run_spec.sha256,
-                    "fault_manifest_sha256": (
-                        None
-                        if self.fault_manifest is None
-                        else self.fault_manifest.sha256
-                    ),
-                    "rest_references_sha256": (
-                        None
-                        if self.rest_references is None
-                        else self.rest_references.sha256
-                    ),
-                    "policy_kind": self.request.policy_kind.value,
-                }
-            ),
+            canonical_hash(content_identity),
         )
 
 
@@ -298,7 +338,10 @@ def load_live_univtac_run(request: LiveUniVTACRunRequest) -> LoadedLiveUniVTACRu
         raise ArtifactUnavailableError(
             "artifact_unavailable: matched no-touch identity/artifact is missing"
         )
-    config = build_univtac_backend_config(request.task_id)
+    action_spec = (
+        EE8_ACTION_SPEC if request.policy_kind.value == "n0" else QPOS8_ACTION_SPEC
+    )
+    config = build_univtac_backend_config(request.task_id, action_spec=action_spec)
     if request.max_observation_steps > config.task.action_horizon + 1:
         raise ValueError("max_observation_steps exceeds the frozen task horizon")
     fault = _load_fault(request.fault_manifest_path)
@@ -317,7 +360,7 @@ def load_live_univtac_run(request: LiveUniVTACRunRequest) -> LoadedLiveUniVTACRu
         system_id=executed_system_id,
         checkpoint_sha256=request.checkpoint_sha256,
         config_sha256=request.config_sha256,
-        action_spec=ACTION_SPEC,
+        action_spec=action_spec,
         consumes_tactile=request.condition is not Condition.NO_TOUCH,
         supports_structural_absence=request.condition is Condition.NO_TOUCH,
     )
@@ -325,7 +368,7 @@ def load_live_univtac_run(request: LiveUniVTACRunRequest) -> LoadedLiveUniVTACRu
         request.base_system_id,
         request.checkpoint_sha256,
         request.config_sha256,
-        ACTION_SPEC,
+        action_spec,
     )
     base_manifest = request.base_system_manifest_sha256 or expected_base
     if request.condition is not Condition.NO_TOUCH and base_manifest != expected_base:
@@ -341,7 +384,7 @@ def load_live_univtac_run(request: LiveUniVTACRunRequest) -> LoadedLiveUniVTACRu
         base_system_manifest_sha256=base_manifest,
         checkpoint_sha256=request.checkpoint_sha256,
         config_sha256=request.config_sha256,
-        action_spec=ACTION_SPEC,
+        action_spec=action_spec,
         fault_manifest_sha256=None if fault is None else fault.sha256,
         matched_no_touch_system_id=(
             request.matched_no_touch_system_id
@@ -351,13 +394,19 @@ def load_live_univtac_run(request: LiveUniVTACRunRequest) -> LoadedLiveUniVTACRu
         restoration_index=request.restoration_index,
         restoration_mode=request.restoration_mode,
     )
+    prompt = config.task.prompt
+    if request.policy_kind.value == "n0":
+        from robotactile_benchmark.policies.n0_official import n0_training_prompt
+
+        prompt = n0_training_prompt(request.task_id)
     run_spec = ClosedLoopRunSpec(
-        prompt=config.task.prompt,
+        prompt=prompt,
         success_predicate_id=config.task.success_predicate_id,
         max_control_cycles=request.max_control_cycles,
         max_observation_steps=request.max_observation_steps,
         execute_action_steps=request.execute_action_steps,
         wall_timeout_s=request.wall_timeout_s,
+        wall_timeout_role=request.wall_timeout_role,
     )
     return LoadedLiveUniVTACRun(
         request=request,

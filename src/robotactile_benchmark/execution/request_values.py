@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from robotactile_benchmark.closed_loop.contracts import (
+    InitialStatePolicy,
+    WallTimeoutRole,
+)
 from robotactile_benchmark.execution.contracts import LiveUniVTACRunRequest
 
 
@@ -12,7 +16,7 @@ def live_univtac_request_to_dict(
 
     if type(request) is not LiveUniVTACRunRequest:
         raise TypeError("request must be an exact LiveUniVTACRunRequest")
-    return {
+    document: dict[str, object] = {
         "task_id": request.task_id,
         "condition": request.condition.value,
         "policy_kind": request.policy_kind.value,
@@ -59,3 +63,8 @@ def live_univtac_request_to_dict(
         "n0_prompt_manifest_sha256": request.n0_prompt_manifest_sha256,
         "semantic_version": request.semantic_version,
     }
+    if request.initial_state_policy is not InitialStatePolicy.OFFICIAL_REPRODUCTION:
+        document["initial_state_policy"] = request.initial_state_policy.value
+    if request.wall_timeout_role is not WallTimeoutRole.SCORING_BOUNDARY_V1:
+        document["wall_timeout_role"] = request.wall_timeout_role.value
+    return document

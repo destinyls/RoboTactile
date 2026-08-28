@@ -7,6 +7,11 @@ umask 022
 
 ROBOTACTILE_DEPLOY_ROOT="${ROBOTACTILE_DEPLOY_ROOT:-}"
 ROBOTACTILE_LOCK_DIR=""
+ROBOTACTILE_CUDA_ROOT=""
+ROBOTACTILE_CUDA_TOOLKIT_VERSION=""
+ROBOTACTILE_CUDA_NVCC_IDENTITY=""
+ROBOTACTILE_CUDA_ARCHITECTURE=""
+ROBOTACTILE_CUDA_COMPUTE_CAPABILITY=""
 ROBOTACTILE_REPOSITORY_ROOT="$(
   cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P
 )"
@@ -22,6 +27,71 @@ info() {
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || die "required command is unavailable: $1"
+}
+
+validate_cuda_build_options() {
+  local cuda_root="$1" cuda_architecture="$2" gpu_index="$3"
+  case "$gpu_index" in ''|*[!0-9]*) die "--gpu must be a non-negative integer" ;; esac
+  case "$cuda_architecture" in
+    auto|[1-9][0-9]|[1-9][0-9][0-9]) ;;
+    *) die "--cuda-architecture must be auto or a two/three-digit compute target such as 80 or 86" ;;
+  esac
+  case "$cuda_root" in ''|/*) ;; *) die "--cuda-root must be an absolute path" ;; esac
+  case "$cuda_root" in *$'\n'*) die "--cuda-root must not contain a newline" ;; esac
+}
+
+resolve_cuda_build_target() {
+  local deploy_root="$1" isaac_sim_path="$2" requested_root="$3"
+  local requested_architecture="$4" gpu_index="$5"
+  local cuda_root="$requested_root" deploy_real probe nvcc_output nvcc_build detected major
+  if [ -z "$cuda_root" ]; then
+    if [ -x "$deploy_root/runtime/cuda-toolkit-12.8/bin/nvcc" ]; then
+      cuda_root="$deploy_root/runtime/cuda-toolkit-12.8"
+    elif [ -x "$deploy_root/runtime/cuda-toolkit-12.4/bin/nvcc" ]; then
+      cuda_root="$deploy_root/runtime/cuda-toolkit-12.4"
+    elif [ -x /usr/local/cuda-12.8/bin/nvcc ]; then
+      cuda_root="/usr/local/cuda-12.8"
+    elif [ -x /usr/local/cuda-12.4/bin/nvcc ]; then
+      cuda_root="/usr/local/cuda-12.4"
+    else
+      die "CUDA 12.8/12.4 toolkit is absent; pass --cuda-root to a toolkit below $deploy_root"
+    fi
+  fi
+  [ -d "$cuda_root" ] || die "CUDA toolkit root is absent: $cuda_root"
+  cuda_root="$(cd "$cuda_root" && pwd -P)"
+  if [ -n "$requested_root" ]; then
+    deploy_real="$(cd "$deploy_root" && pwd -P)"
+    case "$cuda_root" in "$deploy_real"/*) ;; *) die "--cuda-root must resolve below the deployment root" ;; esac
+  fi
+  [ -x "$cuda_root/bin/nvcc" ] || die "CUDA toolkit nvcc is absent: $cuda_root/bin/nvcc"
+  nvcc_output="$("$cuda_root/bin/nvcc" --version 2>&1)" || die "CUDA toolkit nvcc probe failed"
+  ROBOTACTILE_CUDA_TOOLKIT_VERSION="$(printf '%s\n' "$nvcc_output" | sed -n 's/.*release \([0-9][0-9]*\.[0-9][0-9]*\),.*/\1/p' | tail -n 1)"
+  nvcc_build="$(printf '%s\n' "$nvcc_output" | sed -n 's/.*release [^,]*, *\(V[0-9][0-9.]*\).*/\1/p' | tail -n 1)"
+  case "$ROBOTACTILE_CUDA_TOOLKIT_VERSION" in
+    12.4|12.8) ;;
+    *) die "CUDA toolkit must be 12.4 or 12.8; detected ${ROBOTACTILE_CUDA_TOOLKIT_VERSION:-unknown} at $cuda_root" ;;
+  esac
+  [ -n "$nvcc_build" ] || die "CUDA nvcc build identity is unavailable"
+  ROBOTACTILE_CUDA_NVCC_IDENTITY="$ROBOTACTILE_CUDA_TOOLKIT_VERSION|$nvcc_build"
+  probe="$(env CUDA_VISIBLE_DEVICES="$gpu_index" "$isaac_sim_path/python.sh" -c 'import torch; assert torch.cuda.is_available(), "CUDA is unavailable"; c = torch.cuda.get_device_capability(0); print(f"ROBOTACTILE_CUDA_ARCH={c[0]}{c[1]}")' 2>&1)" || die "failed to detect compute capability for GPU $gpu_index: $probe"
+  detected="$(printf '%s\n' "$probe" | sed -n 's/^ROBOTACTILE_CUDA_ARCH=\([1-9][0-9]*\)$/\1/p' | tail -n 1)"
+  case "$detected" in [1-9][0-9]|[1-9][0-9][0-9]) ;; *) die "invalid compute capability probe for GPU $gpu_index" ;; esac
+  if [ "$requested_architecture" = "auto" ]; then
+    ROBOTACTILE_CUDA_ARCHITECTURE="$detected"
+  elif [ "$requested_architecture" = "$detected" ]; then
+    ROBOTACTILE_CUDA_ARCHITECTURE="$requested_architecture"
+  else
+    die "requested CUDA architecture $requested_architecture does not match GPU $gpu_index capability $detected"
+  fi
+  case "$ROBOTACTILE_CUDA_ARCHITECTURE" in
+    100|101|120)
+      [ "$ROBOTACTILE_CUDA_TOOLKIT_VERSION" = "12.8" ] || \
+        die "CUDA architecture $ROBOTACTILE_CUDA_ARCHITECTURE requires CUDA 12.8; detected $ROBOTACTILE_CUDA_TOOLKIT_VERSION at $cuda_root"
+      ;;
+  esac
+  major="${ROBOTACTILE_CUDA_ARCHITECTURE%?}"
+  ROBOTACTILE_CUDA_COMPUTE_CAPABILITY="$major.${ROBOTACTILE_CUDA_ARCHITECTURE#"$major"}"
+  ROBOTACTILE_CUDA_ROOT="$cuda_root"
 }
 
 default_deployment_root() {
@@ -130,6 +200,25 @@ sha256_file() {
     *[!0-9a-fA-F]*|'') die "invalid SHA-256 output for $path" ;;
   esac
   [ "${#digest}" -eq 64 ] || die "invalid SHA-256 length for $path"
+  printf '%s\n' "$(printf '%s' "$digest" | tr 'A-F' 'a-f')"
+}
+
+sha512_file() {
+  local path="$1"
+  local digest=""
+  if command -v openssl >/dev/null 2>&1; then
+    digest="$(LC_ALL=C openssl dgst -sha512 "$path" | awk '{print $NF}')"
+  elif command -v sha512sum >/dev/null 2>&1; then
+    digest="$(LC_ALL=C sha512sum "$path" | awk '{print $1}')"
+  elif command -v shasum >/dev/null 2>&1; then
+    digest="$(LC_ALL=C LANG=C shasum -a 512 "$path" | awk '{print $1}')"
+  else
+    die "no SHA-512 implementation is available"
+  fi
+  case "$digest" in
+    *[!0-9a-fA-F]*|'') die "invalid SHA-512 output for $path" ;;
+  esac
+  [ "${#digest}" -eq 128 ] || die "invalid SHA-512 length for $path"
   printf '%s\n' "$(printf '%s' "$digest" | tr 'A-F' 'a-f')"
 }
 

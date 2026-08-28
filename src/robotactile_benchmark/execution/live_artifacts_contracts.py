@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Tuple
+from typing import TYPE_CHECKING, Tuple
 
 from robotactile_benchmark.artifacts.primitives import (
     require_lowercase_sha256,
@@ -13,6 +13,7 @@ from robotactile_benchmark.artifacts.primitives import (
 from robotactile_benchmark.closed_loop.capture import ClosedLoopExecutionEvidence
 from robotactile_benchmark.closed_loop.contracts import ClosedLoopRunSpec
 from robotactile_benchmark.contracts import freeze_value
+from robotactile_benchmark.execution.capture_profiles import LiveCaptureProfile
 from robotactile_benchmark.execution.live_univtac import (
     LIVE_ARTIFACT_EVIDENCE_LEVEL,
 )
@@ -20,7 +21,16 @@ from robotactile_benchmark.manifests import FaultManifest
 from robotactile_benchmark.rest_references import RestReferenceBundle
 from robotactile_benchmark.trials import TrialManifest
 
+if TYPE_CHECKING:
+    from robotactile_benchmark.execution.live_artifacts_preview import (
+        LivePreviewTrace,
+    )
+
 LIVE_ARTIFACT_SEMANTIC_VERSION = "1.0"
+LIVE_ROOT_RECEIPT_SEMANTIC_VERSION = "1.1"
+LIVE_CAPTURE_ROOT_RECEIPT_SEMANTIC_VERSION = "1.2"
+LIVE_SUPPORTED_ROOT_RECEIPT_VERSIONS = frozenset({"1.0", "1.1", "1.2"})
+LIVE_COMPACT_ARTIFACT_EVIDENCE_LEVEL = "live_univtac_diagnostic_capture_v1"
 LIVE_ROOT_RECEIPT_PATH = "root_receipt.json"
 LIVE_MAX_MEMBER_BYTES = 1024 * 1024 * 1024
 LIVE_MAX_JSON_BYTES = 128 * 1024 * 1024
@@ -28,7 +38,7 @@ LIVE_MAX_BUNDLE_BYTES = 32 * 1024 * 1024 * 1024
 LIVE_MAX_MEMBER_COUNT = 100_000
 LIVE_MAX_TRACE_RECORDS = 4096
 LIVE_JSON_RESERVE_BYTES = 256 * 1024 * 1024
-LIVE_REQUIRED_JSON_MEMBERS = frozenset(
+LIVE_REQUIRED_JSON_MEMBERS_V1_0 = frozenset(
     {
         "request_identity.json",
         "trial_manifest.json",
@@ -40,6 +50,12 @@ LIVE_REQUIRED_JSON_MEMBERS = frozenset(
         "delivery_trace.json",
         "validation_report.json",
     }
+)
+LIVE_REQUIRED_JSON_MEMBERS = LIVE_REQUIRED_JSON_MEMBERS_V1_0 | frozenset(
+    {"transition_trace.json"}
+)
+LIVE_CAPTURE_REQUIRED_JSON_MEMBERS = LIVE_REQUIRED_JSON_MEMBERS | frozenset(
+    {"capture_summary.json"}
 )
 
 
@@ -123,15 +139,37 @@ class LiveArtifactRootReceipt:
     members: Tuple[LiveArtifactMember, ...]
     evidence_level: str = LIVE_ARTIFACT_EVIDENCE_LEVEL
     simulator_qualification_claimed: bool = False
-    semantic_version: str = LIVE_ARTIFACT_SEMANTIC_VERSION
+    semantic_version: str = LIVE_ROOT_RECEIPT_SEMANTIC_VERSION
+    capture_profile: LiveCaptureProfile = LiveCaptureProfile.PAPER_FULL
 
     def __post_init__(self) -> None:
-        if self.evidence_level != LIVE_ARTIFACT_EVIDENCE_LEVEL:
+        try:
+            capture_profile = LiveCaptureProfile(self.capture_profile)
+        except (TypeError, ValueError) as error:
+            raise LiveArtifactValidationError(
+                "live capture profile mismatch"
+            ) from error
+        object.__setattr__(self, "capture_profile", capture_profile)
+        expected_evidence_level = (
+            LIVE_ARTIFACT_EVIDENCE_LEVEL
+            if capture_profile.is_full_trace
+            else LIVE_COMPACT_ARTIFACT_EVIDENCE_LEVEL
+        )
+        if self.evidence_level != expected_evidence_level:
             raise LiveArtifactValidationError("live evidence level mismatch")
         if self.simulator_qualification_claimed is not False:
             raise LiveArtifactValidationError("live trace cannot claim qualification")
-        if self.semantic_version != LIVE_ARTIFACT_SEMANTIC_VERSION:
+        if self.semantic_version not in LIVE_SUPPORTED_ROOT_RECEIPT_VERSIONS:
             raise LiveArtifactValidationError("live artifact version mismatch")
+        if (
+            self.semantic_version in {"1.0", "1.1"}
+            and not capture_profile.is_full_trace
+        ):
+            raise LiveArtifactValidationError(
+                "legacy live artifacts must be full trace"
+            )
+        if self.semantic_version == "1.2" and capture_profile.is_full_trace:
+            raise LiveArtifactValidationError("v1.2 is reserved for compact captures")
         for name in (
             "request_sha256",
             "run_content_sha256",
@@ -162,16 +200,26 @@ class LiveArtifactRootReceipt:
             )
         if LIVE_ROOT_RECEIPT_PATH in paths:
             raise LiveArtifactValidationError("root receipt cannot enumerate itself")
-        if {path for path in paths if not path.startswith("arrays/")} != (
-            LIVE_REQUIRED_JSON_MEMBERS
-        ):
+        if self.semantic_version == "1.0":
+            required_members = LIVE_REQUIRED_JSON_MEMBERS_V1_0
+        elif self.semantic_version == "1.1":
+            required_members = LIVE_REQUIRED_JSON_MEMBERS
+        elif capture_profile is LiveCaptureProfile.METRICS_ONLY:
+            required_members = LIVE_CAPTURE_REQUIRED_JSON_MEMBERS
+        else:
+            required_members = LIVE_CAPTURE_REQUIRED_JSON_MEMBERS | frozenset(
+                {"preview_trace.json"}
+            )
+        if {
+            path for path in paths if not path.startswith("arrays/")
+        } != required_members:
             raise LiveArtifactValidationError("live JSON member inventory mismatch")
         if sum(item.size_bytes for item in members) > LIVE_MAX_BUNDLE_BYTES:
             raise LiveArtifactValidationError("live artifact exceeds total byte cap")
         object.__setattr__(self, "members", members)
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        document: dict[str, object] = {
             "evidence_level": self.evidence_level,
             "simulator_qualification_claimed": self.simulator_qualification_claimed,
             "request_sha256": self.request_sha256,
@@ -190,16 +238,29 @@ class LiveArtifactRootReceipt:
             "members": [item.to_dict() for item in self.members],
             "semantic_version": self.semantic_version,
         }
+        if self.semantic_version == LIVE_CAPTURE_ROOT_RECEIPT_SEMANTIC_VERSION:
+            document["capture_profile"] = self.capture_profile.value
+        return document
 
     @classmethod
     def from_dict(cls, value: object) -> LiveArtifactRootReceipt:
-        fields = set(cls.__dataclass_fields__)
-        if not isinstance(value, dict) or set(value) != fields:
+        if not isinstance(value, dict):
+            raise LiveArtifactValidationError("live root receipt fields mismatch")
+        legacy_fields = set(cls.__dataclass_fields__) - {"capture_profile"}
+        semantic_version = value.get("semantic_version")
+        expected_fields = (
+            set(cls.__dataclass_fields__)
+            if semantic_version == LIVE_CAPTURE_ROOT_RECEIPT_SEMANTIC_VERSION
+            else legacy_fields
+        )
+        if set(value) != expected_fields:
             raise LiveArtifactValidationError("live root receipt fields mismatch")
         members = value["members"]
         if not isinstance(members, list):
             raise LiveArtifactValidationError("live root members must be a list")
         kwargs = dict(value)
+        if "capture_profile" not in kwargs:
+            kwargs["capture_profile"] = LiveCaptureProfile.PAPER_FULL
         kwargs["members"] = tuple(
             LiveArtifactMember.from_dict(item) for item in members
         )
@@ -208,7 +269,7 @@ class LiveArtifactRootReceipt:
 
 @dataclass(frozen=True)
 class LoadedLiveUniVTACArtifact:
-    """Fully reconstructed and independently revalidated live trace bundle."""
+    """Independently revalidated full or diagnostic live capture bundle."""
 
     request_identity: Mapping[str, object]
     run_content_sha256: str
@@ -219,6 +280,7 @@ class LoadedLiveUniVTACArtifact:
     evidence: ClosedLoopExecutionEvidence
     root_receipt: LiveArtifactRootReceipt
     root_receipt_sha256: str
+    preview_trace: LivePreviewTrace | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -234,9 +296,33 @@ class LoadedLiveUniVTACArtifact:
             "root_receipt_sha256",
             require_live_sha256(self.root_receipt_sha256, "external root"),
         )
+        if (
+            not self.root_receipt.capture_profile.is_full_trace
+            and self.evidence.finalization is not None
+        ):
+            raise LiveArtifactValidationError(
+                "compact capture cannot expose a full finalization"
+            )
+        has_preview = self.preview_trace is not None
+        if has_preview != (
+            self.root_receipt.capture_profile is LiveCaptureProfile.PREVIEW
+        ):
+            raise LiveArtifactValidationError("loaded preview/profile mismatch")
 
     @property
     def external_root_sha256(self) -> str:
         """Return the pin callers should record outside the artifact directory."""
 
         return self.root_receipt_sha256
+
+    @property
+    def capture_profile(self) -> LiveCaptureProfile:
+        """Return the explicit persisted-evidence profile."""
+
+        return self.root_receipt.capture_profile
+
+    @property
+    def has_full_trace(self) -> bool:
+        """Return whether all observation records are present."""
+
+        return self.capture_profile.is_full_trace

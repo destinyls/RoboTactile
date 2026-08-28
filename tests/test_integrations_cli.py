@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from robotactile_benchmark.cli import main
 
 
@@ -37,23 +39,17 @@ def test_integration_validate_binds_config_registry_and_external_pin(
     }
 
 
-def test_n0_evaluate_fails_closed_before_loading_request(capsys: object) -> None:
-    exit_code = main(
-        [
-            "evaluate",
-            "--model",
-            "n0_twam",
-            "--request",
-            "/does/not/exist.json",
-        ]
-    )
-    payload = json.loads(capsys.readouterr().out)  # type: ignore[attr-defined]
-
-    assert exit_code == 2
-    assert payload["integration_id"] == "n0_twam"
-    assert payload["status"] == "unsupported_contract"
-    assert payload["backend_effects"] == 0
-    assert payload["policy_effects"] == 0
+def test_n0_evaluate_loads_request_before_runtime_effects() -> None:
+    with pytest.raises(FileNotFoundError, match="live UniVTAC request"):
+        main(
+            [
+                "evaluate",
+                "--model",
+                "n0_twam",
+                "--request",
+                "/does/not/exist.json",
+            ]
+        )
 
 
 def test_existing_commands_remain_available() -> None:

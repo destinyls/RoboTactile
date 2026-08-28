@@ -17,6 +17,9 @@ from robotactile_benchmark.calibration import (
 from robotactile_benchmark.calibration.request_contracts import (
     CalibrationRequestError,
 )
+from robotactile_benchmark.execution.contracts import (
+    production_univtac_launcher_args,
+)
 from robotactile_benchmark.rest_references import ReferenceSplit
 from robotactile_benchmark.trials import Condition
 
@@ -39,7 +42,7 @@ def _spec(root: Path) -> CalibrationRequestSpec:
         live_artifact_output_dir=root / "live-artifact",
         act_device_name="cuda:0",
         simulator_device="cuda:0",
-        launcher_args={"enable_cameras": True, "headless": True},
+        launcher_args=production_univtac_launcher_args(),
     )
 
 

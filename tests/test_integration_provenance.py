@@ -43,11 +43,11 @@ def test_packaged_lock_has_exact_external_sources_and_license_boundary() -> None
     )
     assert lock.by_id("univtac").license_spdx == "Apache-2.0"
     assert lock.by_id("n0_twam").commit_sha == (
-        "9036c130409f8cf5494b12489fea339f7213b9d6"
+        "c43a2160dd31c449d92b28eab52c0e2f09e4738a"
     )
     assert lock.by_id("n0_twam").license_spdx == "CC-BY-NC-SA-4.0"
     assert lock.by_id("act_runtime").release_ready is False
-    assert lock.by_id("n0_twam").release_ready is False
+    assert lock.by_id("n0_twam").release_ready is True
     assert lock.by_id("isaaclab").license_spdx == "BSD-3-Clause"
     assert lock.by_id("isaaclab").source_directory == "IsaacLab"
     assert lock.by_id("curobo").license_spdx == ("LicenseRef-NVIDIA-NonCommercial")

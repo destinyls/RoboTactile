@@ -1,5 +1,7 @@
 """Typed orchestration for bounded UniVTAC closed-loop execution."""
 
+from robotactile_benchmark.closed_loop.contracts import InitialStatePolicy
+from robotactile_benchmark.execution.capture_profiles import LiveCaptureProfile
 from robotactile_benchmark.execution.contracts import (
     ArtifactExportStatus,
     LiveExecutionUnavailableError,
@@ -28,6 +30,16 @@ from robotactile_benchmark.execution.loading import (
     load_live_univtac_request,
     load_live_univtac_run,
 )
+from robotactile_benchmark.execution.paired_live_univtac import (
+    PAIRED_EXECUTION_EVIDENCE_LEVEL,
+    PairedLiveUniVTACExecutionResult,
+    default_paired_backend_session_factory,
+    execute_paired_live_univtac_runs,
+)
+from robotactile_benchmark.execution.paired_receipt_io import (
+    PairedExecutionReceiptWrite,
+    write_paired_execution_receipt,
+)
 from robotactile_benchmark.execution.preflight import (
     load_live_preflight_receipt,
     run_live_preflight,
@@ -47,20 +59,27 @@ __all__ = [
     "ArtifactExportStatus",
     "LIVE_ARTIFACT_EVIDENCE_LEVEL",
     "LIVE_PREFLIGHT_EVIDENCE_LEVEL",
+    "PAIRED_EXECUTION_EVIDENCE_LEVEL",
     "LiveArtifactExportReceipt",
     "LiveArtifactRootReceipt",
     "LiveArtifactValidationError",
+    "LiveCaptureProfile",
     "LiveExecutionUnavailableError",
+    "InitialStatePolicy",
     "LivePolicyKind",
     "LivePreflightCheck",
     "LivePreflightError",
     "LivePreflightReceipt",
     "LiveUniVTACExecutionResult",
     "LiveUniVTACRunRequest",
+    "PairedLiveUniVTACExecutionResult",
+    "PairedExecutionReceiptWrite",
     "LoadedLiveUniVTACRun",
     "LoadedLiveUniVTACArtifact",
     "default_live_backend_factory",
     "default_live_policy_factory",
+    "default_paired_backend_session_factory",
+    "execute_paired_live_univtac_runs",
     "execute_live_univtac_run",
     "load_live_univtac_request",
     "load_live_univtac_artifact",
@@ -70,4 +89,5 @@ __all__ = [
     "run_live_preflight",
     "write_live_univtac_artifact",
     "write_live_preflight_receipt",
+    "write_paired_execution_receipt",
 ]

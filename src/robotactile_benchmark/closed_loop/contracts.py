@@ -5,13 +5,17 @@ from __future__ import annotations
 import math
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from numbers import Integral, Real
 from typing import Any, Tuple
 
 import numpy as np
 
+from robotactile_benchmark.action_specs import (
+    QPOS8_ACTION_SPEC,
+    validate_action_spec,
+)
 from robotactile_benchmark.contracts import (
     Array,
     EvaluationRecord,
@@ -21,7 +25,7 @@ from robotactile_benchmark.contracts import (
     freeze_value,
 )
 
-ACTION_SPEC = "qpos8_next_step"
+ACTION_SPEC = QPOS8_ACTION_SPEC
 SEMANTIC_VERSION = "1.0"
 _SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 
@@ -70,10 +74,7 @@ def _require_sha256(value: Any, name: str) -> str:
 
 
 def _require_action_spec(value: Any) -> str:
-    action_spec: str = _require_nonempty_string(value, "action_spec")
-    if action_spec != ACTION_SPEC:
-        raise ValueError(f"action_spec must be {ACTION_SPEC}")
-    return action_spec
+    return validate_action_spec(value)
 
 
 def _freeze_action_array(value: Any, name: str) -> Array:
@@ -99,6 +100,21 @@ class BackendSignal(str, Enum):
     TIMEOUT = "timeout"
 
 
+class InitialStatePolicy(str, Enum):
+    """How reset-time terminal flags affect candidate execution."""
+
+    OFFICIAL_REPRODUCTION = "official_reproduction"
+    REPLACE_INITIAL_TERMINAL_V1 = "replace_initial_terminal_v1"
+    DIAGNOSTIC_ALLOW_INVALID_V1 = "diagnostic_allow_invalid_v1"
+
+
+class WallTimeoutRole(str, Enum):
+    """Whether elapsed wall time is a score boundary or an infrastructure guard."""
+
+    SCORING_BOUNDARY_V1 = "scoring_boundary_v1"
+    INFRASTRUCTURE_WATCHDOG_V1 = "infrastructure_watchdog_v1"
+
+
 def _normalize_signal(value: Any) -> BackendSignal:
     if isinstance(value, BackendSignal):
         return value
@@ -118,6 +134,7 @@ class ClosedLoopRunSpec:
     max_observation_steps: int
     execute_action_steps: int
     wall_timeout_s: float
+    wall_timeout_role: WallTimeoutRole = WallTimeoutRole.SCORING_BOUNDARY_V1
     semantic_version: str = SEMANTIC_VERSION
 
     def __post_init__(self) -> None:
@@ -134,12 +151,15 @@ class ClosedLoopRunSpec:
         execute_action_steps = _require_positive_integer(
             self.execute_action_steps, "execute_action_steps"
         )
-        if execute_action_steps > max_observation_steps:
-            raise ValueError("execute_action_steps cannot exceed max_observation_steps")
         if max_control_cycles > max_observation_steps:
             raise ValueError("max_control_cycles cannot exceed max_observation_steps")
         wall_timeout_s = _require_positive_finite_real(
             self.wall_timeout_s, "wall_timeout_s"
+        )
+        wall_timeout_role = (
+            self.wall_timeout_role
+            if isinstance(self.wall_timeout_role, WallTimeoutRole)
+            else WallTimeoutRole(self.wall_timeout_role)
         )
         if self.semantic_version != SEMANTIC_VERSION:
             raise ValueError(f"semantic_version must be {SEMANTIC_VERSION}")
@@ -149,10 +169,22 @@ class ClosedLoopRunSpec:
         object.__setattr__(self, "max_observation_steps", max_observation_steps)
         object.__setattr__(self, "execute_action_steps", execute_action_steps)
         object.__setattr__(self, "wall_timeout_s", wall_timeout_s)
+        object.__setattr__(self, "wall_timeout_role", wall_timeout_role)
 
     @property
     def sha256(self) -> str:
-        return canonical_hash(self)
+        identity: dict[str, object] = {
+            "prompt": self.prompt,
+            "success_predicate_id": self.success_predicate_id,
+            "max_control_cycles": self.max_control_cycles,
+            "max_observation_steps": self.max_observation_steps,
+            "execute_action_steps": self.execute_action_steps,
+            "wall_timeout_s": self.wall_timeout_s,
+            "semantic_version": self.semantic_version,
+        }
+        if self.wall_timeout_role is not WallTimeoutRole.SCORING_BOUNDARY_V1:
+            identity["wall_timeout_role"] = self.wall_timeout_role.value
+        return canonical_hash(identity)
 
 
 @dataclass(frozen=True)
@@ -229,7 +261,7 @@ class PolicyIdentity:
 
 @dataclass(frozen=True)
 class ActionPlan:
-    """A policy proposal expressed in the benchmark's canonical action space."""
+    """A policy proposal expressed in one registered 8D action space."""
 
     action_spec: str
     source_step_index: int
@@ -260,6 +292,7 @@ class ResetReceipt:
     exogenous_seed: int
     simulator_state_sha256: str
     native_reset_id: str
+    diagnostics: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -285,6 +318,9 @@ class ResetReceipt:
             "native_reset_id",
             _require_nonempty_string(self.native_reset_id, "native_reset_id"),
         )
+        if not isinstance(self.diagnostics, Mapping):
+            raise TypeError("reset diagnostics must be a mapping")
+        object.__setattr__(self, "diagnostics", freeze_value(self.diagnostics))
 
     @property
     def sha256(self) -> str:

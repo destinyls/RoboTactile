@@ -137,7 +137,7 @@ def joint_reorder_witness(
             "canonical_joint_names": canonical_joint_names,
             "canonical_joint9": joint9,
             "model_visible_qpos8": qpos8,
-            "shared_gripper_qpos": float(joint9[-1]),
+            "shared_gripper_qpos": float(joint9[-2]),
         }
     )
 
@@ -333,7 +333,6 @@ class UniVTACQualificationReceipt:
             or len(joint9) != 9
             or len(qpos8) != 8
             or not all(np.isfinite(value) for value in joint9 + qpos8)
-            or not np.isclose(joint9[-2], joint9[-1], rtol=0.0, atol=1e-6)
             or not np.array_equal(
                 np.asarray(qpos8, dtype=np.float32),
                 np.asarray(joint9[:7] + joint9[-2:-1], dtype=np.float32),

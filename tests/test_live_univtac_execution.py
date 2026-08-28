@@ -3,19 +3,23 @@
 from __future__ import annotations
 
 import json
+import os
 import platform
 import tempfile
 import unittest
-from collections.abc import Mapping
-from dataclasses import fields, replace
-from enum import Enum
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+import pytest
+
 from robotactile_benchmark.closed_loop.fakes import (
     DeterministicFakeBackend,
     DeterministicFakePolicy,
+)
+from robotactile_benchmark.closed_loop.lifecycle import (
+    ClosedLoopResourceCloseError,
 )
 from robotactile_benchmark.execution import (
     ArtifactExportStatus,
@@ -26,13 +30,23 @@ from robotactile_benchmark.execution import (
     default_live_backend_factory,
     default_live_policy_factory,
     execute_live_univtac_run,
+    live_univtac_request_to_dict,
+    load_live_univtac_artifact,
     load_live_univtac_request,
     load_live_univtac_run,
+    write_live_univtac_artifact,
+)
+from robotactile_benchmark.execution.contracts import (
+    ISAAC_DISABLE_HANG_DETECTOR_KIT_ARG,
+    production_univtac_launcher_args,
+)
+from robotactile_benchmark.execution.lifecycle_watchdog import (
+    LifecycleIdentity,
+    LifecycleStageJournal,
 )
 from robotactile_benchmark.fixtures import make_synthetic_episode
 from robotactile_benchmark.manifests import FaultManifest, Observability
 from robotactile_benchmark.policies.act_loading import ArtifactUnavailableError
-from robotactile_benchmark.policies.n0 import N0Policy
 from robotactile_benchmark.trials import Condition, RestorationMode, TerminalStatus
 
 
@@ -73,7 +87,7 @@ def _request(
         exogenous_seed=20,
         max_control_cycles=1 if policy_kind is LivePolicyKind.N0 else 3,
         max_observation_steps=9 if policy_kind is LivePolicyKind.N0 else 5,
-        execute_action_steps=8 if policy_kind is LivePolicyKind.N0 else 1,
+        execute_action_steps=24 if policy_kind is LivePolicyKind.N0 else 1,
         wall_timeout_s=5.0,
         upstream_root=root / "upstream",
         runtime_dir=root / "runtime",
@@ -90,7 +104,7 @@ def _request(
         matched_no_touch_artifact_path=None,
         act_device_name="cpu" if policy_kind is LivePolicyKind.ACT else None,
         simulator_device=None,
-        launcher_args={"headless": True},
+        launcher_args=production_univtac_launcher_args(),
         n0_source_commit="9" * 40 if policy_kind is LivePolicyKind.N0 else None,
         n0_normalizer_sha256="d" * 64 if policy_kind is LivePolicyKind.N0 else None,
         n0_serve_bundle_sha256="e" * 64 if policy_kind is LivePolicyKind.N0 else None,
@@ -101,16 +115,18 @@ def _request(
 
 
 def _document(request: LiveUniVTACRunRequest, base: Path) -> dict[str, object]:
-    document: dict[str, object] = {}
-    for item in fields(request):
-        value = getattr(request, item.name)
-        if isinstance(value, Path):
-            value = value.relative_to(base).as_posix()
-        elif isinstance(value, Enum):
-            value = value.value
-        elif isinstance(value, Mapping):
-            value = dict(value)
-        document[item.name] = value
+    document = live_univtac_request_to_dict(request)
+    for name in (
+        "upstream_root",
+        "runtime_dir",
+        "output_dir",
+        "fault_manifest_path",
+        "rest_references_path",
+        "matched_no_touch_artifact_path",
+    ):
+        value = document[name]
+        if value is not None:
+            document[name] = Path(value).relative_to(base).as_posix()
     return document
 
 
@@ -142,6 +158,56 @@ class _Harness:
 
 
 class LiveRequestLoadingTests(unittest.TestCase):
+    def test_launcher_contract_is_exact_and_rejects_missing_or_conflicting_kit_args(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            request = _request(Path(temporary))
+            invalid = (
+                (
+                    {"enable_cameras": True, "headless": True},
+                    "fields mismatch",
+                ),
+                (
+                    {
+                        **production_univtac_launcher_args(),
+                        "kit_args": (
+                            f"{ISAAC_DISABLE_HANG_DETECTOR_KIT_ARG} "
+                            f"{ISAAC_DISABLE_HANG_DETECTOR_KIT_ARG}"
+                        ),
+                    },
+                    "contain exactly",
+                ),
+                (
+                    {
+                        **production_univtac_launcher_args(),
+                        "kit_args": "--/app/hangDetector/enabled=true",
+                    },
+                    "contain exactly",
+                ),
+                (
+                    {**production_univtac_launcher_args(), "headless": False},
+                    "headless must be true",
+                ),
+                (
+                    {
+                        **production_univtac_launcher_args(),
+                        "enable_cameras": False,
+                    },
+                    "enable_cameras must be true",
+                ),
+            )
+
+            self.assertEqual(
+                dict(request.launcher_args), production_univtac_launcher_args()
+            )
+            for launcher_args, message in invalid:
+                with (
+                    self.subTest(launcher_args=launcher_args),
+                    self.assertRaisesRegex(ValueError, message),
+                ):
+                    replace(request, launcher_args=launcher_args)
+
     def test_content_hash_excludes_paths_but_binds_loaded_fault(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             first_root = Path(temporary) / "first"
@@ -209,6 +275,49 @@ class LiveRequestLoadingTests(unittest.TestCase):
 
 
 class LiveExecutionE2ETests(unittest.TestCase):
+    def test_execution_records_identity_bound_lifecycle_stages(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            request = _request(root)
+            loaded = load_live_univtac_run(request)
+            journal = LifecycleStageJournal.create(
+                root / "lifecycle.journal",
+                LifecycleIdentity(
+                    campaign_manifest_sha256="1" * 64,
+                    request_file_sha256="2" * 64,
+                    trial_manifest_sha256=loaded.trial.sha256,
+                    task_id=request.task_id,
+                    ordinal=0,
+                    attempt_id="test-attempt",
+                ),
+            )
+            journal.record("process_spawn")
+            harness = _Harness()
+
+            execute_live_univtac_run(
+                request,
+                backend_factory=harness.backend,
+                policy_factory=harness.policy,
+                lifecycle_journal=journal,
+            )
+            stages = [receipt.stage for receipt in journal.records()]
+
+        self.assertEqual(
+            stages[:6],
+            [
+                "process_spawn",
+                "capability_preflight",
+                "run_loading",
+                "backend_construction",
+                "backend_ready",
+                "policy_construction",
+            ],
+        )
+        self.assertIn("reset", stages)
+        self.assertIn("infer", stages)
+        self.assertIn("execute", stages)
+        self.assertEqual(stages[-2:], ["close", "execution_completed"])
+
     def test_clean_module_e2e_returns_typed_capture_without_fake_receipt(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             harness = _Harness()
@@ -265,9 +374,23 @@ class LiveExecutionE2ETests(unittest.TestCase):
             root = Path(temporary)
             harness = _Harness()
             calls: list[Path] = []
+            lifecycle: list[str] = []
+
+            def backend_factory(loaded: Any) -> DeterministicFakeBackend:
+                backend = harness.backend(loaded)
+                original_close = backend.close
+
+                def close() -> None:
+                    lifecycle.append("backend_close")
+                    original_close()
+
+                backend.close = close  # type: ignore[method-assign]
+                return backend
 
             def exporter(output: Path, loaded: Any, evidence: Any):
                 calls.append(output)
+                lifecycle.append("export")
+                self.assertEqual(harness.backends[0].close_count, 0)
                 output.mkdir()
                 return LiveArtifactExportReceipt.for_execution(loaded, evidence)
 
@@ -278,15 +401,104 @@ class LiveExecutionE2ETests(unittest.TestCase):
                     fault_path=_fault(root),
                     output=True,
                 ),
-                backend_factory=harness.backend,
+                backend_factory=backend_factory,
                 policy_factory=harness.policy,
                 artifact_exporter=exporter,
             )
 
         self.assertEqual(result.artifact_export, ArtifactExportStatus.EXPORTED)
         self.assertEqual(calls, [root / "output"])
+        self.assertEqual(lifecycle, ["export", "backend_close"])
         self.assertEqual(harness.backends[0].close_count, 1)
         self.assertEqual(harness.policies[0].close_count, 1)
+
+    def test_execute_crash_is_published_and_strictly_reloadable_before_close(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            harness = _Harness()
+            lifecycle: list[str] = []
+
+            def backend_factory(loaded: Any) -> DeterministicFakeBackend:
+                backend = harness.backend(loaded)
+                original_close = backend.close
+
+                def fail_execute(actions: Any) -> Any:
+                    del actions
+                    backend.execute_count += 1
+                    raise TypeError("fake execute failure")
+
+                def close() -> None:
+                    lifecycle.append("backend_close")
+                    original_close()
+
+                backend.execute = fail_execute  # type: ignore[method-assign]
+                backend.close = close  # type: ignore[method-assign]
+                return backend
+
+            def exporter(output: Path, loaded: Any, evidence: Any):
+                lifecycle.append("export")
+                return write_live_univtac_artifact(output, loaded, evidence)
+
+            request = _request(root, output=True)
+            result = execute_live_univtac_run(
+                request,
+                backend_factory=backend_factory,
+                policy_factory=harness.policy,
+                artifact_exporter=exporter,
+            )
+            reopened = load_live_univtac_artifact(request.output_dir)
+
+        self.assertEqual(result.artifact_export, ArtifactExportStatus.EXPORTED)
+        self.assertEqual(result.evidence.result.terminal_status, TerminalStatus.CRASH)
+        self.assertEqual(result.evidence.result.failure_code, "execute_failed")
+        self.assertEqual(result.evidence.result.control_cycle_count, 0)
+        self.assertEqual(result.evidence.result.observation_count, 1)
+        self.assertEqual(result.evidence.action_entries, ())
+        self.assertEqual(reopened.evidence.result, result.evidence.result)
+        self.assertEqual(
+            reopened.evidence.finalization.clean_trace_sha256,
+            result.evidence.finalization.clean_trace_sha256,
+        )
+        self.assertEqual(reopened.evidence.action_entries, ())
+        self.assertEqual(lifecycle, ["export", "backend_close"])
+        self.assertEqual(harness.backends[0].close_count, 1)
+        self.assertEqual(harness.policies[0].close_count, 1)
+
+    def test_published_artifact_is_not_success_when_runtime_close_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            harness = _Harness()
+
+            def backend_factory(loaded: Any) -> DeterministicFakeBackend:
+                backend = DeterministicFakeBackend(
+                    make_synthetic_episode(length=10),
+                    success_predicate_id=loaded.run_spec.success_predicate_id,
+                    raise_on_close=True,
+                )
+                harness.backends.append(backend)
+                return backend
+
+            def exporter(output: Path, loaded: Any, evidence: Any):
+                output.mkdir()
+                return LiveArtifactExportReceipt.for_execution(loaded, evidence)
+
+            with self.assertRaises(ClosedLoopResourceCloseError) as captured:
+                execute_live_univtac_run(
+                    _request(root, output=True),
+                    backend_factory=backend_factory,
+                    policy_factory=harness.policy,
+                    artifact_exporter=exporter,
+                )
+
+            self.assertEqual(
+                captured.exception.failure_codes,
+                ("backend_close_failed",),
+            )
+            self.assertTrue((root / "output").is_dir())
+            self.assertEqual(harness.backends[0].close_count, 1)
+            self.assertEqual(harness.policies[0].close_count, 1)
 
     def test_export_receipt_without_published_output_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -391,26 +603,58 @@ class LiveDefaultFactoryTests(unittest.TestCase):
         self.assertEqual(captured.exception.code, "live_univtac_requires_linux")
         launcher.assert_not_called()
 
-    def test_n0_requires_transport_before_backend_and_default_factory_is_lazy(
+    def test_n0_requires_manifest_bound_official_factory_before_backend(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             request = _request(Path(temporary), policy_kind=LivePolicyKind.N0)
             harness = _Harness()
-            with self.assertRaisesRegex(LiveExecutionUnavailableError, "transport"):
+            with self.assertRaisesRegex(LiveExecutionUnavailableError, "official"):
                 execute_live_univtac_run(request, backend_factory=harness.backend)
             self.assertFalse(harness.backends)
 
             loaded = load_live_univtac_run(request)
-            calls: list[str] = []
+            with self.assertRaisesRegex(LiveExecutionUnavailableError, "official"):
+                default_live_policy_factory(loaded)
 
-            def transport_factory():
-                calls.append("transport")
-                raise AssertionError("transport must remain lazy until policy reset")
 
-            policy = default_live_policy_factory(
-                loaded, n0_transport_factory=transport_factory
+def test_artifact_export_failure_emits_redacted_marker_before_close(
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    secret = "SECRET_EXPORT_PAYLOAD"
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        harness = _Harness()
+
+        def backend_factory(loaded: Any) -> DeterministicFakeBackend:
+            backend = harness.backend(loaded)
+            original_close = backend.close
+
+            def close() -> None:
+                os.write(2, b"TEST_BACKEND_CLOSE\n")
+                original_close()
+
+            backend.close = close  # type: ignore[method-assign]
+            return backend
+
+        def failing_exporter(output: Path, loaded: Any, evidence: Any) -> Any:
+            del output, loaded, evidence
+            raise RuntimeError(secret)
+
+        with pytest.raises(RuntimeError, match=secret):
+            execute_live_univtac_run(
+                _request(root, output=True),
+                backend_factory=backend_factory,
+                policy_factory=harness.policy,
+                artifact_exporter=failing_exporter,
             )
 
-        self.assertIsInstance(policy, N0Policy)
-        self.assertFalse(calls)
+    stderr = capfd.readouterr().err
+    marker = "ROBOTACTILE_CLOSED_LOOP_CRASH stage=artifact_export"
+    assert marker in stderr
+    assert "exception_type=builtins.RuntimeError" in stderr
+    assert "failure_code=artifact_export_failed" in stderr
+    assert secret not in stderr
+    assert stderr.index(marker) < stderr.index("TEST_BACKEND_CLOSE")
+    assert harness.backends[0].close_count == 1
+    assert harness.policies[0].close_count == 1

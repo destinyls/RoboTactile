@@ -1,0 +1,176 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robotactile.invalid/schemas/n0_server_runtime_attestation.schema.json",
+  "title": "RoboTactile N0 Rank-Zero Runtime Attestation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_manifest_relpath",
+    "artifact_manifest_sha256",
+    "content_sha256",
+    "debug_offload",
+    "evidence_level",
+    "installation_receipts",
+    "integration_config_relpath",
+    "integration_config_sha256",
+    "integrations_lock_sha256",
+    "n0_artifact_hashes",
+    "n0_source_clean",
+    "n0_source_commit",
+    "n0_source_relpath",
+    "paper_gate_passed",
+    "qualification_relpath",
+    "qualification_semantic_version",
+    "qualification_sha256",
+    "rank",
+    "recorded_at_utc",
+    "robotactile_source_manifest_sha256",
+    "semantic_version",
+    "server_pid",
+    "server_posix_session_id",
+    "server_process_group_id",
+    "session_id",
+    "task_id",
+    "task_source_binding",
+    "world_size"
+  ],
+  "properties": {
+    "artifact_manifest_relpath": {"$ref": "#/$defs/deploymentPath"},
+    "artifact_manifest_sha256": {"$ref": "#/$defs/sha256"},
+    "content_sha256": {"$ref": "#/$defs/sha256"},
+    "debug_offload": {"const": false},
+    "evidence_level": {"const": "n0_rank0_runtime_attestation_v1"},
+    "installation_receipts": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "prefixItems": [
+        {"$ref": "#/$defs/isaacInstallReceipt"},
+        {"$ref": "#/$defs/n0ClientInstallReceipt"},
+        {"$ref": "#/$defs/n0RuntimeReceipt"},
+        {"$ref": "#/$defs/tacexInstallReceipt"}
+      ],
+      "items": false
+    },
+    "integration_config_relpath": {"$ref": "#/$defs/deploymentPath"},
+    "integration_config_sha256": {"$ref": "#/$defs/sha256"},
+    "integrations_lock_sha256": {"$ref": "#/$defs/sha256"},
+    "n0_artifact_hashes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "checkpoint_sha256",
+        "config_sha256",
+        "normalizer_sha256",
+        "prompt_manifest_sha256",
+        "serve_bundle_sha256"
+      ],
+      "properties": {
+        "checkpoint_sha256": {"$ref": "#/$defs/sha256"},
+        "config_sha256": {"$ref": "#/$defs/sha256"},
+        "normalizer_sha256": {"$ref": "#/$defs/sha256"},
+        "prompt_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "serve_bundle_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "n0_source_clean": {"const": true},
+    "n0_source_commit": {"$ref": "#/$defs/commit"},
+    "n0_source_relpath": {"$ref": "#/$defs/deploymentPath"},
+    "paper_gate_passed": {"const": true},
+    "qualification_relpath": {"$ref": "#/$defs/deploymentPath"},
+    "qualification_semantic_version": {"const": "3.0"},
+    "qualification_sha256": {"$ref": "#/$defs/sha256"},
+    "rank": {"const": 0},
+    "recorded_at_utc": {"type": "string", "minLength": 1},
+    "robotactile_source_manifest_sha256": {"$ref": "#/$defs/sha256"},
+    "semantic_version": {"const": "1.0"},
+    "server_pid": {"type": "integer", "minimum": 1},
+    "server_posix_session_id": {"type": "integer", "minimum": 1},
+    "server_process_group_id": {"type": "integer", "minimum": 1},
+    "session_id": {"$ref": "#/$defs/identifier"},
+    "task_id": {"$ref": "#/$defs/identifier"},
+    "task_source_binding": {"$ref": "#/$defs/sourceBinding"},
+    "world_size": {"type": "integer", "minimum": 1}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "deploymentPath": {
+      "type": "string",
+      "pattern": "^(artifacts|outputs|requests|sources)/[A-Za-z0-9._/-]+$"
+    },
+    "sourceBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action_execution_contract",
+        "checkpoint_sha256",
+        "config_sha256",
+        "input_profile_sha256",
+        "integrations_lock_sha256",
+        "n0_source_commit",
+        "native_step_contract",
+        "normalizer_sha256",
+        "prompt_manifest_sha256",
+        "robotactile_source_manifest_sha256",
+        "robotactile_wheel_sha256",
+        "serve_bundle_sha256",
+        "univtac_source_commit"
+      ],
+      "properties": {
+        "action_execution_contract": {"type": "string", "minLength": 1},
+        "checkpoint_sha256": {"$ref": "#/$defs/sha256"},
+        "config_sha256": {"$ref": "#/$defs/sha256"},
+        "input_profile_sha256": {"$ref": "#/$defs/sha256"},
+        "integrations_lock_sha256": {"$ref": "#/$defs/sha256"},
+        "n0_source_commit": {"$ref": "#/$defs/commit"},
+        "native_step_contract": {"type": "string", "minLength": 1},
+        "normalizer_sha256": {"$ref": "#/$defs/sha256"},
+        "prompt_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "robotactile_source_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "robotactile_wheel_sha256": {"$ref": "#/$defs/sha256"},
+        "serve_bundle_sha256": {"$ref": "#/$defs/sha256"},
+        "univtac_source_commit": {"$ref": "#/$defs/commit"}
+      }
+    },
+    "evidenceBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["content_sha256", "kind", "relpath", "sha256"],
+      "properties": {
+        "content_sha256": {"type": "null"},
+        "kind": {"type": "string"},
+        "relpath": {"$ref": "#/$defs/deploymentPath"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "isaacInstallReceipt": {
+      "allOf": [
+        {"$ref": "#/$defs/evidenceBinding"},
+        {"properties": {"kind": {"const": "isaac_install_receipt"}}}
+      ]
+    },
+    "n0ClientInstallReceipt": {
+      "allOf": [
+        {"$ref": "#/$defs/evidenceBinding"},
+        {"properties": {"kind": {"const": "n0_client_install_receipt"}}}
+      ]
+    },
+    "n0RuntimeReceipt": {
+      "allOf": [
+        {"$ref": "#/$defs/evidenceBinding"},
+        {"properties": {"kind": {"const": "n0_runtime_receipt"}}}
+      ]
+    },
+    "tacexInstallReceipt": {
+      "allOf": [
+        {"$ref": "#/$defs/evidenceBinding"},
+        {"properties": {"kind": {"const": "tacex_install_receipt"}}}
+      ]
+    }
+  }
+}

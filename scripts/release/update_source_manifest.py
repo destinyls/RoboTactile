@@ -67,7 +67,7 @@ INVENTORY_RULES: Tuple[Tuple[str, Callable[[Path], bool]], ...] = (
     ("tests", _test_file),
     ("docs", _markdown_file),
     ("examples", _release_file),
-    ("integrations", _release_file),
+    ("integrations", _all_files),
     ("scripts", _script_file),
     (".github", _release_file),
 )

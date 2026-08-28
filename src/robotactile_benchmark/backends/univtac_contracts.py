@@ -8,11 +8,15 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Optional, Tuple
 
+from robotactile_benchmark.action_specs import (
+    ACTION_MODE_BY_SPEC,
+    QPOS8_ACTION_SPEC,
+    validate_action_spec,
+)
 from robotactile_benchmark.adapters.univtac import (
     DepthPhaseTracker,
     UniVTACAliasManifest,
 )
-from robotactile_benchmark.closed_loop.contracts import ACTION_SPEC
 from robotactile_benchmark.contracts import canonical_hash, freeze_value
 
 UPSTREAM_COMMIT = "05bcd3edb92237107efa40105292a24f1a9fd761"
@@ -26,6 +30,25 @@ ACTION_MODE = "qpos"
 SIM_HZ = 120
 DECIMATION = 1
 PHYSICS_STEPS_PER_ACTION = 1
+N0_DECIMATION = 1
+# N0 was trained from UniVTAC rows recorded every two 120 Hz simulator ticks.
+# Its dense EE endpoints must therefore be delivered at 60 Hz; routing every
+# endpoint through the upstream variable-length motion-planning loop dilates
+# one model action by roughly an order of magnitude.
+N0_PHYSICS_STEPS_PER_ACTION = 2
+QPOS_ACTION_EXECUTION_CONTRACT = "univtac_stock_qpos_v1"
+N0_STOCK_EE_ACTION_EXECUTION_CONTRACT = "univtac_stock_ee_v1"
+N0_FIXED_ENDPOINT_ACTION_EXECUTION_CONTRACT = "robotactile_fixed_endpoint_v1"
+N0_TRAINING_60HZ_ACTION_EXECUTION_CONTRACT = "robotactile_n0_training_60hz_ee_v1"
+N0_EE_ACTION_EXECUTION_CONTRACTS = frozenset(
+    {
+        N0_STOCK_EE_ACTION_EXECUTION_CONTRACT,
+        N0_FIXED_ENDPOINT_ACTION_EXECUTION_CONTRACT,
+        N0_TRAINING_60HZ_ACTION_EXECUTION_CONTRACT,
+    }
+)
+FIXED_NATIVE_STEP_CONTRACT = "fixed_physics_steps_per_action_v1"
+N0_STOCK_EE_NATIVE_STEP_CONTRACT = "univtac_stock_ee_variable_native_steps_v1"
 # These frozen overrides fall through without an explicit return when no stop fires.
 EARLY_STOP_NONE_IS_FALSE_TASK_IDS = frozenset({"insert_hole", "insert_tube"})
 
@@ -54,6 +77,14 @@ def _positive_int(value: Any, name: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
         raise UniVTACContractError(f"{name} must be a positive integer")
     return int(value)
+
+
+def validate_n0_ee_action_execution_contract(value: object) -> str:
+    """Return one explicit N0 EE execution contract or fail closed."""
+
+    if type(value) is not str or value not in N0_EE_ACTION_EXECUTION_CONTRACTS:
+        raise UniVTACContractError("unsupported N0 EE action execution contract")
+    return value
 
 
 @dataclass(frozen=True)
@@ -172,15 +203,24 @@ class UniVTACBackendConfig:
     def __post_init__(self) -> None:
         if self.upstream_commit != UPSTREAM_COMMIT:
             raise UniVTACContractError("upstream commit does not match frozen snapshot")
+        action_spec = validate_action_spec(self.action_spec)
+        expected_decimation = (
+            N0_DECIMATION if action_spec != QPOS8_ACTION_SPEC else DECIMATION
+        )
+        expected_physics_steps = (
+            N0_PHYSICS_STEPS_PER_ACTION
+            if action_spec != QPOS8_ACTION_SPEC
+            else PHYSICS_STEPS_PER_ACTION
+        )
         if (
-            self.action_spec != ACTION_SPEC
-            or self.action_mode != ACTION_MODE
+            self.action_mode != ACTION_MODE_BY_SPEC[action_spec]
             or self.force is not True
             or self.sim_hz != SIM_HZ
-            or self.decimation != DECIMATION
-            or self.physics_steps_per_action != PHYSICS_STEPS_PER_ACTION
+            or self.decimation != expected_decimation
+            or self.physics_steps_per_action != expected_physics_steps
         ):
             raise UniVTACContractError("runtime constants drift from the v1 contract")
+        object.__setattr__(self, "action_spec", action_spec)
         names = tuple(self.canonical_joint_names)
         if len(names) != 9 or len(set(names)) != 9:
             raise UniVTACContractError(
@@ -203,6 +243,26 @@ class UniVTACBackendConfig:
     @property
     def sha256(self) -> str:
         return canonical_hash(self)
+
+    @property
+    def action_execution_contract(self) -> str:
+        """Return the source-bound action surface used in production."""
+
+        if self.action_spec == QPOS8_ACTION_SPEC:
+            return QPOS_ACTION_EXECUTION_CONTRACT
+        return N0_TRAINING_60HZ_ACTION_EXECUTION_CONTRACT
+
+    @property
+    def native_step_contract(self) -> str:
+        """Describe whether one policy action has a fixed native-step count."""
+
+        return FIXED_NATIVE_STEP_CONTRACT
+
+    @property
+    def fixed_physics_steps_per_action(self) -> Optional[int]:
+        """Return a production cadence only when the upstream path is fixed."""
+
+        return self.physics_steps_per_action
 
     def expected_handshake(
         self, live_joint_names: Tuple[str, ...]
@@ -282,19 +342,23 @@ def load_univtac_task_registry(
     return load_registry(document)
 
 
-def build_univtac_backend_config(task_id: str) -> UniVTACBackendConfig:
+def build_univtac_backend_config(
+    task_id: str, action_spec: str = QPOS8_ACTION_SPEC
+) -> UniVTACBackendConfig:
     """Build one typed backend config from the frozen packaged registry."""
 
     from robotactile_benchmark.backends.univtac_registry import build_config
 
-    return build_config(task_id)
+    return build_config(task_id, action_spec=action_spec)
 
 
 def validate_packaged_univtac_config(config: UniVTACBackendConfig) -> None:
     """Reject a self-consistent config not rebuilt from the packaged registry."""
 
     try:
-        expected = build_univtac_backend_config(config.task.task_id)
+        expected = build_univtac_backend_config(
+            config.task.task_id, action_spec=config.action_spec
+        )
     except KeyError as error:
         raise UniVTACContractError(
             "backend config does not match the packaged registry"

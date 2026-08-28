@@ -8,15 +8,24 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional, cast
+from typing import Any, Final, Optional, Union, cast
 
+from robotactile_benchmark.closed_loop.contracts import (
+    InitialStatePolicy,
+    WallTimeoutRole,
+)
 from robotactile_benchmark.contracts import freeze_value
 from robotactile_benchmark.trials import Condition, RestorationMode
 
 LIVE_REQUEST_SEMANTIC_VERSION = "1.0"
 UNQUALIFIED_EXECUTION_EVIDENCE = "unqualified_closed_loop_execution"
+ISAAC_DISABLE_HANG_DETECTOR_KIT_ARG: Final[str] = "--/app/hangDetector/enabled=false"
+_PRODUCTION_UNIVTAC_LAUNCHER_ARG_KEYS = frozenset(
+    {"enable_cameras", "headless", "kit_args"}
+)
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _COMMIT = re.compile(r"[0-9a-f]{40}")
+LauncherArgValue = Union[bool, str]
 
 
 class LivePolicyKind(str, Enum):
@@ -83,6 +92,46 @@ def _path(value: Any, name: str, *, optional: bool = False) -> Optional[Path]:
     return value.absolute()
 
 
+def production_univtac_launcher_args() -> dict[str, LauncherArgValue]:
+    """Return the only launcher arguments valid for a production live request."""
+
+    return {
+        "enable_cameras": True,
+        "headless": True,
+        "kit_args": ISAAC_DISABLE_HANG_DETECTOR_KIT_ARG,
+    }
+
+
+def _validate_production_univtac_launcher_args(
+    value: object,
+) -> Mapping[str, LauncherArgValue]:
+    if not isinstance(value, Mapping):
+        raise TypeError("launcher_args must be a mapping")
+    if any(not isinstance(key, str) for key in value):
+        raise TypeError("production launcher_args keys must be strings")
+    keys = set(value)
+    if keys != _PRODUCTION_UNIVTAC_LAUNCHER_ARG_KEYS:
+        missing = sorted(_PRODUCTION_UNIVTAC_LAUNCHER_ARG_KEYS - keys)
+        extra = sorted(keys - _PRODUCTION_UNIVTAC_LAUNCHER_ARG_KEYS)
+        raise ValueError(
+            f"production launcher_args fields mismatch: missing={missing}, "
+            f"extra={extra}"
+        )
+    if value["headless"] is not True:
+        raise ValueError("production launcher_args.headless must be true")
+    if value["enable_cameras"] is not True:
+        raise ValueError("production launcher_args.enable_cameras must be true")
+    kit_args = value["kit_args"]
+    if not isinstance(kit_args, str):
+        raise TypeError("production launcher_args.kit_args must be a string")
+    if kit_args != ISAAC_DISABLE_HANG_DETECTOR_KIT_ARG:
+        raise ValueError(
+            "production launcher_args.kit_args must contain exactly "
+            f"{ISAAC_DISABLE_HANG_DETECTOR_KIT_ARG!r}"
+        )
+    return cast(Mapping[str, LauncherArgValue], value)
+
+
 @dataclass(frozen=True)
 class LiveUniVTACRunRequest:
     """Explicit paths plus content identities for one execution attempt."""
@@ -117,6 +166,8 @@ class LiveUniVTACRunRequest:
     n0_normalizer_sha256: Optional[str] = None
     n0_serve_bundle_sha256: Optional[str] = None
     n0_prompt_manifest_sha256: Optional[str] = None
+    initial_state_policy: InitialStatePolicy = InitialStatePolicy.OFFICIAL_REPRODUCTION
+    wall_timeout_role: WallTimeoutRole = WallTimeoutRole.SCORING_BOUNDARY_V1
     semantic_version: str = LIVE_REQUEST_SEMANTIC_VERSION
 
     def __post_init__(self) -> None:
@@ -144,14 +195,25 @@ class LiveUniVTACRunRequest:
         object.__setattr__(self, "condition", condition)
         object.__setattr__(self, "policy_kind", policy_kind)
         object.__setattr__(self, "restoration_mode", restoration_mode)
+        initial_state_policy = (
+            self.initial_state_policy
+            if isinstance(self.initial_state_policy, InitialStatePolicy)
+            else InitialStatePolicy(self.initial_state_policy)
+        )
+        object.__setattr__(self, "initial_state_policy", initial_state_policy)
+        wall_timeout_role = (
+            self.wall_timeout_role
+            if isinstance(self.wall_timeout_role, WallTimeoutRole)
+            else WallTimeoutRole(self.wall_timeout_role)
+        )
+        object.__setattr__(self, "wall_timeout_role", wall_timeout_role)
         self._normalize_identities()
         self._normalize_budget()
         self._normalize_paths()
         self._validate_condition()
         self._validate_policy()
-        if not isinstance(self.launcher_args, Mapping):
-            raise TypeError("launcher_args must be a mapping")
-        object.__setattr__(self, "launcher_args", freeze_value(self.launcher_args))
+        launcher_args = _validate_production_univtac_launcher_args(self.launcher_args)
+        object.__setattr__(self, "launcher_args", freeze_value(launcher_args))
 
     def _normalize_identities(self) -> None:
         for name in ("dataset_sha256", "checkpoint_sha256", "config_sha256"):
@@ -252,6 +314,15 @@ class LiveUniVTACRunRequest:
 
     def _validate_policy(self) -> None:
         if self.policy_kind is LivePolicyKind.ACT:
+            if (
+                self.initial_state_policy
+                is not InitialStatePolicy.OFFICIAL_REPRODUCTION
+            ):
+                raise ValueError("initial-state replacement is only valid for N0")
+            if self.wall_timeout_role is not WallTimeoutRole.SCORING_BOUNDARY_V1:
+                raise ValueError(
+                    "infrastructure-only wall timeout is only valid for N0"
+                )
             if self.act_device_name is None:
                 raise ValueError("ACT execution requires act_device_name")
             if self.execute_action_steps != 1:
@@ -269,8 +340,8 @@ class LiveUniVTACRunRequest:
             return
         if self.act_device_name is not None:
             raise ValueError("N0 request cannot carry an ACT device")
-        if self.execute_action_steps != 8:
-            raise ValueError("N0 execute_action_steps must equal eight")
+        if self.execute_action_steps != 24:
+            raise ValueError("official N0 execute_action_steps must equal 24")
         if (
             self.n0_source_commit is None
             or _COMMIT.fullmatch(self.n0_source_commit) is None

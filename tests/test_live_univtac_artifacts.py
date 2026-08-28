@@ -9,6 +9,8 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
+from robotactile_benchmark.action_specs import EE8_ACTION_SPEC
+from robotactile_benchmark.closed_loop import ClosedLoopExecutionEvidence
 from robotactile_benchmark.closed_loop.fakes import (
     DeterministicFakeBackend,
     DeterministicFakePolicy,
@@ -22,9 +24,14 @@ from robotactile_benchmark.execution import (
     LiveArtifactValidationError,
     LivePolicyKind,
     LiveUniVTACRunRequest,
+    LoadedLiveUniVTACRun,
     load_live_univtac_artifact,
     load_live_univtac_run,
     write_live_univtac_artifact,
+)
+from robotactile_benchmark.execution.capture_profiles import LiveCaptureProfile
+from robotactile_benchmark.execution.contracts import (
+    production_univtac_launcher_args,
 )
 from robotactile_benchmark.fixtures import make_synthetic_episode
 from robotactile_benchmark.manifests import FaultManifest, Observability
@@ -92,11 +99,13 @@ def _request(root: Path, condition: Condition) -> LiveUniVTACRunRequest:
         matched_no_touch_artifact_path=None,
         act_device_name="cpu",
         simulator_device=None,
-        launcher_args={"headless": True},
+        launcher_args=production_univtac_launcher_args(),
     )
 
 
-def _capture(root: Path, condition: Condition):
+def _capture(
+    root: Path, condition: Condition
+) -> tuple[LoadedLiveUniVTACRun, ClosedLoopExecutionEvidence]:
     loaded = load_live_univtac_run(_request(root, condition))
     evidence = run_closed_loop_trial_with_evidence(
         loaded.trial,
@@ -107,6 +116,37 @@ def _capture(root: Path, condition: Condition):
         ),
         DeterministicFakePolicy.for_trial(loaded.trial),
         fault_manifest=loaded.fault_manifest,
+    )
+    return loaded, evidence
+
+
+def _capture_n0(
+    root: Path,
+) -> tuple[LoadedLiveUniVTACRun, ClosedLoopExecutionEvidence]:
+    request = replace(
+        _request(root, Condition.CLEAN),
+        task_id="pull_out_key",
+        policy_kind=LivePolicyKind.N0,
+        max_control_cycles=1,
+        max_observation_steps=9,
+        execute_action_steps=24,
+        act_device_name=None,
+        n0_source_commit="9" * 40,
+        n0_normalizer_sha256="d" * 64,
+        n0_serve_bundle_sha256="e" * 64,
+        n0_prompt_manifest_sha256="f" * 64,
+    )
+    loaded = load_live_univtac_run(request)
+    backend = DeterministicFakeBackend(
+        make_synthetic_episode(length=10),
+        success_predicate_id=loaded.run_spec.success_predicate_id,
+    )
+    backend.action_spec = loaded.trial.action_spec
+    evidence = run_closed_loop_trial_with_evidence(
+        loaded.trial,
+        loaded.run_spec,
+        backend,
+        DeterministicFakePolicy.for_trial(loaded.trial),
     )
     return loaded, evidence
 
@@ -131,6 +171,31 @@ def _repin_member(bundle: Path, relative: str, raw: bytes) -> None:
 
 
 class LiveUniVTACArtifactRoundTripTests(unittest.TestCase):
+    def test_n0_ee_artifact_round_trip_preserves_backend_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            loaded, evidence = _capture_n0(root)
+            output = root / "n0-ee-bundle"
+
+            write_live_univtac_artifact(output, loaded, evidence)
+            reopened = load_live_univtac_artifact(output)
+
+            self.assertEqual(loaded.trial.action_spec, EE8_ACTION_SPEC)
+            self.assertEqual(loaded.backend_config.action_spec, EE8_ACTION_SPEC)
+            self.assertEqual(reopened.trial.action_spec, EE8_ACTION_SPEC)
+            self.assertEqual(reopened.run_content_sha256, loaded.content_sha256)
+            self.assertEqual(reopened.evidence.result, evidence.result)
+            self.assertEqual(
+                reopened.evidence.transition_entries,
+                evidence.transition_entries,
+            )
+            self.assertEqual(
+                reopened.evidence.initial_diagnostics,
+                evidence.initial_diagnostics,
+            )
+            self.assertEqual(reopened.root_receipt.semantic_version, "1.1")
+            self.assertTrue((output / "transition_trace.json").is_file())
+
     def test_clean_faulted_restored_round_trip_is_typed_and_byte_identical(
         self,
     ) -> None:
@@ -163,6 +228,10 @@ class LiveUniVTACArtifactRoundTripTests(unittest.TestCase):
                 self.assertEqual(reopened.fault_manifest, loaded.fault_manifest)
                 self.assertEqual(reopened.evidence.result, evidence.result)
                 self.assertEqual(
+                    reopened.evidence.transition_entries,
+                    evidence.transition_entries,
+                )
+                self.assertEqual(
                     canonical_hash(reopened.evidence.finalization),
                     canonical_hash(evidence.finalization),
                 )
@@ -191,6 +260,76 @@ class LiveUniVTACArtifactRoundTripTests(unittest.TestCase):
             loaded = load_live_univtac_run(request)
 
             self.assertEqual(loaded.run_spec.max_observation_steps, 600)
+
+    def test_capture_profiles_preserve_outcome_with_explicit_storage_semantics(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            loaded, evidence = _capture(root, Condition.CLEAN)
+            reopened = {}
+            for profile in LiveCaptureProfile:
+                output = root / profile.value
+                write_live_univtac_artifact(
+                    output,
+                    loaded,
+                    evidence,
+                    capture_profile=profile,
+                )
+                reopened[profile] = load_live_univtac_artifact(output)
+
+            full = reopened[LiveCaptureProfile.PAPER_FULL]
+            metrics = reopened[LiveCaptureProfile.METRICS_ONLY]
+            preview = reopened[LiveCaptureProfile.PREVIEW]
+            assert evidence.finalization is not None
+            self.assertEqual(full.evidence.result, evidence.result)
+            self.assertEqual(metrics.evidence.result, evidence.result)
+            self.assertEqual(preview.evidence.result, evidence.result)
+            self.assertIsNotNone(full.evidence.finalization)
+            self.assertIsNone(metrics.evidence.finalization)
+            self.assertIsNone(preview.evidence.finalization)
+            self.assertIsNone(metrics.preview_trace)
+            self.assertIsNotNone(preview.preview_trace)
+            assert preview.preview_trace is not None
+            self.assertLessEqual(len(preview.preview_trace.selected_indices), 64)
+            self.assertEqual(preview.preview_trace.selected_indices[0], 0)
+            self.assertEqual(
+                preview.preview_trace.selected_indices[-1],
+                len(evidence.finalization.clean_records) - 1,
+            )
+            self.assertEqual(full.root_receipt.semantic_version, "1.1")
+            self.assertEqual(metrics.root_receipt.semantic_version, "1.2")
+            self.assertEqual(preview.root_receipt.semantic_version, "1.2")
+            self.assertFalse(
+                (
+                    root / LiveCaptureProfile.METRICS_ONLY.value / "preview_trace.json"
+                ).exists()
+            )
+            metrics_delivery = json.loads(
+                (
+                    root / LiveCaptureProfile.METRICS_ONLY.value / "delivery_trace.json"
+                ).read_text(encoding="utf-8")
+            )
+            self.assertIsNone(metrics_delivery["finalization"])
+
+    def test_capture_profile_is_part_of_no_clobber_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            loaded, evidence = _capture(root, Condition.CLEAN)
+            output = root / "bundle"
+            write_live_univtac_artifact(
+                output,
+                loaded,
+                evidence,
+                capture_profile=LiveCaptureProfile.METRICS_ONLY,
+            )
+            with self.assertRaises(FileExistsError):
+                write_live_univtac_artifact(
+                    output,
+                    loaded,
+                    evidence,
+                    capture_profile=LiveCaptureProfile.PREVIEW,
+                )
 
 
 class LiveUniVTACArtifactTamperTests(unittest.TestCase):
@@ -223,6 +362,24 @@ class LiveUniVTACArtifactTamperTests(unittest.TestCase):
             ][0]["payload"]
             descriptor["array_sha256"] = "0" * 64
             _repin_member(bundle, "delivery_trace.json", _canonical(document))
+            with self.assertRaises(LiveArtifactValidationError):
+                load_live_univtac_artifact(bundle)
+
+    def test_compact_capture_summary_tampering_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            loaded, evidence = _capture(root, Condition.CLEAN)
+            bundle = root / "compact"
+            write_live_univtac_artifact(
+                bundle,
+                loaded,
+                evidence,
+                capture_profile=LiveCaptureProfile.METRICS_ONLY,
+            )
+            summary_path = bundle / "capture_summary.json"
+            document = json.loads(summary_path.read_text(encoding="utf-8"))
+            document["capture_profile"] = LiveCaptureProfile.PREVIEW.value
+            _repin_member(bundle, "capture_summary.json", _canonical(document))
             with self.assertRaises(LiveArtifactValidationError):
                 load_live_univtac_artifact(bundle)
 

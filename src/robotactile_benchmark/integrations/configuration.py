@@ -83,7 +83,7 @@ def _write_pair(
     config_path: Path,
     device: str,
 ) -> GeneratedIntegrationConfiguration:
-    transport = "in_process" if integration_id == "act" else "typed_gateway"
+    transport = "in_process" if integration_id == "act" else "official_websocket"
     config = ModelIntegrationConfig(
         schema_version="robotactile-model-integration-config-v1",
         integration_id=integration_id,
@@ -131,18 +131,38 @@ def configure_act_integration(
 def configure_n0_twam_integration(
     *,
     bundle_root: Path,
+    task_id: str,
+    base_root: Path,
+    checkpoint_root: Path,
+    serve_bundle_root: Path,
+    serve_pool_root: Path,
     checkpoint_path: Path,
     model_config_path: Path,
+    train_meta_path: Path,
     normalizer_path: Path,
+    prompt_manifest_path: Path,
+    serve_bundle_manifest_path: Path,
+    serve_info_path: Path,
+    serve_tasks_path: Path,
     manifest_path: Path,
     config_path: Path,
     device: str,
 ) -> GeneratedIntegrationConfiguration:
     manifest = build_n0_twam_artifact_manifest(
         bundle_root=bundle_root,
+        task_id=task_id,
+        base_root=base_root,
+        checkpoint_root=checkpoint_root,
+        serve_bundle_root=serve_bundle_root,
+        serve_pool_root=serve_pool_root,
         checkpoint_path=checkpoint_path,
         config_path=model_config_path,
+        train_meta_path=train_meta_path,
         normalizer_path=normalizer_path,
+        prompt_manifest_path=prompt_manifest_path,
+        serve_bundle_manifest_path=serve_bundle_manifest_path,
+        serve_info_path=serve_info_path,
+        serve_tasks_path=serve_tasks_path,
     )
     validate_n0_twam_artifact(manifest)
     return _write_pair(

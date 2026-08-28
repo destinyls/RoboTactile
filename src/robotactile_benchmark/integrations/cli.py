@@ -17,6 +17,7 @@ from robotactile_benchmark.integrations.configuration import (
     configure_n0_twam_integration,
 )
 from robotactile_benchmark.integrations.doctor import diagnose_model_integration
+from robotactile_benchmark.integrations.n0_twam.artifacts import serve_task_id
 from robotactile_benchmark.integrations.provenance import (
     load_integration_lock,
     verify_external_checkout,
@@ -81,6 +82,7 @@ def add_integration_subcommands(subparsers: Any) -> None:
     )
     doctor.add_argument("--root", type=Path, help="deployment root")
     doctor.add_argument("--config", type=Path, help="integration config path")
+    doctor.add_argument("--task", default="pull_out_key", help="UniVTAC task ID")
 
     setup = subparsers.add_parser(
         "setup",
@@ -119,6 +121,9 @@ def add_integration_subcommands(subparsers: Any) -> None:
     evaluate.add_argument("--official-act-artifact-root", type=Path)
     evaluate.add_argument("--stats-sha256")
     evaluate.add_argument("--encoder-sha256")
+    evaluate.add_argument("--n0-source-root", type=Path)
+    evaluate.add_argument("--n0-host", default="127.0.0.1")
+    evaluate.add_argument("--n0-port", type=int, default=29601)
 
 
 def _add_common_configure_arguments(parser: argparse.ArgumentParser) -> None:
@@ -146,9 +151,21 @@ def _add_act_configure_arguments(parser: argparse.ArgumentParser) -> None:
 def _add_n0_configure_arguments(parser: argparse.ArgumentParser) -> None:
     _add_common_configure_arguments(parser)
     parser.add_argument("--bundle-root", type=Path, help="N0-TWAM artifact root")
-    parser.add_argument("--checkpoint", type=Path, help="checkpoint file")
+    parser.add_argument("--task", default="pull_out_key", help="UniVTAC task ID")
+    parser.add_argument("--base-root", type=Path, help="pinned base model root")
+    parser.add_argument("--checkpoint-root", type=Path, help="pinned post-train root")
+    parser.add_argument("--serve-bundle-root", type=Path, help="assembled serve bundle")
+    parser.add_argument("--serve-pool-root", type=Path, help="task serve-pool root")
+    parser.add_argument("--checkpoint", type=Path, help="transformer safetensors")
     parser.add_argument("--model-config", type=Path, help="model config file")
+    parser.add_argument("--train-meta", type=Path, help="training metadata file")
     parser.add_argument("--normalizer", type=Path, help="normalizer file")
+    parser.add_argument("--prompt-manifest", type=Path, help="released prompts JSON")
+    parser.add_argument(
+        "--serve-bundle-manifest", type=Path, help="assembled bundle manifest"
+    )
+    parser.add_argument("--serve-info", type=Path, help="served meta/info.json")
+    parser.add_argument("--serve-tasks", type=Path, help="served meta/tasks.jsonl")
 
 
 def _add_legacy_configure_arguments(parser: argparse.ArgumentParser) -> None:
@@ -165,9 +182,18 @@ def _add_legacy_configure_arguments(parser: argparse.ArgumentParser) -> None:
         "--profile", choices=("univtac", "vision_only"), default="univtac", help=hidden
     )
     parser.add_argument("--bundle-root", type=Path, help=hidden)
+    parser.add_argument("--base-root", type=Path, help=hidden)
+    parser.add_argument("--checkpoint-root", type=Path, help=hidden)
+    parser.add_argument("--serve-bundle-root", type=Path, help=hidden)
+    parser.add_argument("--serve-pool-root", type=Path, help=hidden)
     parser.add_argument("--checkpoint", type=Path, help=hidden)
     parser.add_argument("--model-config", type=Path, help=hidden)
+    parser.add_argument("--train-meta", type=Path, help=hidden)
     parser.add_argument("--normalizer", type=Path, help=hidden)
+    parser.add_argument("--prompt-manifest", type=Path, help=hidden)
+    parser.add_argument("--serve-bundle-manifest", type=Path, help=hidden)
+    parser.add_argument("--serve-info", type=Path, help=hidden)
+    parser.add_argument("--serve-tasks", type=Path, help=hidden)
     parser.add_argument("--manifest-output", type=Path, help=hidden)
     parser.add_argument("--integration-config-output", type=Path, help=hidden)
 
@@ -222,9 +248,15 @@ def _handle_configure(args: argparse.Namespace) -> IntegrationCommandResult:
     layout = DeploymentLayout(resolve_deployment_root(args.root))
     initialize_deployment_layout(layout)
     model_root = layout.model_artifacts / model
-    manifest_output = args.manifest_output or model_root / "artifact_manifest.json"
+    default_config_root = (
+        model_root if model == "act" else model_root / "configs" / args.task
+    )
+    manifest_output = (
+        args.manifest_output or default_config_root / "artifact_manifest.json"
+    )
     config_output = (
-        args.integration_config_output or model_root / "integration_config.json"
+        args.integration_config_output
+        or default_config_root / "integration_config.json"
     )
     if model == "act":
         from robotactile_benchmark.policies.univtac_official_act import (
@@ -242,11 +274,46 @@ def _handle_configure(args: argparse.Namespace) -> IntegrationCommandResult:
         )
     else:
         bundle_root = args.bundle_root or model_root
+        base_root = args.base_root or bundle_root / "base"
+        checkpoint_root = args.checkpoint_root or bundle_root / "univtac-delta"
+        serve_bundle_root = args.serve_bundle_root or bundle_root / "serve-bundle"
+        serve_pool_root = (
+            args.serve_pool_root or bundle_root / "serve-pools" / args.task
+        )
+        task_key = serve_task_id(args.task)
         result = configure_n0_twam_integration(
             bundle_root=bundle_root,
-            checkpoint_path=args.checkpoint or bundle_root / "checkpoint.pt",
-            model_config_path=args.model_config or bundle_root / "config.json",
-            normalizer_path=args.normalizer or bundle_root / "normalizer.json",
+            task_id=args.task,
+            base_root=base_root,
+            checkpoint_root=checkpoint_root,
+            serve_bundle_root=serve_bundle_root,
+            serve_pool_root=serve_pool_root,
+            checkpoint_path=(
+                args.checkpoint
+                or checkpoint_root / "transformer/diffusion_pytorch_model.safetensors"
+            ),
+            model_config_path=(
+                args.model_config or checkpoint_root / "transformer/config.json"
+            ),
+            train_meta_path=(args.train_meta or checkpoint_root / "train_meta.json"),
+            normalizer_path=(
+                args.normalizer or serve_pool_root / "norm_stat_per_robot.json"
+            ),
+            prompt_manifest_path=(
+                args.prompt_manifest or checkpoint_root / "norm/PROMPTS.json"
+            ),
+            serve_bundle_manifest_path=(
+                args.serve_bundle_manifest
+                or serve_pool_root / "serve_bundle_manifest.json"
+            ),
+            serve_info_path=(
+                args.serve_info
+                or serve_pool_root / "train" / task_key / "meta/info.json"
+            ),
+            serve_tasks_path=(
+                args.serve_tasks
+                or serve_pool_root / "train" / task_key / "meta/tasks.jsonl"
+            ),
             manifest_path=manifest_output,
             config_path=config_output,
             device=args.device,
@@ -268,9 +335,18 @@ def _handle_setup(args: argparse.Namespace) -> IntegrationCommandResult:
         task=args.task,
         profile=args.profile,
         bundle_root=None,
+        base_root=None,
+        checkpoint_root=None,
+        serve_bundle_root=None,
+        serve_pool_root=None,
         checkpoint=None,
         model_config=None,
+        train_meta=None,
         normalizer=None,
+        prompt_manifest=None,
+        serve_bundle_manifest=None,
+        serve_info=None,
+        serve_tasks=None,
         manifest_output=None,
         integration_config_output=None,
     )
@@ -286,7 +362,12 @@ def _handle_setup(args: argparse.Namespace) -> IntegrationCommandResult:
     diagnosed = diagnose_model_integration(
         integration_id=model,
         layout=layout,
-        config_path=None,
+        config_path=(
+            None
+            if model == "act"
+            else layout.model_artifacts
+            / f"n0_twam/configs/{args.task}/integration_config.json"
+        ),
     )
     payload = {
         "configuration": configuration,
@@ -311,22 +392,44 @@ def _handle_doctor(args: argparse.Namespace) -> IntegrationCommandResult:
         integration_id=args.model,
         layout=layout,
         config_path=args.config,
+        task_id=args.task,
     )
     return IntegrationCommandResult(result.to_dict(), 0 if result.passed else 2)
 
 
 def _handle_evaluate(args: argparse.Namespace) -> IntegrationCommandResult:
     if args.model == "n0_twam":
-        return IntegrationCommandResult(
-            {
-                "backend_effects": 0,
-                "integration_id": "n0_twam",
-                "policy_effects": 0,
-                "reason": "a registered live N0 transport must be injected via API",
-                "status": "unsupported_contract",
-            },
-            exit_code=2,
+        import os
+
+        from robotactile_benchmark.execution.loading import (
+            load_live_univtac_request,
         )
+        from robotactile_benchmark.execution.official_act import (
+            official_act_live_summary,
+        )
+        from robotactile_benchmark.execution.official_n0 import (
+            execute_official_n0_live_run,
+        )
+        from robotactile_benchmark.integrations.runtime_config import (
+            resolve_n0_runtime_artifacts,
+        )
+
+        request = load_live_univtac_request(args.request)
+        layout = DeploymentLayout(resolve_deployment_root(args.root))
+        config_path = args.config or (
+            layout.model_artifacts
+            / f"n0_twam/configs/{request.task_id}/integration_config.json"
+        )
+        runtime = resolve_n0_runtime_artifacts(config_path)
+        artifact = execute_official_n0_live_run(
+            request,
+            manifest=runtime.manifest,
+            source_root=args.n0_source_root or layout.sources / "N0-TWAM",
+            host=args.n0_host,
+            port=args.n0_port,
+            api_key=os.environ.get("N0_TWAM_API_KEY"),
+        )
+        return IntegrationCommandResult(official_act_live_summary(artifact))
     required = {
         "official_act_artifact_root": args.official_act_artifact_root,
         "stats_sha256": args.stats_sha256,

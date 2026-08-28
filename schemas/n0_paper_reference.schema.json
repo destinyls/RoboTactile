@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robotactile.invalid/schemas/n0_paper_reference.schema.json",
+  "title": "N0-TWAM UniVTAC public paper reference",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "evaluation_semantics",
+    "reference_id",
+    "report_url",
+    "report_snapshot_sha256",
+    "metric_name",
+    "reported_macro_success_rate",
+    "task_ids",
+    "trials_per_task",
+    "required_policy_kind",
+    "required_protocol_id",
+    "required_seed_protocol",
+    "required_reset_mode",
+    "required_action_execution",
+    "required_exception_handling",
+    "claim_boundary",
+    "semantic_version"
+  ],
+  "properties": {
+    "evaluation_semantics": {"const": "official_reproduction"},
+    "reference_id": {"type": "string", "minLength": 1},
+    "report_url": {"type": "string", "pattern": "^https://"},
+    "report_snapshot_sha256": {
+      "oneOf": [
+        {"type": "null"},
+        {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      ]
+    },
+    "metric_name": {"type": "string", "minLength": 1},
+    "reported_macro_success_rate": {"type": "number", "minimum": 0, "maximum": 1},
+    "task_ids": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "trials_per_task": {"const": 100},
+    "required_policy_kind": {"const": "n0"},
+    "required_protocol_id": {"const": "paper_v1"},
+    "required_seed_protocol": {"type": "string", "minLength": 1},
+    "required_reset_mode": {"const": "eval"},
+    "required_action_execution": {"type": "string", "minLength": 1},
+    "required_exception_handling": {"type": "string", "minLength": 1},
+    "claim_boundary": {"type": "string", "minLength": 1},
+    "semantic_version": {"const": "1.0"}
+  }
+}

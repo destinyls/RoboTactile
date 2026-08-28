@@ -19,6 +19,7 @@ from robotactile_benchmark.matrix.io import (
 )
 from robotactile_benchmark.matrix.live_executor import (
     LiveMatrixCellExecutor,
+    PairedLiveMatrixExecutor,
     live_matrix_artifact_path,
 )
 from robotactile_benchmark.matrix.live_executor_contracts import (
@@ -53,13 +54,19 @@ from robotactile_benchmark.matrix.results import (
     MatrixCellReceipt,
     MatrixCellStatus,
 )
-from robotactile_benchmark.matrix.runner import MatrixCellExecutor, run_matrix
+from robotactile_benchmark.matrix.runner import (
+    MatrixBatchExecutor,
+    MatrixCellExecutor,
+    run_matrix,
+    run_matrix_batch,
+)
 from robotactile_benchmark.matrix.states import MatrixCellState
 from robotactile_benchmark.matrix.summary import MatrixRunResult, MatrixSummary
 
 __all__ = [
     "CellArtifactReference",
     "LiveMatrixCellExecutor",
+    "PairedLiveMatrixExecutor",
     "LiveMatrixCellResources",
     "LiveMatrixExecutionTemplate",
     "LiveMatrixResourceResolver",
@@ -67,6 +74,7 @@ __all__ = [
     "LiveMatrixRunConfig",
     "LoadedPrimaryMatrixGeneration",
     "MatrixCellExecution",
+    "MatrixBatchExecutor",
     "MatrixCellExecutor",
     "MatrixCellReceipt",
     "MatrixCellSpec",
@@ -96,4 +104,5 @@ __all__ = [
     "live_matrix_run_summary",
     "run_live_matrix",
     "run_matrix",
+    "run_matrix_batch",
 ]

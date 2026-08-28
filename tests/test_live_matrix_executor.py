@@ -7,6 +7,12 @@ from typing import Any
 
 import pytest
 
+from robotactile_benchmark.backends.qualification_checks import qualification_action
+from robotactile_benchmark.backends.qualification_fakes import make_fake_runtime
+from robotactile_benchmark.backends.univtac_pairing import (
+    UniVTACPairedBackendSession,
+)
+from robotactile_benchmark.closed_loop.contracts import ActionPlan
 from robotactile_benchmark.closed_loop.fakes import (
     DeterministicFakeBackend,
     DeterministicFakePolicy,
@@ -17,6 +23,9 @@ from robotactile_benchmark.execution import (
     LivePolicyKind,
     load_live_univtac_artifact,
 )
+from robotactile_benchmark.execution.contracts import (
+    production_univtac_launcher_args,
+)
 from robotactile_benchmark.fixtures import make_synthetic_episode
 from robotactile_benchmark.manifests import FaultManifest, Observability
 from robotactile_benchmark.matrix import (
@@ -26,6 +35,7 @@ from robotactile_benchmark.matrix import (
     MatrixCellSpec,
     MatrixCellStatus,
     MatrixGridPoint,
+    PairedLiveMatrixExecutor,
     build_focused_phase_manifest,
     live_matrix_artifact_path,
     materialize_live_matrix_request,
@@ -134,7 +144,7 @@ def _template(root: Path, **updates: Any) -> LiveMatrixExecutionTemplate:
         runtime_root=root / "runtime",
         act_device_name="cpu",
         simulator_device=None,
-        launcher_args={"headless": True},
+        launcher_args=production_univtac_launcher_args(),
     )
     return replace(template, **updates)
 
@@ -146,8 +156,20 @@ def _backend(loaded: Any) -> DeterministicFakeBackend:
     )
 
 
+class _BoundedUniVTACPolicy(DeterministicFakePolicy):
+    """Keep the generic fake lifecycle but emit a valid frozen qpos8 target."""
+
+    def infer(self, observation: Any) -> ActionPlan:
+        inferred = super().infer(observation)
+        return ActionPlan(
+            action_spec=inferred.action_spec,
+            source_step_index=inferred.source_step_index,
+            actions=qualification_action(),
+        )
+
+
 def _policy(loaded: Any) -> DeterministicFakePolicy:
-    return DeterministicFakePolicy.for_trial(
+    return _BoundedUniVTACPolicy.for_trial(
         loaded.trial, supports_structural_absence=True
     )
 
@@ -251,6 +273,45 @@ def test_cpu_fake_four_condition_artifacts_are_strict_content_addresses(
         assert artifact.root_receipt.result_sha256 == execution.artifact.result_sha256
         assert artifact.external_root_sha256 == artifact_path.name
         assert artifact.root_receipt.simulator_qualification_claimed is False
+
+
+def test_paired_matrix_uses_one_runtime_and_one_canonical_reset(
+    tmp_path: Path,
+) -> None:
+    cells = _matrix_cells()
+    resolver = _Resolver(tmp_path, cells)
+    matrix_output = tmp_path / "paired-matrix"
+    tasks = []
+
+    def session_factory(loaded: Any) -> UniVTACPairedBackendSession:
+        runtime, task = make_fake_runtime(
+            loaded.backend_config,
+            construction_seed=loaded.trial.initial_seed,
+        )
+        tasks.append(task)
+        return UniVTACPairedBackendSession(loaded.backend_config, runtime)
+
+    executor = PairedLiveMatrixExecutor(
+        matrix_output,
+        _template(tmp_path),
+        resolver,
+        policy_factory=_policy,
+        session_factory=session_factory,
+    )
+    executions = executor.execute_batch(cells)
+
+    assert len(executions) == len(cells)
+    assert all(item.status is MatrixCellStatus.COMPLETED for item in executions)
+    assert len(tasks) == 1
+    assert tasks[0].reset_count == 1
+    assert tasks[0].capture_count == 1
+    assert tasks[0].restore_count == len(cells) - 1
+    assert tasks[0].close_count == 1
+    receipt = matrix_output / "paired_execution_receipt.json"
+    assert receipt.is_file()
+    payload = json.loads(receipt.read_text(encoding="utf-8"))
+    assert payload["reset_receipt"]["all_exact"] is True
+    assert len(payload["executions"]) == len(cells)
 
 
 def test_repeated_execution_reuses_identical_address_without_clobber(

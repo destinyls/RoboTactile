@@ -14,6 +14,9 @@ from robotactile_benchmark.execution import (
     load_live_univtac_request,
     load_live_univtac_run,
 )
+from robotactile_benchmark.execution.contracts import (
+    production_univtac_launcher_args,
+)
 from robotactile_benchmark.manifests import FaultManifest
 from robotactile_benchmark.trials import Condition, system_manifest_hash
 
@@ -190,7 +193,7 @@ def test_generator_freezes_trial_identity_fault_windows_and_live_devices() -> No
         assert {request.act_device_name for request in requests} == {"cuda:0"}
         assert {request.simulator_device for request in requests} == {"cuda:0"}
         assert all(
-            dict(request.launcher_args) == {"headless": True, "enable_cameras": True}
+            dict(request.launcher_args) == production_univtac_launcher_args()
             for request in requests
         )
         assert len({request.output_dir for request in requests}) == 4

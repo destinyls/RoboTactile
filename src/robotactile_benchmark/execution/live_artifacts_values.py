@@ -9,7 +9,9 @@ from robotactile_benchmark.backends.univtac_contracts import (
 )
 from robotactile_benchmark.closed_loop.contracts import (
     ClosedLoopRunSpec,
+    InitialStatePolicy,
     PolicyIdentity,
+    WallTimeoutRole,
 )
 from robotactile_benchmark.closed_loop.delivery import DeliveryFinalization
 from robotactile_benchmark.constants import SENSOR_SLOTS
@@ -69,6 +71,11 @@ _REQUEST_FIELDS = frozenset(
         "semantic_version",
     }
 )
+_ROBUST_REQUEST_FIELDS = _REQUEST_FIELDS | frozenset({"initial_state_policy"})
+_WATCHDOG_REQUEST_FIELDS = _REQUEST_FIELDS | frozenset({"wall_timeout_role"})
+_ROBUST_WATCHDOG_REQUEST_FIELDS = _ROBUST_REQUEST_FIELDS | frozenset(
+    {"wall_timeout_role"}
+)
 _SOURCE_FIELDS = frozenset(
     {"upstream_commit", "registry_resource_sha256", "task_source_sha256"}
 )
@@ -103,7 +110,7 @@ def live_request_identity(loaded: LoadedLiveUniVTACRun) -> dict[str, object]:
 
     request = loaded.request
     config = loaded.backend_config
-    return {
+    identity: dict[str, object] = {
         "task_id": request.task_id,
         "condition": request.condition.value,
         "policy_kind": request.policy_kind.value,
@@ -147,6 +154,11 @@ def live_request_identity(loaded: LoadedLiveUniVTACRun) -> dict[str, object]:
         },
         "semantic_version": LIVE_ARTIFACT_SEMANTIC_VERSION,
     }
+    if request.initial_state_policy is not InitialStatePolicy.OFFICIAL_REPRODUCTION:
+        identity["initial_state_policy"] = request.initial_state_policy.value
+    if request.wall_timeout_role is not WallTimeoutRole.SCORING_BOUNDARY_V1:
+        identity["wall_timeout_role"] = request.wall_timeout_role.value
+    return identity
 
 
 def validate_live_request_identity(
@@ -158,14 +170,41 @@ def validate_live_request_identity(
 ) -> dict[str, object]:
     """Strictly bind a stored path-free request back to packaged UniVTAC."""
 
-    if not isinstance(value, dict) or set(value) != _REQUEST_FIELDS:
+    if not isinstance(value, dict) or set(value) not in {
+        _REQUEST_FIELDS,
+        _ROBUST_REQUEST_FIELDS,
+        _WATCHDOG_REQUEST_FIELDS,
+        _ROBUST_WATCHDOG_REQUEST_FIELDS,
+    }:
         raise LiveArtifactValidationError("live request identity fields mismatch")
+    stored_initial_state_policy = value.get(
+        "initial_state_policy", InitialStatePolicy.OFFICIAL_REPRODUCTION.value
+    )
+    explicit_initial_state_policies = {
+        InitialStatePolicy.REPLACE_INITIAL_TERMINAL_V1.value,
+        InitialStatePolicy.DIAGNOSTIC_ALLOW_INVALID_V1.value,
+    }
+    if (
+        "initial_state_policy" in value
+        and stored_initial_state_policy not in explicit_initial_state_policies
+    ):
+        raise LiveArtifactValidationError("live initial-state policy is invalid")
+    stored_wall_timeout_role = value.get(
+        "wall_timeout_role", WallTimeoutRole.SCORING_BOUNDARY_V1.value
+    )
+    if "wall_timeout_role" in value and stored_wall_timeout_role != (
+        WallTimeoutRole.INFRASTRUCTURE_WATCHDOG_V1.value
+    ):
+        raise LiveArtifactValidationError("live wall-timeout role is invalid")
     if value["semantic_version"] != LIVE_ARTIFACT_SEMANTIC_VERSION:
         raise LiveArtifactValidationError("live request identity version mismatch")
     source = value["source_binding"]
     if not isinstance(source, dict) or set(source) != _SOURCE_FIELDS:
         raise LiveArtifactValidationError("live source binding fields mismatch")
-    config = build_univtac_backend_config(_string(value["task_id"], "task id"))
+    config = build_univtac_backend_config(
+        _string(value["task_id"], "task id"),
+        action_spec=trial.action_spec,
+    )
     expected_source = {
         "upstream_commit": config.upstream_commit,
         "registry_resource_sha256": config.registry_resource_sha256,
@@ -194,6 +233,7 @@ def validate_live_request_identity(
         value["max_observation_steps"] == run_spec.max_observation_steps,
         value["execute_action_steps"] == run_spec.execute_action_steps,
         value["wall_timeout_s"] == run_spec.wall_timeout_s,
+        stored_wall_timeout_role == run_spec.wall_timeout_role.value,
         value["restoration_index"] == trial.restoration_index,
         value["restoration_mode"]
         == (None if trial.restoration_mode is None else trial.restoration_mode.value),
@@ -223,17 +263,20 @@ def validate_live_request_identity(
 
 
 def run_content_sha256_from_identity(value: Mapping[str, object]) -> str:
-    return canonical_hash(
-        {
-            "backend_config_sha256": value["backend_config_sha256"],
-            "policy_identity_sha256": value["policy_identity_sha256"],
-            "trial_manifest_sha256": value["trial_manifest_sha256"],
-            "run_spec_sha256": value["run_spec_sha256"],
-            "fault_manifest_sha256": value["fault_manifest_sha256"],
-            "rest_references_sha256": value["rest_references_sha256"],
-            "policy_kind": value["policy_kind"],
-        }
-    )
+    content_identity = {
+        "backend_config_sha256": value["backend_config_sha256"],
+        "policy_identity_sha256": value["policy_identity_sha256"],
+        "trial_manifest_sha256": value["trial_manifest_sha256"],
+        "run_spec_sha256": value["run_spec_sha256"],
+        "fault_manifest_sha256": value["fault_manifest_sha256"],
+        "rest_references_sha256": value["rest_references_sha256"],
+        "policy_kind": value["policy_kind"],
+    }
+    if "initial_state_policy" in value:
+        content_identity["initial_state_policy"] = value["initial_state_policy"]
+    if "wall_timeout_role" in value:
+        content_identity["wall_timeout_role"] = value["wall_timeout_role"]
+    return canonical_hash(content_identity)
 
 
 def source_binding_sha256(value: Mapping[str, object]) -> str:

@@ -15,8 +15,8 @@ from robotactile_benchmark.closed_loop.interfaces import (
     ClosedLoopPolicy,
     SimulationBackend,
 )
-from robotactile_benchmark.closed_loop.runner import (
-    run_closed_loop_trial_with_evidence,
+from robotactile_benchmark.closed_loop.preclose import (
+    run_closed_loop_trial_with_evidence_before_close,
 )
 from robotactile_benchmark.contracts import canonical_hash
 from robotactile_benchmark.execution.contracts import (
@@ -26,6 +26,7 @@ from robotactile_benchmark.execution.contracts import (
     LivePolicyKind,
     LiveUniVTACRunRequest,
 )
+from robotactile_benchmark.execution.lifecycle_watchdog import LifecycleStageJournal
 from robotactile_benchmark.execution.loading import (
     LoadedLiveUniVTACRun,
     load_live_univtac_run,
@@ -34,8 +35,7 @@ from robotactile_benchmark.policies.act_loading import (
     load_matched_no_touch_policy,
     load_strict_act_policy,
 )
-from robotactile_benchmark.policies.n0 import N0Policy
-from robotactile_benchmark.transport.n0_client import N0Client, N0Transport
+from robotactile_benchmark.transport.n0_client import N0Transport
 from robotactile_benchmark.trials import Condition
 
 LIVE_ARTIFACT_EVIDENCE_LEVEL = "unqualified_live_univtac_execution_v1"
@@ -54,7 +54,7 @@ class LivePolicyFactory(Protocol):
 
 
 class N0TransportFactory(Protocol):
-    """Acquire a production N0 transport only when N0Policy resets."""
+    """Deprecated custom gateway hook retained for request API compatibility."""
 
     def __call__(self) -> N0Transport: ...
 
@@ -174,17 +174,27 @@ def _live_dependency_preflight() -> None:
 
 def default_live_backend_factory(
     loaded: LoadedLiveUniVTACRun,
+    *,
+    lifecycle_journal: Optional[LifecycleStageJournal] = None,
+    n0_action_execution_contract: Optional[str] = None,
 ) -> UniVTACIsaacBackend:
     """Launch AppLauncher-first, then transfer runtime ownership to the backend."""
 
+    if lifecycle_journal is not None:
+        lifecycle_journal.record("dependency_preflight")
     _live_dependency_preflight()
     request = loaded.request
     runtime = launch_univtac_runtime(
         loaded.backend_config,
         upstream_root=request.upstream_root,
         runtime_dir=request.runtime_dir,
+        initial_seed=loaded.trial.initial_seed,
         launcher_args=request.launcher_args,
         device=request.simulator_device,
+        n0_action_execution_contract=n0_action_execution_contract,
+        stage_observer=(
+            None if lifecycle_journal is None else lifecycle_journal.observe
+        ),
     )
     try:
         return UniVTACIsaacBackend(loaded.backend_config, runtime)
@@ -209,36 +219,10 @@ def default_live_policy_factory(
             task=request.task_id,
             device_name=request.act_device_name,
         )
-    if n0_transport_factory is None:
-        raise LiveExecutionUnavailableError(
-            "n0_transport_unavailable",
-            "N0 live execution requires an injected production transport factory",
-        )
-
-    def client_factory() -> N0Client:
-        return N0Client(
-            n0_transport_factory(),
-            expected_source_commit=_required_n0(request.n0_source_commit, "source"),
-            expected_checkpoint_sha256=request.checkpoint_sha256,
-            expected_config_sha256=request.config_sha256,
-            expected_normalizer_sha256=_required_n0(
-                request.n0_normalizer_sha256, "normalizer"
-            ),
-            expected_serve_bundle_sha256=_required_n0(
-                request.n0_serve_bundle_sha256, "serve bundle"
-            ),
-            expected_prompt_manifest_sha256=_required_n0(
-                request.n0_prompt_manifest_sha256, "prompt manifest"
-            ),
-        )
-
-    return N0Policy(loaded.policy_identity, client_factory)
-
-
-def _required_n0(value: Optional[str], name: str) -> str:
-    if value is None:
-        raise ValueError(f"N0 request lost its {name} identity")
-    return value
+    raise LiveExecutionUnavailableError(
+        "n0_official_policy_factory_required",
+        "official N0 execution requires the manifest-bound policy factory",
+    )
 
 
 def execute_live_univtac_run(
@@ -248,14 +232,37 @@ def execute_live_univtac_run(
     policy_factory: Optional[LivePolicyFactory] = None,
     n0_transport_factory: Optional[N0TransportFactory] = None,
     artifact_exporter: Optional[LiveArtifactExporter] = None,
+    lifecycle_journal: Optional[LifecycleStageJournal] = None,
+    n0_action_execution_contract: Optional[str] = None,
 ) -> LiveUniVTACExecutionResult:
     """Consume fresh resources in the runner and return path-free typed evidence."""
 
+    if lifecycle_journal is not None:
+        lifecycle_journal.record("capability_preflight")
     _preflight_capabilities(request, policy_factory, n0_transport_factory)
+    if lifecycle_journal is not None:
+        lifecycle_journal.record("run_loading")
     loaded = load_live_univtac_run(request)
+    if lifecycle_journal is not None and (
+        lifecycle_journal.identity.trial_manifest_sha256 != loaded.trial.sha256
+        or lifecycle_journal.identity.task_id != loaded.trial.task
+    ):
+        raise ValueError("lifecycle journal trial identity mismatch")
     backend: Optional[SimulationBackend] = None
     try:
-        backend = backend_factory(loaded)
+        if lifecycle_journal is not None:
+            lifecycle_journal.record("backend_construction")
+        if backend_factory is default_live_backend_factory:
+            backend = default_live_backend_factory(
+                loaded,
+                lifecycle_journal=lifecycle_journal,
+                n0_action_execution_contract=n0_action_execution_contract,
+            )
+        else:
+            backend = backend_factory(loaded)
+        if lifecycle_journal is not None:
+            lifecycle_journal.record("backend_ready")
+            lifecycle_journal.record("policy_construction")
         policy = (
             policy_factory(loaded)
             if policy_factory is not None
@@ -265,17 +272,35 @@ def execute_live_univtac_run(
         )
     except Exception:
         if backend is not None:
+            if lifecycle_journal is not None:
+                lifecycle_journal.record("startup_close")
             backend.close()
         raise
-    evidence = run_closed_loop_trial_with_evidence(
+    export_outcome: list[
+        tuple[ArtifactExportStatus, Optional[LiveArtifactExportReceipt]]
+    ] = []
+
+    def publish_before_close(evidence: ClosedLoopExecutionEvidence) -> None:
+        export_outcome.append(_export_artifact(loaded, evidence, artifact_exporter))
+
+    evidence = run_closed_loop_trial_with_evidence_before_close(
         loaded.trial,
         loaded.run_spec,
         backend,
         policy,
+        publish_before_close,
         fault_manifest=loaded.fault_manifest,
         rest_references=loaded.rest_references,
+        initial_state_policy=loaded.request.initial_state_policy,
+        stage_observer=(
+            None if lifecycle_journal is None else lifecycle_journal.observe
+        ),
     )
-    export_status, receipt = _export_artifact(loaded, evidence, artifact_exporter)
+    if len(export_outcome) != 1:
+        raise RuntimeError("live execution did not publish one pre-close outcome")
+    export_status, receipt = export_outcome[0]
+    if lifecycle_journal is not None:
+        lifecycle_journal.record("execution_completed")
     return LiveUniVTACExecutionResult(
         loaded=loaded,
         evidence=evidence,
@@ -291,14 +316,10 @@ def _preflight_capabilities(
 ) -> None:
     if request.condition is Condition.NO_TOUCH and policy_factory is None:
         load_matched_no_touch_policy(request.matched_no_touch_artifact_path)
-    if (
-        request.policy_kind is LivePolicyKind.N0
-        and policy_factory is None
-        and n0_transport_factory is None
-    ):
+    if request.policy_kind is LivePolicyKind.N0 and policy_factory is None:
         raise LiveExecutionUnavailableError(
-            "n0_transport_unavailable",
-            "N0 live execution requires an injected production transport factory",
+            "n0_official_policy_factory_required",
+            "official N0 execution requires the manifest-bound policy factory",
         )
 
 

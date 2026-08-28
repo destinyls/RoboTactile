@@ -3,18 +3,33 @@
 from __future__ import annotations
 
 import unittest
+from collections.abc import Callable
 from dataclasses import fields, replace
+from unittest.mock import patch
 
 import numpy as np
+import pytest
 
-from robotactile_benchmark.closed_loop.contracts import BackendSignal, ClosedLoopRunSpec
+from robotactile_benchmark.closed_loop.contracts import (
+    BackendSignal,
+    ClosedLoopRunSpec,
+    ExecutionBatch,
+    InitialStatePolicy,
+    PolicyEpisodeContext,
+    ResetReceipt,
+    WallTimeoutRole,
+)
 from robotactile_benchmark.closed_loop.fakes import (
     DeterministicFakeBackend,
     DeterministicFakePolicy,
 )
 from robotactile_benchmark.closed_loop.result_hashes import terminal_trace_sha256
 from robotactile_benchmark.closed_loop.results import ClosedLoopTrialResult
-from robotactile_benchmark.closed_loop.runner import run_closed_loop_trial
+from robotactile_benchmark.closed_loop.runner import (
+    run_closed_loop_trial,
+    run_closed_loop_trial_with_evidence,
+)
+from robotactile_benchmark.contracts import Array
 from robotactile_benchmark.fixtures import make_synthetic_episode
 from robotactile_benchmark.manifests import FaultManifest, Observability
 from robotactile_benchmark.trials import (
@@ -118,6 +133,33 @@ def _rehashed_result(
     return ClosedLoopTrialResult(**values)
 
 
+class _RaisingResetBackend(DeterministicFakeBackend):
+    def __init__(self, error: BaseException) -> None:
+        super().__init__(make_synthetic_episode(length=10))
+        self._reset_error = error
+
+    def reset(self, context: PolicyEpisodeContext) -> ResetReceipt:
+        del context
+        self.reset_count += 1
+        raise self._reset_error
+
+
+class _RaisingExecuteBackend(DeterministicFakeBackend):
+    def execute(self, actions: Array) -> ExecutionBatch:
+        del actions
+        self.execute_count += 1
+        raise TypeError("fake backend execute failure")
+
+
+class _ResetDiagnosticsBackend(DeterministicFakeBackend):
+    def __init__(self, diagnostics: dict[str, object]) -> None:
+        super().__init__(make_synthetic_episode(length=10))
+        self._reset_diagnostics = diagnostics
+
+    def reset(self, context: PolicyEpisodeContext) -> ResetReceipt:
+        return replace(super().reset(context), diagnostics=self._reset_diagnostics)
+
+
 class ClosedLoopRunnerTests(unittest.TestCase):
     def _run(
         self,
@@ -127,6 +169,8 @@ class ClosedLoopRunnerTests(unittest.TestCase):
         backend: DeterministicFakeBackend | None = None,
         policy: DeterministicFakePolicy | None = None,
         spec: ClosedLoopRunSpec | None = None,
+        stage_observer: Callable[[str], None] | None = None,
+        initial_state_policy: InitialStatePolicy = InitialStatePolicy.OFFICIAL_REPRODUCTION,
     ):
         active_trial = _trial() if trial is None else trial
         active_backend = (
@@ -145,8 +189,162 @@ class ClosedLoopRunnerTests(unittest.TestCase):
             active_backend,
             active_policy,
             fault_manifest=fault,
+            stage_observer=stage_observer,
+            initial_state_policy=initial_state_policy,
         )
         return result, active_backend, active_policy
+
+    def test_lifecycle_stages_are_emitted_before_closed_loop_boundaries(self) -> None:
+        stages: list[str] = []
+
+        result, _, _ = self._run(stage_observer=stages.append)
+
+        self.assertEqual(result.terminal_status, TerminalStatus.TIMEOUT)
+        self.assertEqual(
+            stages[:5],
+            [
+                "closed_loop_preflight",
+                "reset",
+                "policy_reset",
+                "observe",
+                "delivery",
+            ],
+        )
+        self.assertIn("infer", stages)
+        self.assertIn("execute", stages)
+        self.assertIn("commit", stages)
+        self.assertEqual(stages[-2:], ["validation", "close"])
+
+    def test_robust_initial_state_rejection_happens_before_policy_reset(self) -> None:
+        trial = _trial()
+        policy = DeterministicFakePolicy.for_trial(trial)
+        backend = _ResetDiagnosticsBackend({"success_check": True, "early_stop": False})
+
+        evidence = run_closed_loop_trial_with_evidence(
+            trial,
+            _spec(),
+            backend,
+            policy,
+            initial_state_policy=InitialStatePolicy.REPLACE_INITIAL_TERMINAL_V1,
+        )
+
+        self.assertEqual(evidence.result.terminal_status, TerminalStatus.CRASH)
+        self.assertEqual(evidence.result.failure_stage, "reset")
+        self.assertEqual(evidence.result.failure_code, "invalid_initial_state")
+        self.assertEqual(evidence.result.observation_count, 0)
+        self.assertEqual(evidence.result.control_cycle_count, 0)
+        self.assertEqual(policy.reset_count, 0)
+        self.assertFalse(policy.inferred)
+        self.assertIs(evidence.initial_diagnostics["success_check"], True)
+
+    def test_official_initial_success_is_a_qualification_failure(self) -> None:
+        trial = _trial()
+        backend = _ResetDiagnosticsBackend({"success_check": True, "early_stop": True})
+        policy = DeterministicFakePolicy.for_trial(trial)
+
+        evidence = run_closed_loop_trial_with_evidence(
+            trial,
+            _spec(),
+            backend,
+            policy,
+        )
+
+        self.assertEqual(evidence.result.terminal_status, TerminalStatus.CRASH)
+        self.assertEqual(evidence.result.failure_stage, "reset")
+        self.assertEqual(
+            evidence.result.failure_code,
+            "qualification_initial_early_stop",
+        )
+        self.assertEqual(policy.reset_count, 0)
+        self.assertFalse(policy.inferred)
+
+    def test_official_reset_not_viable_precedes_terminal_flags(self) -> None:
+        trial = _trial(task="insert_tube")
+        backend = _ResetDiagnosticsBackend(
+            {
+                "success_check": False,
+                "early_stop": True,
+                "task": {
+                    "placement_reset_assessment": {
+                        "reset_viable": False,
+                        "current_early_stop": True,
+                    }
+                },
+            }
+        )
+        policy = DeterministicFakePolicy.for_trial(trial)
+
+        evidence = run_closed_loop_trial_with_evidence(
+            trial,
+            _spec(),
+            backend,
+            policy,
+        )
+
+        self.assertEqual(evidence.result.terminal_status, TerminalStatus.CRASH)
+        self.assertEqual(
+            evidence.result.failure_code,
+            "qualification_reset_not_viable",
+        )
+        self.assertEqual(evidence.result.observation_count, 0)
+        self.assertEqual(evidence.result.control_cycle_count, 0)
+        self.assertEqual(policy.reset_count, 0)
+        self.assertFalse(policy.inferred)
+
+    def test_official_initial_success_without_early_stop_is_rejected(self) -> None:
+        trial = _trial()
+        backend = _ResetDiagnosticsBackend({"success_check": True, "early_stop": False})
+        policy = DeterministicFakePolicy.for_trial(trial)
+
+        evidence = run_closed_loop_trial_with_evidence(
+            trial,
+            _spec(),
+            backend,
+            policy,
+        )
+
+        self.assertEqual(
+            evidence.result.failure_code,
+            "qualification_initial_success",
+        )
+        self.assertEqual(policy.reset_count, 0)
+        self.assertFalse(policy.inferred)
+
+    def test_diagnostic_policy_explicitly_allows_invalid_initial_state(self) -> None:
+        backend = _ResetDiagnosticsBackend(
+            {
+                "success_check": True,
+                "early_stop": True,
+                "task": {"placement_reset_assessment": {"reset_viable": False}},
+            }
+        )
+
+        result, _, policy = self._run(
+            backend=backend,
+            initial_state_policy=InitialStatePolicy.DIAGNOSTIC_ALLOW_INVALID_V1,
+        )
+
+        self.assertNotEqual(result.terminal_status, TerminalStatus.CRASH)
+        self.assertEqual(policy.reset_count, 1)
+        self.assertTrue(policy.inferred)
+
+    def test_malformed_explicit_qualification_witness_is_rejected(self) -> None:
+        backend = _ResetDiagnosticsBackend(
+            {
+                "success_check": False,
+                "early_stop": False,
+                "task": {"placement_reset_assessment": {"reset_viable": "false"}},
+            }
+        )
+
+        result, _, policy = self._run(backend=backend)
+
+        self.assertEqual(
+            result.failure_code,
+            "qualification_initial_diagnostics_invalid",
+        )
+        self.assertEqual(policy.reset_count, 0)
+        self.assertFalse(policy.inferred)
 
     def test_policy_only_receives_delivered_observations_and_commit_uses_faulted_next(
         self,
@@ -249,6 +447,54 @@ class ClosedLoopRunnerTests(unittest.TestCase):
         self.assertIsNone(unsupported_result.score_success)
         self.assertEqual(backend.reset_count, 0)
 
+    def test_wall_timeout_is_checked_immediately_after_blocking_infer(self) -> None:
+        trial = _trial()
+        backend = DeterministicFakeBackend(make_synthetic_episode(length=10))
+        policy = DeterministicFakePolicy.for_trial(trial)
+        values = iter((0.0, 0.0, 6.0))
+
+        evidence = run_closed_loop_trial_with_evidence(
+            trial,
+            _spec(wall_timeout_s=5.0),
+            backend,
+            policy,
+            monotonic_clock=lambda: next(values),
+        )
+
+        self.assertEqual(evidence.result.terminal_status, TerminalStatus.TIMEOUT)
+        self.assertEqual(evidence.result.observation_count, 1)
+        self.assertEqual(evidence.result.control_cycle_count, 0)
+        self.assertEqual(backend.execute_count, 0)
+        timing = evidence.initial_diagnostics["runner_terminal_timing"]
+        self.assertEqual(timing["stage"], "after_infer")
+
+    def test_infrastructure_watchdog_does_not_right_censor_model_execution(
+        self,
+    ) -> None:
+        trial = _trial()
+        backend = DeterministicFakeBackend(
+            make_synthetic_episode(length=10),
+            terminal_signal=BackendSignal.SUCCESS,
+        )
+        policy = DeterministicFakePolicy.for_trial(trial)
+        clock_values = iter((0.0, 1_000.0))
+
+        result = run_closed_loop_trial(
+            trial,
+            _spec(
+                wall_timeout_s=0.001,
+                wall_timeout_role=WallTimeoutRole.INFRASTRUCTURE_WATCHDOG_V1,
+            ),
+            backend,
+            policy,
+            monotonic_clock=lambda: next(clock_values),
+        )
+
+        self.assertEqual(result.terminal_status, TerminalStatus.SUCCESS)
+        self.assertEqual(result.observation_count, 2)
+        self.assertEqual(result.control_cycle_count, 1)
+        self.assertEqual(next(clock_values), 1_000.0)
+
     def test_no_touch_requires_non_tactile_policy(self) -> None:
         trial = _trial(Condition.NO_TOUCH)
         tactile_policy = DeterministicFakePolicy.for_trial(trial, consumes_tactile=True)
@@ -316,6 +562,25 @@ class ClosedLoopRunnerTests(unittest.TestCase):
         )
         self.assertEqual(observed_policy.abort_count, 1)
 
+    def test_default_evidence_api_still_closes_before_return(self) -> None:
+        trial = _trial()
+        backend = DeterministicFakeBackend(
+            make_synthetic_episode(length=10),
+            terminal_signal=BackendSignal.SUCCESS,
+        )
+        policy = DeterministicFakePolicy.for_trial(trial)
+
+        evidence = run_closed_loop_trial_with_evidence(
+            trial,
+            _spec(),
+            backend,
+            policy,
+        )
+
+        self.assertEqual(evidence.result.terminal_status, TerminalStatus.SUCCESS)
+        self.assertEqual(backend.close_count, 1)
+        self.assertEqual(policy.close_count, 1)
+
     def test_terminal_transition_cannot_be_followed_by_another_transition(self) -> None:
         backend = DeterministicFakeBackend(
             make_synthetic_episode(length=10),
@@ -376,6 +641,29 @@ class ClosedLoopRunnerTests(unittest.TestCase):
         self.assertEqual(result.failure_stage, "commit")
         self.assertEqual(result.observation_count, 2)
         self.assertEqual(observed_policy.abort_count, 1)
+
+    def test_execute_failure_does_not_claim_an_unverified_control_cycle(self) -> None:
+        trial = _trial()
+        backend = _RaisingExecuteBackend(make_synthetic_episode(length=10))
+        evidence = run_closed_loop_trial_with_evidence(
+            trial,
+            _spec(),
+            backend,
+            DeterministicFakePolicy.for_trial(trial),
+        )
+
+        self.assertEqual(evidence.result.terminal_status, TerminalStatus.CRASH)
+        self.assertEqual(evidence.result.failure_stage, "execute")
+        self.assertEqual(evidence.result.failure_code, "execute_failed")
+        self.assertEqual(evidence.result.control_cycle_count, 0)
+        self.assertEqual(evidence.result.observation_count, 1)
+        self.assertEqual(evidence.action_entries, ())
+        self.assertEqual(len(evidence.finalization.clean_records), 1)
+        failure = evidence.initial_diagnostics["runner_failure"]
+        self.assertEqual(failure["stage"], "execute")
+        self.assertEqual(failure["failure_code"], "execute_failed")
+        self.assertEqual(failure["exception_type"], "TypeError")
+        self.assertFalse(failure["message_truncated"])
 
     def test_budget_counts_the_initial_observation(self) -> None:
         result, _, _ = self._run(
@@ -457,7 +745,7 @@ class ClosedLoopRunnerTests(unittest.TestCase):
         )
         self.assertEqual(running_result.terminal_status, TerminalStatus.CRASH)
         self.assertEqual(running_result.failure_code, "running_partial_batch")
-        self.assertEqual(running_result.control_cycle_count, 1)
+        self.assertEqual(running_result.control_cycle_count, 0)
 
     def test_close_failures_crash_a_normal_run_without_masking_a_primary_crash(
         self,
@@ -497,6 +785,125 @@ class ClosedLoopRunnerTests(unittest.TestCase):
         primary_result, _, _ = self._run(backend=crash_backend, policy=crash_policy)
         self.assertEqual(primary_result.failure_stage, "infer")
         self.assertEqual(primary_result.failure_code, "infer_failed")
+
+    def test_system_exit_from_close_is_converted_to_close_failure(self) -> None:
+        backend = DeterministicFakeBackend(
+            make_synthetic_episode(length=10),
+            terminal_signal=BackendSignal.SUCCESS,
+        )
+        policy = DeterministicFakePolicy.for_trial(_trial())
+
+        def clean_system_exit() -> None:
+            raise SystemExit(0)
+
+        backend.close = clean_system_exit  # type: ignore[method-assign]
+
+        result, _, _ = self._run(backend=backend, policy=policy)
+
+        self.assertEqual(result.terminal_status, TerminalStatus.CRASH)
+        self.assertEqual(result.failure_stage, "close")
+        self.assertEqual(result.failure_code, "backend_close_failed")
+
+    def test_reset_system_exit_is_a_stable_crash_evidence_receipt(self) -> None:
+        for exit_code in (0, 17):
+            with self.subTest(exit_code=exit_code):
+                trial = _trial()
+                backend = _RaisingResetBackend(SystemExit(exit_code))
+                policy = DeterministicFakePolicy.for_trial(trial)
+
+                evidence = run_closed_loop_trial_with_evidence(
+                    trial,
+                    _spec(),
+                    backend,
+                    policy,
+                )
+
+                self.assertEqual(
+                    evidence.result.terminal_status,
+                    TerminalStatus.CRASH,
+                )
+                self.assertEqual(
+                    evidence.result.execution_status,
+                    TerminalStatus.CRASH,
+                )
+                self.assertEqual(evidence.result.failure_stage, "reset")
+                self.assertEqual(
+                    evidence.result.failure_code,
+                    "reset_system_exit",
+                )
+                self.assertIsNone(evidence.result.initial_state_sha256)
+                self.assertIsNone(evidence.finalization)
+                self.assertEqual(evidence.action_entries, ())
+                self.assertEqual(backend.reset_count, 1)
+                self.assertEqual(backend.close_count, 1)
+                self.assertEqual(policy.reset_count, 0)
+                self.assertEqual(policy.abort_count, 0)
+                self.assertEqual(policy.close_count, 1)
+
+    def test_runtime_system_exit_runs_abort_finalize_and_close(self) -> None:
+        trial = _trial()
+        backend = DeterministicFakeBackend(make_synthetic_episode(length=10))
+        policy = DeterministicFakePolicy.for_trial(trial)
+        with patch.object(policy, "infer", side_effect=SystemExit(4)):
+            evidence = run_closed_loop_trial_with_evidence(
+                trial,
+                _spec(),
+                backend,
+                policy,
+            )
+
+        self.assertEqual(evidence.result.terminal_status, TerminalStatus.CRASH)
+        self.assertEqual(evidence.result.failure_stage, "infer")
+        self.assertEqual(evidence.result.failure_code, "infer_system_exit")
+        self.assertIsNotNone(evidence.finalization)
+        self.assertEqual(policy.abort_reasons, ["infer_system_exit"])
+        self.assertEqual(backend.close_count, 1)
+        self.assertEqual(policy.close_count, 1)
+
+    def test_preflight_system_exit_and_other_base_exceptions_propagate(self) -> None:
+        trial = _trial()
+        backend = DeterministicFakeBackend(make_synthetic_episode(length=10))
+        policy = DeterministicFakePolicy.for_trial(trial)
+        with (
+            patch(
+                "robotactile_benchmark.closed_loop.runner.preflight",
+                side_effect=SystemExit(3),
+            ),
+            self.assertRaises(SystemExit),
+        ):
+            run_closed_loop_trial(trial, _spec(), backend, policy)
+
+        self.assertEqual(backend.reset_count, 0)
+        self.assertEqual(backend.close_count, 1)
+        self.assertEqual(policy.close_count, 1)
+
+        for exception_type in (KeyboardInterrupt, GeneratorExit):
+            with self.subTest(exception_type=exception_type.__name__):
+                active_backend = _RaisingResetBackend(exception_type())
+                active_policy = DeterministicFakePolicy.for_trial(trial)
+                with self.assertRaises(exception_type):
+                    run_closed_loop_trial(
+                        trial,
+                        _spec(),
+                        active_backend,
+                        active_policy,
+                    )
+
+                self.assertEqual(active_backend.close_count, 1)
+                self.assertEqual(active_policy.close_count, 1)
+
+    def test_crash_marker_failure_does_not_mask_the_crash_receipt(self) -> None:
+        policy = DeterministicFakePolicy.for_trial(_trial(), fail_on_infer=True)
+        with patch(
+            "robotactile_benchmark.closed_loop.crash_diagnostics.traceback.extract_tb",
+            side_effect=OSError("diagnostic output unavailable"),
+        ):
+            result, backend, observed_policy = self._run(policy=policy)
+
+        self.assertEqual(result.terminal_status, TerminalStatus.CRASH)
+        self.assertEqual(result.failure_code, "infer_failed")
+        self.assertEqual(backend.close_count, 1)
+        self.assertEqual(observed_policy.close_count, 1)
 
     def test_close_crash_preserves_restoration_and_operator_validation_codes(
         self,
@@ -545,6 +952,52 @@ class ClosedLoopRunnerTests(unittest.TestCase):
                 failure_stage="commit",
                 initial_state_sha256=None,
             )
+
+
+def test_regular_exception_emits_safe_searchable_crash_marker(
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    trial = _trial()
+    backend = DeterministicFakeBackend(make_synthetic_episode(length=10))
+    policy = DeterministicFakePolicy.for_trial(trial, fail_on_infer=True)
+
+    result = run_closed_loop_trial(trial, _spec(), backend, policy)
+    stderr = capfd.readouterr().err
+
+    assert result.failure_code == "infer_failed"
+    assert "ROBOTACTILE_CLOSED_LOOP_CRASH" in stderr
+    assert "stage=infer" in stderr
+    assert "exception_type=builtins.RuntimeError" in stderr
+    assert "failure_code=infer_failed" in stderr
+    assert "system_exit_code=not_applicable" in stderr
+    assert "Traceback (most recent call last):" in stderr
+    assert "fake policy infer failure" not in stderr
+    assert _spec().prompt not in stderr
+
+
+def test_system_exit_emits_code_and_traceback_in_crash_marker(
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    trial = _trial()
+    backend = _RaisingResetBackend(SystemExit(17))
+    policy = DeterministicFakePolicy.for_trial(trial)
+
+    evidence = run_closed_loop_trial_with_evidence(
+        trial,
+        _spec(),
+        backend,
+        policy,
+    )
+    stderr = capfd.readouterr().err
+
+    assert evidence.result.failure_code == "reset_system_exit"
+    assert "ROBOTACTILE_CLOSED_LOOP_CRASH" in stderr
+    assert "stage=reset" in stderr
+    assert "exception_type=builtins.SystemExit" in stderr
+    assert "failure_code=reset_system_exit" in stderr
+    assert "system_exit_code=17" in stderr
+    assert "Traceback (most recent call last):" in stderr
+    assert _spec().prompt not in stderr
 
 
 if __name__ == "__main__":

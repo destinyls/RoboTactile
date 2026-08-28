@@ -11,6 +11,10 @@ from typing import Optional
 from robotactile_benchmark.calibration.cli_support import (
     add_calibration_request_parser,
 )
+from robotactile_benchmark.clean_baseline.cli import (
+    add_clean_baseline_subcommands,
+    handle_clean_baseline_command,
+)
 from robotactile_benchmark.closed_loop.smoke import (
     smoke_summary,
     write_cpu_smoke_bundle,
@@ -19,6 +23,10 @@ from robotactile_benchmark.constants import REST_REFERENCE_OPERATOR_IDS
 from robotactile_benchmark.deployment.cli import (
     add_deployment_subcommands,
     handle_deployment_command,
+)
+from robotactile_benchmark.execution.live_cli import (
+    add_live_execution_subcommands,
+    handle_live_execution_command,
 )
 from robotactile_benchmark.execution.preflight_cli import (
     add_live_preflight_parser,
@@ -35,6 +43,18 @@ from robotactile_benchmark.matrix.live_cli import (
     handle_live_matrix_command,
 )
 from robotactile_benchmark.operators import EXPECTED_OPERATOR_IDS, list_operator_ids
+from robotactile_benchmark.protocol_alignment.cli import (
+    add_protocol_alignment_subcommand,
+    handle_protocol_alignment_command,
+)
+from robotactile_benchmark.recorded.alignment_cli import (
+    add_expert_alignment_subcommand,
+    handle_expert_alignment_command,
+)
+from robotactile_benchmark.recorded.cli import (
+    add_recorded_n0_subcommand,
+    handle_recorded_n0_command,
+)
 from robotactile_benchmark.replay import run_smoke_matrix, run_smoke_replay
 from robotactile_benchmark.severity import severity_value
 
@@ -73,15 +93,6 @@ def _parser() -> argparse.ArgumentParser:
     closed_loop.add_argument(
         "--output", type=Path, required=True, help="artifact output"
     )
-    live = subparsers.add_parser(
-        "live-univtac-run", help="execute one unqualified live UniVTAC request"
-    )
-    live.add_argument("--request", type=Path, required=True, help="request JSON")
-    live.add_argument("--root", type=Path)
-    live.add_argument("--config", type=Path)
-    live.add_argument("--official-act-artifact-root", type=Path)
-    live.add_argument("--stats-sha256")
-    live.add_argument("--encoder-sha256")
     report = subparsers.add_parser(
         "report-matrix", help="render a source-bound benchmark report bundle"
     )
@@ -90,6 +101,17 @@ def _parser() -> argparse.ArgumentParser:
     report.add_argument("--matrix-output", type=Path)
     report.add_argument("--reporting-spec", type=Path, required=True)
     report.add_argument("--output", type=Path)
+    visualize = subparsers.add_parser(
+        "visualize-live-artifact",
+        help="render a verified live trace as a paper panel and optional MP4",
+    )
+    visualize.add_argument("--artifact", type=Path, required=True)
+    visualize.add_argument("--output", type=Path, required=True)
+    visualize.add_argument("--fps", type=int, default=20)
+    visualize.add_argument("--stride", type=int, default=1)
+    visualize.add_argument("--max-frames", type=int)
+    visualize.add_argument("--video", action="store_true")
+    visualize.add_argument("--ffmpeg", default="ffmpeg")
     calibration = subparsers.add_parser(
         "build-rest-references", help="derive measured no-contact references"
     )
@@ -102,15 +124,66 @@ def _parser() -> argparse.ArgumentParser:
     calibration.add_argument("--minimum-consecutive-free-records", type=int, default=5)
     calibration.add_argument("--output", type=Path, required=True)
     add_calibration_request_parser(subparsers)
+    add_live_execution_subcommands(subparsers)
     add_live_matrix_subcommands(subparsers)
     add_integration_subcommands(subparsers)
     add_live_preflight_parser(subparsers)
     add_deployment_subcommands(subparsers)
+    add_clean_baseline_subcommands(subparsers)
+    add_recorded_n0_subcommand(subparsers)
+    add_expert_alignment_subcommand(subparsers)
+    add_protocol_alignment_subcommand(subparsers)
     return parser
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = _parser().parse_args(argv)
+    protocol_alignment_result = handle_protocol_alignment_command(args)
+    if protocol_alignment_result is not None:
+        protocol_payload, exit_code = protocol_alignment_result
+        print(
+            json.dumps(
+                protocol_payload,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+        )
+        return exit_code
+    alignment_result = handle_expert_alignment_command(args)
+    if alignment_result is not None:
+        print(
+            json.dumps(
+                alignment_result,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+        )
+        return 0
+    recorded_result = handle_recorded_n0_command(args)
+    if recorded_result is not None:
+        print(
+            json.dumps(
+                recorded_result,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+        )
+        return 0
+    clean_baseline_result = handle_clean_baseline_command(args)
+    if clean_baseline_result is not None:
+        clean_payload, exit_code = clean_baseline_result
+        print(
+            json.dumps(
+                clean_payload,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+        )
+        return exit_code
     deployment_result = handle_deployment_command(args)
     if deployment_result is not None:
         print(
@@ -133,6 +206,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             )
         )
         return integration_result.exit_code
+    live_execution_result = handle_live_execution_command(args)
+    if live_execution_result is not None:
+        print(
+            json.dumps(
+                live_execution_result,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+        )
+        return 0
     matrix_result = handle_live_matrix_command(args)
     if matrix_result is not None:
         print(
@@ -146,10 +230,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 0
     preflight_result = handle_live_preflight_command(args)
     if preflight_result is not None:
-        payload, exit_code = preflight_result
+        preflight_payload, exit_code = preflight_result
         print(
             json.dumps(
-                payload,
+                preflight_payload,
                 sort_keys=True,
                 separators=(",", ":"),
                 allow_nan=False,
@@ -181,59 +265,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.command == "closed-loop-smoke":
         summary = smoke_summary(write_cpu_smoke_bundle(args.output))
         print(json.dumps(summary, sort_keys=True, separators=(",", ":")))
-        return 0
-    if args.command == "live-univtac-run":
-        from robotactile_benchmark.deployment.layout import (
-            DeploymentLayout,
-            resolve_deployment_root,
-        )
-        from robotactile_benchmark.execution.loading import (
-            load_live_univtac_request,
-        )
-        from robotactile_benchmark.execution.official_act import (
-            execute_official_act_live_run,
-            official_act_live_summary,
-        )
-        from robotactile_benchmark.integrations.runtime_config import (
-            resolve_act_runtime_artifacts,
-        )
-
-        live_request = load_live_univtac_request(args.request)
-        legacy = (
-            args.official_act_artifact_root,
-            args.stats_sha256,
-            args.encoder_sha256,
-        )
-        if args.config is not None or any(value is None for value in legacy):
-            layout = DeploymentLayout(resolve_deployment_root(args.root))
-            config_path = args.config or (
-                layout.model_artifacts / "act/integration_config.json"
-            )
-            resolved = resolve_act_runtime_artifacts(config_path)
-            artifact_root = resolved.artifact_root
-            stats_sha256 = resolved.stats_sha256
-            encoder_sha256 = resolved.encoder_sha256
-        else:
-            artifact_root = args.official_act_artifact_root
-            stats_sha256 = args.stats_sha256
-            encoder_sha256 = args.encoder_sha256
-        assert artifact_root is not None
-        assert stats_sha256 is not None
-        assert encoder_sha256 is not None
-        live_artifact = execute_official_act_live_run(
-            live_request,
-            artifact_root=artifact_root,
-            stats_sha256=stats_sha256,
-            encoder_sha256=encoder_sha256,
-        )
-        print(
-            json.dumps(
-                official_act_live_summary(live_artifact),
-                sort_keys=True,
-                separators=(",", ":"),
-                allow_nan=False,
-            )
-        )
         return 0
     if args.command == "report-matrix":
         from robotactile_benchmark.deployment.layout import (
@@ -269,6 +300,29 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print(
             json.dumps(
                 exported.to_cli_dict(),
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+        )
+        return 0
+    if args.command == "visualize-live-artifact":
+        from robotactile_benchmark.visualization import (
+            export_live_artifact_visualization,
+        )
+
+        visualized = export_live_artifact_visualization(
+            args.artifact,
+            args.output,
+            fps=args.fps,
+            stride=args.stride,
+            max_frames=args.max_frames,
+            video=args.video,
+            ffmpeg=args.ffmpeg,
+        )
+        print(
+            json.dumps(
+                visualized.to_cli_dict(),
                 sort_keys=True,
                 separators=(",", ":"),
                 allow_nan=False,

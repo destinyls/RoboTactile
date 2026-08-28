@@ -22,7 +22,10 @@ from robotactile_benchmark.constants import (
     SENSOR_SLOTS,
 )
 from robotactile_benchmark.contracts import canonical_hash
-from robotactile_benchmark.execution.contracts import LivePolicyKind
+from robotactile_benchmark.execution.contracts import (
+    LivePolicyKind,
+    production_univtac_launcher_args,
+)
 from robotactile_benchmark.manifests import FaultManifest, Observability
 from robotactile_benchmark.matrix.builders import build_primary_matrix_manifest
 from robotactile_benchmark.matrix.io import (
@@ -259,7 +262,7 @@ def _write_bundle(staging: Path, spec: PrimaryMatrixGenerationSpec) -> None:
         runtime_root=spec.runtime_root,
         act_device_name=spec.act_device_name,
         simulator_device=spec.simulator_device,
-        launcher_args={"enable_cameras": True, "headless": True},
+        launcher_args=production_univtac_launcher_args(),
         official_act_artifact_root=spec.official_act_artifact_root,
         stats_sha256=spec.stats_sha256,
         encoder_sha256=spec.encoder_sha256,

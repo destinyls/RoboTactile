@@ -4,6 +4,10 @@ from typing import Tuple
 
 import numpy as np
 
+from robotactile_benchmark.closed_loop.artifact_values import (
+    run_spec_from_dict,
+    run_spec_to_dict,
+)
 from robotactile_benchmark.closed_loop.contracts import (
     ActionPlan,
     BackendSignal,
@@ -14,12 +18,17 @@ from robotactile_benchmark.closed_loop.contracts import (
     PolicyExecution,
     PolicyIdentity,
     ResetReceipt,
+    WallTimeoutRole,
 )
 from robotactile_benchmark.closed_loop.interfaces import (
     ClosedLoopPolicy,
     SimulationBackend,
 )
-from robotactile_benchmark.contracts import EvaluationRecord, ObservationRecord
+from robotactile_benchmark.contracts import (
+    EvaluationRecord,
+    ObservationRecord,
+    canonical_hash,
+)
 from robotactile_benchmark.fixtures import make_synthetic_episode
 
 CHECKPOINT_SHA256 = "a" * 64
@@ -129,7 +138,7 @@ class ClosedLoopContractTests(unittest.TestCase):
         for invalid in (
             {"prompt": ""},
             {"max_control_cycles": 9},
-            {"execute_action_steps": 9},
+            {"execute_action_steps": 0},
             {"max_control_cycles": True},
             {"wall_timeout_s": float("inf")},
             {"semantic_version": "1.1"},
@@ -139,6 +148,43 @@ class ClosedLoopContractTests(unittest.TestCase):
                 self.assertRaises((TypeError, ValueError)),
             ):
                 replace(spec, **invalid)
+
+    def test_wall_timeout_role_preserves_legacy_hash_and_round_trips_watchdog(
+        self,
+    ) -> None:
+        legacy = ClosedLoopRunSpec(
+            prompt="Lift the bottle.",
+            success_predicate_id="bottle-lifted-v1",
+            max_control_cycles=4,
+            max_observation_steps=8,
+            execute_action_steps=2,
+            wall_timeout_s=30.0,
+        )
+        legacy_document = {
+            "prompt": "Lift the bottle.",
+            "success_predicate_id": "bottle-lifted-v1",
+            "max_control_cycles": 4,
+            "max_observation_steps": 8,
+            "execute_action_steps": 2,
+            "wall_timeout_s": 30.0,
+            "semantic_version": "1.0",
+        }
+
+        self.assertEqual(run_spec_to_dict(legacy), legacy_document)
+        self.assertEqual(legacy.sha256, canonical_hash(legacy_document))
+        self.assertEqual(run_spec_from_dict(legacy_document), legacy)
+
+        watchdog = replace(
+            legacy,
+            wall_timeout_role=WallTimeoutRole.INFRASTRUCTURE_WATCHDOG_V1,
+        )
+        watchdog_document = run_spec_to_dict(watchdog)
+        self.assertEqual(
+            watchdog_document["wall_timeout_role"],
+            "infrastructure_watchdog_v1",
+        )
+        self.assertEqual(run_spec_from_dict(watchdog_document), watchdog)
+        self.assertNotEqual(watchdog.sha256, legacy.sha256)
 
     def test_identity_validates_digests_action_and_capabilities(self) -> None:
         identity = make_identity()

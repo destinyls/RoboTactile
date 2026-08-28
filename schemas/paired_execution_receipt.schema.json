@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robotactile.invalid/schemas/paired_execution_receipt.schema.json",
+  "title": "RoboTactile Paired Live UniVTAC Execution Receipt",
+  "description": "Path-free evidence for one single-process canonical reset and exact snapshot replay across matched conditions. This is execution evidence, not simulator qualification.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "evidence_level",
+    "simulator_qualification_claimed",
+    "group_content_sha256",
+    "reset_receipt",
+    "reset_receipt_sha256",
+    "semantic_version",
+    "executions"
+  ],
+  "properties": {
+    "evidence_level": {"const": "unqualified_paired_live_univtac_execution_v1"},
+    "simulator_qualification_claimed": {"const": false},
+    "group_content_sha256": {"$ref": "#/$defs/sha256"},
+    "reset_receipt": {"$ref": "#/$defs/reset_receipt"},
+    "reset_receipt_sha256": {"$ref": "#/$defs/sha256"},
+    "semantic_version": {"const": "1.0"},
+    "executions": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 100000,
+      "prefixItems": [
+        {
+          "allOf": [
+            {"$ref": "#/$defs/execution"},
+            {
+              "type": "object",
+              "properties": {"condition": {"const": "clean"}}
+            }
+          ]
+        }
+      ],
+      "items": {"$ref": "#/$defs/execution"}
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "witness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ordinal",
+        "reset_mode",
+        "native_step_id",
+        "simulator_state_sha256",
+        "joint_reorder_witness_sha256",
+        "canonical_joint9_sha256",
+        "model_visible_qpos8_sha256",
+        "snapshot_state_sha256",
+        "exact_match"
+      ],
+      "properties": {
+        "ordinal": {"type": "integer", "minimum": 0},
+        "reset_mode": {"enum": ["canonical_reset", "snapshot_replay"]},
+        "native_step_id": {"type": "integer", "minimum": 0},
+        "simulator_state_sha256": {"$ref": "#/$defs/sha256"},
+        "joint_reorder_witness_sha256": {"$ref": "#/$defs/sha256"},
+        "canonical_joint9_sha256": {"$ref": "#/$defs/sha256"},
+        "model_visible_qpos8_sha256": {"$ref": "#/$defs/sha256"},
+        "snapshot_state_sha256": {"$ref": "#/$defs/sha256"},
+        "exact_match": {"const": true}
+      }
+    },
+    "reset_receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "session_id",
+        "task_id",
+        "initial_seed",
+        "exogenous_seed",
+        "config_sha256",
+        "witnesses",
+        "all_exact",
+        "evidence_level",
+        "simulator_qualification_claimed"
+      ],
+      "properties": {
+        "session_id": {"$ref": "#/$defs/sha256"},
+        "task_id": {"type": "string", "minLength": 1},
+        "initial_seed": {"type": "integer", "minimum": 0},
+        "exogenous_seed": {"type": "integer", "minimum": 0},
+        "config_sha256": {"$ref": "#/$defs/sha256"},
+        "witnesses": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100000,
+          "prefixItems": [
+            {
+              "allOf": [
+                {"$ref": "#/$defs/witness"},
+                {
+                  "type": "object",
+                  "properties": {
+                    "ordinal": {"const": 0},
+                    "reset_mode": {"const": "canonical_reset"}
+                  }
+                }
+              ]
+            }
+          ],
+          "items": {"$ref": "#/$defs/witness"}
+        },
+        "all_exact": {"const": true},
+        "evidence_level": {"const": "in_process_snapshot_replay_equivalence_v1"},
+        "simulator_qualification_claimed": {"const": false}
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "condition",
+        "run_content_sha256",
+        "result_sha256",
+        "terminal_status",
+        "validation_passed",
+        "witness_index"
+      ],
+      "properties": {
+        "condition": {"enum": ["clean", "faulted", "no_touch", "restored"]},
+        "run_content_sha256": {"$ref": "#/$defs/sha256"},
+        "result_sha256": {"$ref": "#/$defs/sha256"},
+        "terminal_status": {
+          "enum": [
+            "success",
+            "task_failure",
+            "early_stop",
+            "timeout",
+            "crash",
+            "validator_rejected",
+            "unsupported_contract"
+          ]
+        },
+        "validation_passed": {"type": "boolean"},
+        "witness_index": {"type": ["integer", "null"], "minimum": 0}
+      }
+    }
+  }
+}

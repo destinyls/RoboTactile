@@ -18,6 +18,10 @@ from robotactile_benchmark.execution import (
     run_live_preflight,
     write_live_preflight_receipt,
 )
+from robotactile_benchmark.execution.contracts import (
+    production_univtac_launcher_args,
+)
+from robotactile_benchmark.execution.preflight import _LIVE_ISAAC_MODULES
 from robotactile_benchmark.execution.request_values import (
     live_univtac_request_to_dict,
 )
@@ -28,6 +32,22 @@ from robotactile_benchmark.trials import Condition
 _TACTILE_CONFIG_SHA256 = (
     "acdab30e50fa7280918804c4a196f75a6db6e854a3c7a86a0ddd84791c533397"
 )
+
+
+def test_live_isaac_preflight_covers_full_univtac_native_stack() -> None:
+    assert set(_LIVE_ISAAC_MODULES) == {
+        "curobo",
+        "isaaclab.app",
+        "numpy",
+        "robotactile_benchmark",
+        "tacex",
+        "tacex_assets",
+        "tacex_tasks",
+        "tacex_uipc",
+        "torch_scatter",
+        "typing_extensions",
+        "uipc",
+    }
 
 
 class _HostProbe:
@@ -73,7 +93,7 @@ def _request_file(root: Path) -> Path:
         matched_no_touch_artifact_path=None,
         act_device_name="cuda:0",
         simulator_device="cuda:0",
-        launcher_args={"enable_cameras": True, "headless": True},
+        launcher_args=production_univtac_launcher_args(),
     )
     path = root / "request.json"
     path.write_bytes(canonical_json_bytes(live_univtac_request_to_dict(request)))

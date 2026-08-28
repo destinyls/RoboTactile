@@ -14,6 +14,9 @@ from robotactile_benchmark.closed_loop.fakes import (
     DeterministicFakeBackend,
     DeterministicFakePolicy,
 )
+from robotactile_benchmark.execution.contracts import (
+    production_univtac_launcher_args,
+)
 from robotactile_benchmark.fixtures import make_synthetic_episode
 from robotactile_benchmark.manifests import FaultManifest, Observability
 from robotactile_benchmark.matrix import (
@@ -108,7 +111,7 @@ def _config(root: Path, manifest):  # type: ignore[no-untyped-def]
         runtime_root=root / "runtime",
         act_device_name="cpu",
         simulator_device="cpu",
-        launcher_args={"enable_cameras": True, "headless": True},
+        launcher_args=production_univtac_launcher_args(),
         official_act_artifact_root=root / "official-act",
         stats_sha256="1" * 64,
         encoder_sha256="2" * 64,

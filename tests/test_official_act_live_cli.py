@@ -7,9 +7,7 @@ import io
 import json
 import tempfile
 import unittest
-from collections.abc import Mapping
-from dataclasses import fields, replace
-from enum import Enum
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -23,7 +21,11 @@ from robotactile_benchmark.execution import (
     LiveExecutionUnavailableError,
     LivePolicyKind,
     LiveUniVTACRunRequest,
+    live_univtac_request_to_dict,
     load_live_univtac_artifact,
+)
+from robotactile_benchmark.execution.contracts import (
+    production_univtac_launcher_args,
 )
 from robotactile_benchmark.execution.official_act import (
     build_official_act_live_binding,
@@ -75,7 +77,7 @@ def _request(root: Path, condition: Condition) -> LiveUniVTACRunRequest:
         ),
         act_device_name="cuda:0",
         simulator_device="cuda:0",
-        launcher_args={"headless": True},
+        launcher_args=production_univtac_launcher_args(),
         n0_source_commit=None,
         n0_normalizer_sha256=None,
         n0_serve_bundle_sha256=None,
@@ -84,16 +86,18 @@ def _request(root: Path, condition: Condition) -> LiveUniVTACRunRequest:
 
 
 def _write_request(path: Path, request: LiveUniVTACRunRequest) -> None:
-    document: dict[str, object] = {}
-    for item in fields(request):
-        value = getattr(request, item.name)
-        if isinstance(value, Path):
-            value = value.relative_to(path.parent).as_posix()
-        elif isinstance(value, Enum):
-            value = value.value
-        elif isinstance(value, Mapping):
-            value = dict(value)
-        document[item.name] = value
+    document = live_univtac_request_to_dict(request)
+    for name in (
+        "upstream_root",
+        "runtime_dir",
+        "output_dir",
+        "fault_manifest_path",
+        "rest_references_path",
+        "matched_no_touch_artifact_path",
+    ):
+        value = document[name]
+        if value is not None:
+            document[name] = Path(value).relative_to(path.parent).as_posix()
     path.write_text(
         json.dumps(document, sort_keys=True, separators=(",", ":")),
         encoding="utf-8",

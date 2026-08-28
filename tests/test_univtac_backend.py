@@ -6,6 +6,7 @@ from typing import Optional
 
 import numpy as np
 
+from robotactile_benchmark.action_specs import EE8_ACTION_SPEC
 from robotactile_benchmark.backends.qualification_checks import (
     qualification_action,
     qualification_context,
@@ -81,6 +82,16 @@ class UniVTACBackendTests(unittest.TestCase):
         self.assertNotEqual(receipt.simulator_state_sha256, task.stale_return_sha256)
         self.assertEqual(receipt.exogenous_seed, 999)
         self.assertNotIn(999, task.reset_seed_arguments)
+        self.assertIs(receipt.diagnostics["success_check"], False)
+        self.assertIs(receipt.diagnostics["plan_success"], True)
+        self.assertIs(receipt.diagnostics["early_stop"], False)
+        self.assertIsNone(receipt.diagnostics["n0_reset"])
+
+    def test_reset_seed_must_match_task_construction_seed(self) -> None:
+        backend, task = self._backend()
+        with self.assertRaisesRegex(UniVTACContractError, "construction seed"):
+            backend.reset(self._context(initial_seed=12))
+        self.assertEqual(task.reset_calls, [])
 
     def test_dense_steps_keep_native_steps_and_each_qpos8_row_executes_once(
         self,
@@ -208,14 +219,12 @@ class UniVTACBackendTests(unittest.TestCase):
             scenario=FakeUpstreamScenario(none_when_early_stop_false=True),
         )
         backend = UniVTACIsaacBackend(self.config, runtime)
-        backend.reset(self._context())
-        backend.observe()
         with self.assertRaisesRegex(UniVTACContractError, "check_early_stop"):
-            backend.execute(_actions())
+            backend.reset(self._context())
         backend.close()
         self.assertEqual(task.close_count, 1)
 
-    def test_no_native_progress_and_prompt_mismatch_fail_closed(self) -> None:
+    def test_no_native_progress_fails_closed(self) -> None:
         backend, task = self._backend(FakeUpstreamScenario(native_step_increment=0))
         backend.reset(self._context())
         backend.observe()
@@ -231,10 +240,138 @@ class UniVTACBackendTests(unittest.TestCase):
         with self.assertRaisesRegex(UniVTACConversionError, "native step"):
             skipped_backend.execute(_actions())
 
-        prompt_backend, prompt_task = self._backend()
-        with self.assertRaisesRegex(UniVTACContractError, "prompt"):
-            prompt_backend.reset(self._context(instruction="different prompt"))
-        self.assertEqual(prompt_task.reset_calls, [])
+    def test_ee8_accepts_source_bound_stock_variable_native_steps(self) -> None:
+        config = build_univtac_backend_config(
+            "pull_out_key", action_spec=EE8_ACTION_SPEC
+        )
+        for native_step_increment in (1, 2, 47):
+            with self.subTest(native_step_increment=native_step_increment):
+                backend, task = self._backend(
+                    FakeUpstreamScenario(native_step_increment=native_step_increment),
+                    config=config,
+                )
+                task._robotactile_n0_fixed_cadence_enabled = False
+                task._robotactile_n0_action_execution_contract = "univtac_stock_ee_v1"
+                receipt = backend.reset(self._context(action_spec=EE8_ACTION_SPEC))
+                backend.observe()
+
+                transition = backend.execute(_actions()).transitions[0]
+
+                self.assertEqual(
+                    transition.native_step_id,
+                    417 + native_step_increment,
+                )
+                self.assertEqual(
+                    transition.diagnostics["native_step_delta"],
+                    native_step_increment,
+                )
+                self.assertEqual(
+                    transition.diagnostics["physics_step_delta"],
+                    native_step_increment,
+                )
+                self.assertEqual(
+                    transition.diagnostics["action_execution_contract"],
+                    "univtac_stock_ee_v1",
+                )
+                self.assertEqual(
+                    transition.diagnostics["native_step_contract"],
+                    "univtac_stock_ee_variable_native_steps_v1",
+                )
+                self.assertIsNone(transition.diagnostics["physics_steps_per_action"])
+                self.assertIsNone(receipt.diagnostics["camera_delivery_hz"])
+                self.assertIsNone(receipt.diagnostics["physics_steps_per_action"])
+                self.assertEqual(
+                    receipt.diagnostics["action_execution_source"],
+                    {
+                        "action_type": "ee",
+                        "method": "BaseTask.take_action",
+                        "task_source_sha256": config.task.task_source_sha256,
+                        "upstream_commit": config.upstream_commit,
+                    },
+                )
+                self.assertEqual(task.take_action_calls[0].action_type, "ee")
+                self.assertIsNotNone(backend.latest_canonical_joint9)
+                self.assertIsNotNone(backend.latest_model_visible_qpos8)
+
+        stalled, stalled_task = self._backend(
+            FakeUpstreamScenario(native_step_increment=0),
+            config=config,
+        )
+        stalled_task._robotactile_n0_fixed_cadence_enabled = False
+        stalled_task._robotactile_n0_action_execution_contract = "univtac_stock_ee_v1"
+        stalled.reset(self._context(action_spec=EE8_ACTION_SPEC))
+        stalled.observe()
+        with self.assertRaisesRegex(UniVTACConversionError, "native step"):
+            stalled.execute(_actions())
+
+    def test_ee8_explicit_training_cadence_enforces_two_native_steps(self) -> None:
+        config = build_univtac_backend_config(
+            "pull_out_key", action_spec=EE8_ACTION_SPEC
+        )
+        backend, task = self._backend(
+            FakeUpstreamScenario(native_step_increment=2),
+            config=config,
+        )
+        task._robotactile_n0_fixed_cadence_enabled = True
+        task._robotactile_n0_action_execution_contract = (
+            "robotactile_n0_training_60hz_ee_v1"
+        )
+
+        receipt = backend.reset(self._context(action_spec=EE8_ACTION_SPEC))
+        backend.observe()
+        transition = backend.execute(_actions()).transitions[0]
+
+        self.assertEqual(receipt.diagnostics["camera_delivery_hz"], 60.0)
+        self.assertEqual(receipt.diagnostics["physics_steps_per_action"], 2)
+        self.assertEqual(
+            receipt.diagnostics["action_execution_contract"],
+            "robotactile_n0_training_60hz_ee_v1",
+        )
+        self.assertEqual(
+            receipt.diagnostics["native_step_contract"],
+            "fixed_physics_steps_per_action_v1",
+        )
+        self.assertEqual(transition.diagnostics["native_step_delta"], 2)
+        self.assertEqual(transition.diagnostics["physics_step_delta"], 2)
+        self.assertEqual(
+            transition.diagnostics["action_execution_source"]["method"],
+            "robotactile_benchmark.backends.univtac_n0_cadence.fixed_take_action",
+        )
+
+        invalid, invalid_task = self._backend(
+            FakeUpstreamScenario(native_step_increment=31),
+            config=config,
+        )
+        invalid_task._robotactile_n0_fixed_cadence_enabled = True
+        invalid_task._robotactile_n0_action_execution_contract = (
+            "robotactile_n0_training_60hz_ee_v1"
+        )
+        invalid.reset(self._context(action_spec=EE8_ACTION_SPEC))
+        invalid.observe()
+        with self.assertRaisesRegex(UniVTACConversionError, "native step"):
+            invalid.execute(_actions())
+
+    def test_ee8_executor_marker_mismatch_fails_closed(self) -> None:
+        config = build_univtac_backend_config(
+            "pull_out_key", action_spec=EE8_ACTION_SPEC
+        )
+        backend, task = self._backend(config=config)
+        task._robotactile_n0_fixed_cadence_enabled = False
+        task._robotactile_n0_action_execution_contract = (
+            "robotactile_n0_training_60hz_ee_v1"
+        )
+
+        with self.assertRaisesRegex(UniVTACContractError, "marker disagrees"):
+            backend.reset(self._context(action_spec=EE8_ACTION_SPEC))
+
+    def test_policy_prompt_is_distinct_from_native_simulator_prompt(self) -> None:
+        backend, task = self._backend()
+        policy_prompt = "Untwist and extract a key from a lock"
+
+        backend.reset(self._context(instruction=policy_prompt))
+
+        self.assertNotEqual(policy_prompt, self.config.task.prompt)
+        self.assertEqual(task.reset_calls, [(11, (self.config.task.prompt,))])
 
     def test_phase_state_is_per_slot_and_fresh_backend_reset_is_reproducible(
         self,

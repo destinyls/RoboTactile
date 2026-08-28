@@ -32,6 +32,7 @@
     "max_observation_steps": {"type": "integer", "minimum": 1},
     "execute_action_steps": {"type": "integer", "minimum": 1},
     "wall_timeout_s": {"type": "number", "exclusiveMinimum": 0},
+    "wall_timeout_role": {"const": "infrastructure_watchdog_v1"},
     "upstream_root": {"$ref": "#/$defs/path"},
     "runtime_dir": {"$ref": "#/$defs/path"},
     "output_dir": {"$ref": "#/$defs/nullable_path"},
@@ -46,7 +47,22 @@
     "matched_no_touch_artifact_path": {"$ref": "#/$defs/nullable_path"},
     "act_device_name": {"type": ["string", "null"], "minLength": 1},
     "simulator_device": {"type": ["string", "null"], "minLength": 1},
-    "launcher_args": {"type": "object", "additionalProperties": true},
+    "launcher_args": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enable_cameras", "headless", "kit_args"],
+      "properties": {
+        "enable_cameras": {"const": true},
+        "headless": {"const": true},
+        "kit_args": {"const": "--/app/hangDetector/enabled=false"}
+      }
+    },
+    "initial_state_policy": {
+      "enum": [
+        "replace_initial_terminal_v1",
+        "diagnostic_allow_invalid_v1"
+      ]
+    },
     "n0_source_commit": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"},
     "n0_normalizer_sha256": {"$ref": "#/$defs/nullable_sha256"},
     "n0_serve_bundle_sha256": {"$ref": "#/$defs/nullable_sha256"},
@@ -66,6 +82,8 @@
         "properties": {
           "execute_action_steps": {"const": 1},
           "act_device_name": {"type": "string", "minLength": 1},
+          "initial_state_policy": false,
+          "wall_timeout_role": false,
           "n0_source_commit": {"const": null},
           "n0_normalizer_sha256": {"const": null},
           "n0_serve_bundle_sha256": {"const": null},
@@ -74,7 +92,7 @@
       },
       "else": {
         "properties": {
-          "execute_action_steps": {"const": 8},
+          "execute_action_steps": {"const": 24},
           "act_device_name": {"const": null},
           "n0_source_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
           "n0_normalizer_sha256": {"$ref": "#/$defs/sha256"},

@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robotactile.invalid/schemas/persistent_worker_session_receipt.schema.json",
+  "title": "RoboTactile Persistent Worker Session Receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "campaign_id", "content_sha256", "episode_dispatches", "evidence_level",
+    "finished_at_utc", "n0_server_attestation_relpath",
+    "n0_server_attestation_sha256", "qualification_relpath",
+    "qualification_sha256", "reset_equivalence_receipt_relpath",
+    "reset_equivalence_receipt_sha256", "restart_generation",
+    "runtime_source_binding", "semantic_version", "shutdown_status",
+    "started_at_utc", "task_id", "worker_pid", "worker_posix_session_id",
+    "worker_process_group_id", "worker_session_id"
+  ],
+  "properties": {
+    "campaign_id": {"$ref": "#/$defs/identifier"},
+    "content_sha256": {"$ref": "#/$defs/sha256"},
+    "episode_dispatches": {
+      "type": "array", "minItems": 1, "items": {"$ref": "#/$defs/dispatch"}
+    },
+    "evidence_level": {"const": "persistent_worker_session_receipt_v1"},
+    "finished_at_utc": {"type": "string", "format": "date-time"},
+    "n0_server_attestation_relpath": {"$ref": "#/$defs/deploymentPath"},
+    "n0_server_attestation_sha256": {"$ref": "#/$defs/sha256"},
+    "qualification_relpath": {"$ref": "#/$defs/deploymentPath"},
+    "qualification_sha256": {"$ref": "#/$defs/sha256"},
+    "reset_equivalence_receipt_relpath": {"$ref": "#/$defs/deploymentPath"},
+    "reset_equivalence_receipt_sha256": {"$ref": "#/$defs/sha256"},
+    "restart_generation": {"type": "integer", "minimum": 0},
+    "runtime_source_binding": {"$ref": "#/$defs/sourceBinding"},
+    "semantic_version": {"const": "1.0"},
+    "shutdown_status": {"enum": ["clean", "forced", "crashed"]},
+    "started_at_utc": {"type": "string", "format": "date-time"},
+    "task_id": {"$ref": "#/$defs/identifier"},
+    "worker_pid": {"type": "integer", "minimum": 1},
+    "worker_posix_session_id": {"type": "integer", "minimum": 1},
+    "worker_process_group_id": {"type": "integer", "minimum": 1},
+    "worker_session_id": {"$ref": "#/$defs/identifier"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "identifier": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+    "deploymentPath": {"type": "string", "pattern": "^(artifacts|outputs|requests|sources)/[A-Za-z0-9._/-]+$"},
+    "dispatch": {
+      "type": "object", "additionalProperties": false,
+      "required": ["attempt_id", "campaign_id", "completed_at_utc", "dispatched_at_utc", "exogenous_seed", "initial_seed", "ordinal", "request_file_sha256", "sequence", "task_id", "trial_manifest_sha256"],
+      "properties": {
+        "attempt_id": {"$ref": "#/$defs/identifier"},
+        "campaign_id": {"$ref": "#/$defs/identifier"},
+        "completed_at_utc": {"type": "string", "format": "date-time"},
+        "dispatched_at_utc": {"type": "string", "format": "date-time"},
+        "exogenous_seed": {"type": "integer", "minimum": 0},
+        "initial_seed": {"type": "integer", "minimum": 0},
+        "ordinal": {"type": "integer", "minimum": 0},
+        "request_file_sha256": {"$ref": "#/$defs/sha256"},
+        "sequence": {"type": "integer", "minimum": 0},
+        "task_id": {"$ref": "#/$defs/identifier"},
+        "trial_manifest_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "sourceBinding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["action_execution_contract", "checkpoint_sha256", "config_sha256", "input_profile_sha256", "integrations_lock_sha256", "n0_source_commit", "native_step_contract", "normalizer_sha256", "prompt_manifest_sha256", "robotactile_source_manifest_sha256", "robotactile_wheel_sha256", "serve_bundle_sha256", "univtac_source_commit"],
+      "properties": {
+        "action_execution_contract": {"type": "string", "minLength": 1},
+        "checkpoint_sha256": {"$ref": "#/$defs/sha256"},
+        "config_sha256": {"$ref": "#/$defs/sha256"},
+        "input_profile_sha256": {"$ref": "#/$defs/sha256"},
+        "integrations_lock_sha256": {"$ref": "#/$defs/sha256"},
+        "n0_source_commit": {"$ref": "#/$defs/commit"},
+        "native_step_contract": {"type": "string", "minLength": 1},
+        "normalizer_sha256": {"$ref": "#/$defs/sha256"},
+        "prompt_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "robotactile_source_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "robotactile_wheel_sha256": {"$ref": "#/$defs/sha256"},
+        "serve_bundle_sha256": {"$ref": "#/$defs/sha256"},
+        "univtac_source_commit": {"$ref": "#/$defs/commit"}
+      }
+    }
+  }
+}

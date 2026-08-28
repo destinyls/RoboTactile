@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robotactile.invalid/schemas/clean_campaign_run.schema.json",
+  "title": "RoboTactile Clean Campaign Run Receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "campaign_id", "campaign_manifest_sha256", "finished_at_utc", "gpus",
+    "paper_result", "paper_return_code", "qualification_relpath",
+    "qualification_sha256", "report_result", "report_return_code", "run_id",
+    "semantic_version", "shards", "started_at_utc", "task_count"
+  ],
+  "properties": {
+    "campaign_id": {"type": "string", "minLength": 1},
+    "campaign_manifest_sha256": {"$ref": "#/$defs/sha256"},
+    "finished_at_utc": {"type": "string", "format": "date-time"},
+    "gpus": {"type": "string", "pattern": "^[0-9]+(,[0-9]+)*$"},
+    "paper_result": {"type": ["object", "null"]},
+    "paper_return_code": {"type": ["integer", "null"]},
+    "qualification_relpath": {"$ref": "#/$defs/path"},
+    "qualification_sha256": {"$ref": "#/$defs/sha256"},
+    "report_result": {"type": ["object", "null"]},
+    "report_return_code": {"type": ["integer", "null"]},
+    "run_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+    "semantic_version": {"const": "1.0"},
+    "shards": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["receipt_relpath", "receipt_sha256", "return_code", "task_id"],
+        "properties": {
+          "receipt_relpath": {"$ref": "#/$defs/path"},
+          "receipt_sha256": {"$ref": "#/$defs/sha256"},
+          "return_code": {"type": "integer"},
+          "task_id": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "started_at_utc": {"type": "string", "format": "date-time"},
+    "task_count": {"type": "integer", "minimum": 1, "maximum": 8}
+  },
+  "$defs": {
+    "path": {"type": "string", "pattern": "^[A-Za-z0-9._/-]+$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

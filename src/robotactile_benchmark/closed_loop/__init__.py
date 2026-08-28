@@ -12,6 +12,7 @@ from robotactile_benchmark.closed_loop.artifacts import (
 from robotactile_benchmark.closed_loop.capture import (
     ActionTraceEntry,
     ClosedLoopExecutionEvidence,
+    TransitionTraceEntry,
 )
 from robotactile_benchmark.closed_loop.contracts import (
     ACTION_SPEC,
@@ -21,10 +22,12 @@ from robotactile_benchmark.closed_loop.contracts import (
     BackendTransition,
     ClosedLoopRunSpec,
     ExecutionBatch,
+    InitialStatePolicy,
     PolicyEpisodeContext,
     PolicyExecution,
     PolicyIdentity,
     ResetReceipt,
+    WallTimeoutRole,
 )
 from robotactile_benchmark.closed_loop.delivery import (
     DeliveryFinalization,
@@ -55,6 +58,7 @@ __all__ = [
     "ClosedLoopRunSpec",
     "DeliveryFinalization",
     "ExecutionBatch",
+    "InitialStatePolicy",
     "IdentityDeliverySession",
     "LoadedClosedLoopBundle",
     "OnlineFaultSession",
@@ -64,6 +68,8 @@ __all__ = [
     "ResetReceipt",
     "RootReceipt",
     "SimulationBackend",
+    "TransitionTraceEntry",
+    "WallTimeoutRole",
     "load_closed_loop_bundle",
     "run_closed_loop_trial",
     "run_closed_loop_trial_with_evidence",

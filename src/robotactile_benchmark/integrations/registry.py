@@ -7,6 +7,7 @@ from importlib import resources
 from pathlib import Path
 from typing import Mapping, Optional, cast
 
+from robotactile_benchmark.action_specs import EE8_ACTION_SPEC
 from robotactile_benchmark.closed_loop.artifact_io import (
     canonical_json_bytes,
     strict_json_bytes,
@@ -48,15 +49,15 @@ _N0_TWAM = ModelIntegrationSpec(
     factory_path=(
         "robotactile_benchmark.integrations.n0_twam.factory:load_n0_twam_adapter"
     ),
-    artifact_schema="robotactile-n0-artifact-v2",
-    qualification_protocol="external-live-gateway-qualification-v1",
+    artifact_schema="robotactile-n0-official-artifact-v3",
+    qualification_protocol="official-websocket-grounding-v1",
     license_spdx="CC-BY-NC-SA-4.0",
     capabilities=ModelIntegrationCapabilities(
         consumes_tactile=True,
         structural_absence=False,
         matched_no_touch=False,
         stateful_commit=True,
-        action_spec=ACTION_SPEC,
+        action_spec=EE8_ACTION_SPEC,
         supported_conditions=("clean", "faulted", "restored"),
     ),
 )
@@ -104,7 +105,7 @@ class ModelIntegrationConfig:
         if not self.device or self.device.strip() != self.device:
             raise ValueError("device must be a non-empty string")
         expected_transport = (
-            "in_process" if spec.integration_id == "act" else "typed_gateway"
+            "in_process" if spec.integration_id == "act" else "official_websocket"
         )
         if self.transport != expected_transport:
             raise ValueError("transport does not match the registered integration")

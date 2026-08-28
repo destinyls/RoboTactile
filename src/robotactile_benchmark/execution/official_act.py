@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Protocol
+from typing import Optional, Protocol, Sequence, Tuple
 
 from robotactile_benchmark.closed_loop.contracts import PolicyIdentity
 from robotactile_benchmark.closed_loop.interfaces import ClosedLoopPolicy
@@ -27,6 +27,12 @@ from robotactile_benchmark.execution.live_univtac import (
     execute_live_univtac_run,
 )
 from robotactile_benchmark.execution.loading import LoadedLiveUniVTACRun
+from robotactile_benchmark.execution.paired_live_univtac import (
+    PairedBackendSessionFactory,
+    PairedLiveUniVTACExecutionResult,
+    default_paired_backend_session_factory,
+    execute_paired_live_univtac_runs,
+)
 from robotactile_benchmark.policies.univtac_official_act import OfficialACTProfile
 from robotactile_benchmark.policies.univtac_official_act_loading import (
     OfficialUniVTACACTArtifactManifest,
@@ -52,6 +58,25 @@ class OfficialACTLiveBinding:
 
     manifest: OfficialUniVTACACTArtifactManifest
     load_request: OfficialUniVTACACTLoadRequest
+
+
+@dataclass(frozen=True)
+class OfficialACTPairedLiveResult:
+    """Reloaded per-condition artifacts plus their exact pairing evidence."""
+
+    paired: PairedLiveUniVTACExecutionResult
+    artifacts: Tuple[LoadedLiveUniVTACArtifact, ...]
+
+    def __post_init__(self) -> None:
+        if len(self.paired.executions) != len(self.artifacts):
+            raise ValueError("paired ACT artifacts do not cover every execution")
+        for execution, artifact in zip(self.paired.executions, self.artifacts):
+            if (
+                artifact.trial != execution.loaded.trial
+                or artifact.root_receipt.result_sha256
+                != execution.evidence.result.sha256
+            ):
+                raise ValueError("paired ACT artifact cross-link mismatch")
 
 
 def official_act_profile(condition: Condition) -> OfficialACTProfile:
@@ -174,6 +199,47 @@ def execute_official_act_live_run(
     return artifact
 
 
+def execute_official_act_paired_live_runs(
+    requests: Sequence[LiveUniVTACRunRequest],
+    *,
+    artifact_root: Path,
+    stats_sha256: str,
+    encoder_sha256: str,
+    session_factory: PairedBackendSessionFactory = (
+        default_paired_backend_session_factory
+    ),
+    policy_loader: Optional[OfficialACTPolicyLoader] = None,
+) -> OfficialACTPairedLiveResult:
+    """Execute matched ACT conditions through one snapshot/replay session."""
+
+    request_tuple = tuple(requests)
+    selected_loader = (
+        load_official_univtac_act_policy if policy_loader is None else policy_loader
+    )
+
+    def policy_factory(loaded: LoadedLiveUniVTACRun) -> ClosedLoopPolicy:
+        binding = build_official_act_live_binding(
+            loaded.request,
+            artifact_root=artifact_root,
+            stats_sha256=stats_sha256,
+            encoder_sha256=encoder_sha256,
+        )
+        return selected_loader(loaded.policy_identity, binding.load_request)
+
+    paired = execute_paired_live_univtac_runs(
+        request_tuple,
+        session_factory=session_factory,
+        policy_factory=policy_factory,
+        artifact_exporter=write_live_univtac_artifact,
+    )
+    artifacts = []
+    for request in request_tuple:
+        if request.output_dir is None:
+            raise ValueError("paired official ACT request requires output_dir")
+        artifacts.append(load_live_univtac_artifact(request.output_dir))
+    return OfficialACTPairedLiveResult(paired=paired, artifacts=tuple(artifacts))
+
+
 def official_act_live_summary(
     artifact: LoadedLiveUniVTACArtifact,
 ) -> dict[str, object]:
@@ -185,6 +251,7 @@ def official_act_live_summary(
     result = artifact.evidence.result
     return {
         "artifact_root_sha256": artifact.external_root_sha256,
+        "capture_profile": artifact.capture_profile.value,
         "condition": artifact.trial.condition.value,
         "evidence_level": receipt.evidence_level,
         "simulator_qualification_claimed": receipt.simulator_qualification_claimed,
@@ -196,8 +263,10 @@ def official_act_live_summary(
 
 __all__ = [
     "OfficialACTLiveBinding",
+    "OfficialACTPairedLiveResult",
     "build_official_act_live_binding",
     "execute_official_act_live_run",
+    "execute_official_act_paired_live_runs",
     "make_official_act_policy_factory",
     "official_act_live_summary",
     "official_act_profile",

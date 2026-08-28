@@ -39,6 +39,8 @@ def _source_files() -> dict[str, str]:
         "examples/act/request.json": "{}\n",
         "integrations/integrations.lock.json": "{}\n",
         "integrations/install.sh": "#!/bin/sh\nexit 0\n",
+        "integrations/overlay/portfile.cmake": "message(STATUS overlay)\n",
+        "integrations/overlay/usage": "find_package(example)\n",
         "scripts/check.py": "raise SystemExit(0)\n",
         "scripts/deploy.sh": "#!/bin/sh\nexit 0\n",
         "scripts/README.md": "# Scripts\n",
@@ -99,8 +101,9 @@ def _expected_manifest(files: dict[str, str]) -> bytes:
             and relative_path.endswith(".py")
         )
         or (relative_path.startswith("docs/") and relative_path.endswith(".md"))
+        or relative_path.startswith("integrations/")
         or (
-            relative_path.startswith(("examples/", "integrations/", ".github/"))
+            relative_path.startswith(("examples/", ".github/"))
             and Path(relative_path).suffix in {".json", ".md", ".sh", ".yaml", ".yml"}
         )
         or (

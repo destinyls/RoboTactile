@@ -83,12 +83,18 @@ def diagnose_model_integration(
     integration_id: str,
     layout: DeploymentLayout,
     config_path: Optional[Path] = None,
+    task_id: str = "pull_out_key",
 ) -> IntegrationDoctorResult:
     """Verify source pins and artifacts without starting either model."""
 
     model_dir = "act" if integration_id == "act" else "n0_twam"
     selected_config = (
-        layout.root / f"artifacts/models/{model_dir}/integration_config.json"
+        layout.root
+        / (
+            f"artifacts/models/{model_dir}/integration_config.json"
+            if integration_id == "act"
+            else f"artifacts/models/{model_dir}/configs/{task_id}/integration_config.json"
+        )
         if config_path is None
         else Path(config_path)
     )
@@ -152,11 +158,11 @@ def diagnose_model_integration(
     checks.append(
         IntegrationDoctorCheck(
             "transport",
-            integration_id == "act",
+            True,
             (
                 "in_process"
                 if integration_id == "act"
-                else "production typed gateway is not registered"
+                else "official_websocket_contract_registered_endpoint_not_probed"
             ),
         )
     )

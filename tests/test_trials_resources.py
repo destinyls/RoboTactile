@@ -115,8 +115,9 @@ def _expected_release_paths(root: Path) -> set[str]:
                     and path.suffix == ".py"
                 )
                 or (top_level == "docs" and path.suffix == ".md")
+                or top_level == "integrations"
                 or (
-                    top_level in {".github", "examples", "integrations"}
+                    top_level in {".github", "examples"}
                     and path.suffix in {".json", ".md", ".sh", ".yaml", ".yml"}
                 )
                 or (

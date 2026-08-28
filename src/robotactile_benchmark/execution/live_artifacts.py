@@ -16,9 +16,21 @@ from robotactile_benchmark.closed_loop.artifact_values import (
 )
 from robotactile_benchmark.closed_loop.capture import (
     ClosedLoopExecutionEvidence,
+    TransitionTraceEntry,
 )
 from robotactile_benchmark.contracts import Array, canonical_hash
+from robotactile_benchmark.execution.capture_profiles import (
+    LiveCaptureProfile,
+    project_evidence_for_capture,
+)
+from robotactile_benchmark.execution.live_artifacts_capture import (
+    build_live_capture_root_receipt,
+    iter_capture_arrays,
+    live_capture_summary,
+    load_live_capture_members,
+)
 from robotactile_benchmark.execution.live_artifacts_contracts import (
+    LIVE_CAPTURE_ROOT_RECEIPT_SEMANTIC_VERSION,
     LIVE_JSON_RESERVE_BYTES,
     LIVE_MAX_BUNDLE_BYTES,
     LIVE_MAX_JSON_BYTES,
@@ -27,6 +39,10 @@ from robotactile_benchmark.execution.live_artifacts_contracts import (
     LiveArtifactRootReceipt,
     LiveArtifactValidationError,
     LoadedLiveUniVTACArtifact,
+)
+from robotactile_benchmark.execution.live_artifacts_diagnostics import (
+    transition_trace_from_live_dict,
+    transition_trace_to_live_dict,
 )
 from robotactile_benchmark.execution.live_artifacts_fs import (
     hash_live_member,
@@ -39,6 +55,11 @@ from robotactile_benchmark.execution.live_artifacts_io import (
     estimate_unique_live_array_bytes,
     live_sha256_bytes,
     strict_live_json_bytes,
+)
+from robotactile_benchmark.execution.live_artifacts_preview import (
+    LivePreviewTrace,
+    build_live_preview_trace,
+    preview_trace_to_live_dict,
 )
 from robotactile_benchmark.execution.live_artifacts_records import (
     action_trace_from_live_dict,
@@ -71,16 +92,25 @@ def write_live_univtac_artifact(
     output: Path,
     loaded: LoadedLiveUniVTACRun,
     evidence: ClosedLoopExecutionEvidence,
+    *,
+    capture_profile: LiveCaptureProfile = LiveCaptureProfile.PAPER_FULL,
 ) -> LiveArtifactExportReceipt:
-    """Stage, revalidate, and atomically publish one path-free live trace."""
+    """Stage, revalidate, and atomically publish one live capture."""
 
     output = Path(output)
+    profile = LiveCaptureProfile(capture_profile)
     validate_live_write_inputs(loaded, evidence)
+    stored_evidence = project_evidence_for_capture(evidence, profile)
+    preview = (
+        build_live_preview_trace(evidence.finalization)
+        if profile is LiveCaptureProfile.PREVIEW
+        else None
+    )
     if output.is_symlink() or (output.exists() and not output.is_dir()):
         raise FileExistsError("live artifact target is not a real directory")
     output.parent.mkdir(parents=True, exist_ok=True)
     _, estimated_arrays = estimate_unique_live_array_bytes(
-        _iter_live_arrays(loaded, evidence)
+        iter_capture_arrays(_iter_live_arrays(loaded, stored_evidence), preview)
     )
     required_free = estimated_arrays + LIVE_JSON_RESERVE_BYTES
     if required_free > LIVE_MAX_BUNDLE_BYTES:
@@ -91,7 +121,14 @@ def write_live_univtac_artifact(
         tempfile.mkdtemp(prefix=".robotactile-live-staging-", dir=output.parent)
     )
     try:
-        _write_staged_bundle(staging, loaded, evidence)
+        _write_staged_bundle(
+            staging,
+            loaded,
+            stored_evidence,
+            capture_profile=profile,
+            preview=preview,
+            source_evidence=evidence,
+        )
         staged = load_live_univtac_artifact(staging)
         if output.exists() and any(output.iterdir()):
             existing = load_live_univtac_artifact(output)
@@ -127,6 +164,10 @@ def _write_staged_bundle(
     staging: Path,
     loaded: LoadedLiveUniVTACRun,
     evidence: ClosedLoopExecutionEvidence,
+    *,
+    capture_profile: LiveCaptureProfile,
+    preview: LivePreviewTrace | None,
+    source_evidence: ClosedLoopExecutionEvidence,
 ) -> None:
     identity = live_request_identity(loaded)
     arrays = LiveArrayWriter(staging)
@@ -142,11 +183,31 @@ def _write_staged_bundle(
         ),
         "terminal_result.json": result_to_dict(evidence.result),
         "action_trace.json": action_trace_to_live_dict(evidence.action_entries, arrays),
+        "transition_trace.json": transition_trace_to_live_dict(
+            evidence.transition_entries,
+            evidence.initial_diagnostics,
+        ),
         "delivery_trace.json": delivery_trace_to_live_dict(
             evidence.finalization, arrays
         ),
         "validation_report.json": validation_to_live_dict(evidence.finalization),
     }
+    if not capture_profile.is_full_trace:
+        finalization = source_evidence.finalization
+        documents["capture_summary.json"] = live_capture_summary(
+            capture_profile,
+            preview,
+            clean_record_count=(
+                0 if finalization is None else len(finalization.clean_records)
+            ),
+            delivered_record_count=(
+                0 if finalization is None else len(finalization.delivered_records)
+            ),
+        )
+    if capture_profile is LiveCaptureProfile.PREVIEW:
+        if preview is None:
+            raise LiveArtifactValidationError("preview capture lacks preview trace")
+        documents["preview_trace.json"] = preview_trace_to_live_dict(preview, arrays)
     for name, value in documents.items():
         raw = canonical_live_json_bytes(value)
         if len(raw) > LIVE_MAX_JSON_BYTES:
@@ -159,7 +220,7 @@ def _write_staged_bundle(
         for path, metadata in sorted(snapshot.files.items())
     )
     result = evidence.result
-    receipt = LiveArtifactRootReceipt(
+    receipt = build_live_capture_root_receipt(
         request_sha256=canonical_hash(identity),
         run_content_sha256=loaded.content_sha256,
         source_binding_sha256=source_binding_sha256(identity),
@@ -178,6 +239,7 @@ def _write_staged_bundle(
         clean_trace_sha256=result.clean_trace_sha256,
         delivered_trace_sha256=result.delivered_trace_sha256,
         members=members,
+        profile=capture_profile,
     )
     root_raw = canonical_live_json_bytes(receipt.to_dict())
     if sum(item.size_bytes for item in members) + len(root_raw) > LIVE_MAX_BUNDLE_BYTES:
@@ -233,11 +295,33 @@ def _load_live_univtac_artifact(output: Path) -> LoadedLiveUniVTACArtifact:
     action_entries = action_trace_from_live_dict(
         documents["action_trace.json"], snapshot, referenced_arrays
     )
+    transition_entries: tuple[TransitionTraceEntry, ...]
+    initial_diagnostics: Mapping[str, object]
+    if receipt.semantic_version == "1.0":
+        transition_entries, initial_diagnostics = (), {}
+    else:
+        transition_entries, initial_diagnostics = transition_trace_from_live_dict(
+            documents["transition_trace.json"]
+        )
     finalization = delivery_trace_from_live_dict(
         documents["delivery_trace.json"], report, snapshot, referenced_arrays
     )
     result = result_from_dict(documents["terminal_result.json"])
-    evidence = ClosedLoopExecutionEvidence(result, finalization, action_entries)
+    preview: LivePreviewTrace | None = None
+    if receipt.semantic_version == LIVE_CAPTURE_ROOT_RECEIPT_SEMANTIC_VERSION:
+        preview = load_live_capture_members(
+            receipt,
+            documents,
+            snapshot,
+            referenced_arrays,
+        )
+    evidence = ClosedLoopExecutionEvidence(
+        result=result,
+        finalization=finalization,
+        action_entries=action_entries,
+        transition_entries=transition_entries,
+        initial_diagnostics=initial_diagnostics,
+    )
     identity = validate_live_request_identity(
         documents["request_identity.json"],
         trial,
@@ -272,6 +356,7 @@ def _load_live_univtac_artifact(output: Path) -> LoadedLiveUniVTACArtifact:
         evidence=evidence,
         root_receipt=receipt,
         root_receipt_sha256=live_sha256_bytes(root_raw),
+        preview_trace=preview,
     )
 
 

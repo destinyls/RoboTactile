@@ -8,14 +8,22 @@ from robotactile_benchmark.closed_loop.contracts import PolicyIdentity
 from robotactile_benchmark.integrations.n0_twam.artifacts import (
     N0TWAMArtifactManifest,
 )
-from robotactile_benchmark.policies.n0 import N0Policy, N0PolicyClient
+from robotactile_benchmark.policies.n0_input_profile import (
+    N0InputProfile,
+)
+from robotactile_benchmark.policies.n0_official import (
+    OfficialN0Policy,
+    OfficialN0PolicyClient,
+)
 
 
 def load_n0_twam_adapter(
     identity: PolicyIdentity,
     manifest: N0TWAMArtifactManifest,
-    client_factory: Callable[[], N0PolicyClient],
-) -> N0Policy:
+    client_factory: Callable[[], OfficialN0PolicyClient],
+    *,
+    input_profile: N0InputProfile,
+) -> OfficialN0Policy:
     """Bind model identity before constructing the lazy typed client adapter."""
 
     if type(identity) is not PolicyIdentity:
@@ -28,7 +36,11 @@ def load_n0_twam_adapter(
         raise ValueError("N0-TWAM config identity mismatch")
     if not callable(client_factory):
         raise TypeError("client_factory must be callable")
-    return N0Policy(identity, client_factory)
+    return OfficialN0Policy(
+        identity,
+        client_factory,
+        input_profile=input_profile,
+    )
 
 
 __all__ = ["load_n0_twam_adapter"]

@@ -16,11 +16,11 @@ the activated, hash-locked `.venv` environment from the package root.
 | C1/C2 binding failures | `operators/context.py` | `pytest -q tests/test_operators.py tests/test_validators.py` | synthetic intervention |
 | delivery hard gate | `validators.py`, `operator_validators.py`, `signature_validators.py`, `reference_signatures.py` | `pytest -q tests/test_validators.py` | independent software validation of the registered intervention |
 | closed-loop runner and content-addressed artifacts | `closed_loop/runner.py`, `closed_loop/artifacts.py`, `closed_loop/artifact_validation.py` | `pytest -q tests/test_closed_loop_runner.py tests/test_closed_loop_artifacts.py` | deterministic software contracts only |
-| UniVTAC observation/backend boundary | `adapters/univtac.py`, `backends/univtac_factory.py`, `backends/univtac_isaac.py` | `pytest -q tests/test_univtac_backend.py tests/test_univtac_factory.py` | dependency-injected contract tests; not an Isaac run |
+| UniVTAC observation/backend boundary and exact reset pairing | `adapters/univtac.py`, `backends/univtac_factory.py`, `backends/univtac_isaac.py`, `backends/univtac_snapshot.py`, `backends/univtac_pairing.py` | `pytest -q tests/test_univtac_backend.py tests/test_univtac_factory.py tests/test_univtac_pairing.py` | dependency-injected snapshot/replay and exact equivalence tests; not an Isaac run |
 | official UniVTAC ACT policy loading and live CLI | `policies/univtac_official_act.py`, `execution/official_act.py`, `execution/live_univtac.py`, `cli.py` | `pytest -q tests/test_univtac_official_act_policy.py tests/test_official_act_live_cli.py` | code and injected live-path tests; emitted live artifacts remain unqualified |
-| typed N0 gateway and qpos8/cache transaction | `transport/n0_client.py`, `transport/n0_codec.py`, `transport/n0_commit.py` | `pytest -q tests/test_n0_codec.py tests/test_n0_transport_contracts.py tests/test_n0_transport_lifecycle.py tests/test_n0_transport_integrity.py tests/test_n0_transport_authority.py tests/test_n0_policy.py` | typed software contract tests; no deployed N0 service result |
+| official N0 websocket, rot6d-to-EE8 action bridge, and KV re-grounding | `transport/n0_official.py`, `policies/n0_official.py`, `execution/official_n0.py` | `pytest -q tests/test_n0_official_transport.py tests/test_n0_official_policy.py tests/test_official_n0_live.py` | official protocol and injected runtime-path tests; no deployed N0 service result by themselves |
 | clean/faulted/no-touch/restored pairing | `trials.py`, `schemas/trial_manifest.schema.json`, `scripts/live_univtac/generate_pull_out_key_matrix.py` | `pytest -q tests/test_trials_resources.py tests/test_pull_out_key_matrix_generator.py` | hash-bound request generation; not task execution |
-| primary 14 x 5 matrix | `matrix/primary_generation.py`, `matrix/builders.py`, `matrix/runner.py`, `matrix/io.py` | `pytest -q tests/test_primary_matrix_generation.py tests/test_matrix_contracts.py tests/test_matrix_runner.py` | 70 comparisons, 142 unique executions with shared clean/no-touch controls, exact resources, and strict resume; request generation is not execution |
+| primary 14 x 5 matrix | `matrix/primary_generation.py`, `matrix/builders.py`, `matrix/runner.py`, `matrix/live_executor.py` | `pytest -q tests/test_primary_matrix_generation.py tests/test_matrix_contracts.py tests/test_matrix_runner.py tests/test_live_matrix_executor.py` | 70 comparisons, 142 unique executions, one production paired batch, and full-result reuse; request generation is not execution |
 | no-allocation live deployment gate | `execution/preflight.py`, `execution/preflight_contracts.py` | `robotactile preflight-live --help` and `pytest -q tests/test_live_preflight.py` | source/artifact/host readiness only; no model or simulator allocation |
 | matrix-to-report derivation | `reporting/matrix_adapter.py`, `reporting/aggregation.py`, `reporting/bundle.py` | `pytest -q tests/test_reporting_matrix_adapter.py tests/test_reporting_aggregation.py tests/test_reporting_export.py` | strict-loads source artifacts and writes deterministic JSON/CSV/LaTeX/SVG; does not add an evidence tier |
 | restored-condition recovery evidence | `reporting/recovery_evidence.py`, `reporting/recovery_evidence_matrix.py` | `pytest -q tests/test_reporting_recovery_evidence.py` | registered behavioral sidecar API is implemented; lag stays ineligible when aligned clean/restored evidence is absent |
@@ -38,10 +38,11 @@ under test. It does not establish correspondence to damaged hardware.
 
 | Tier | Established by this repository | Explicit limit |
 |---|---|---|
-| software contracts | deterministic delivery, backend/policy protocols, resume, artifact integrity, and report plumbing | no learned-policy task result, Isaac Sim, or hardware claim |
+| software contracts | deterministic delivery, backend/policy protocols, reset-equivalence gates, completed-run reuse, artifact integrity, and report plumbing | no learned-policy task result, Isaac Sim, or hardware claim |
 | live preflight | source, artifacts, GPU visibility, and Isaac Python are ready | no simulator allocation or task result |
 | unqualified live | a requested official runtime path executed and produced a strict-loadable trace | not Isaac qualification and not a publishable task-result matrix |
-| Isaac-qualified | reserved for a separate qualification receipt and acceptance protocol | no such result is currently bundled |
+| all-task qualification | every frozen task passed bound import/reset/action checks | no policy or success-rate claim |
+| legacy qualification bundle | complete result plus hash-bound v1 task/action qualification | not source/wheel bound and not paper-claim eligible |
 | real robot | reserved for hardware-calibrated execution evidence | no such result is currently bundled |
 
 Reporting preserves the input evidence boundary; deterministic aggregation
@@ -72,8 +73,14 @@ For a materialized primary matrix, regenerate the paper report with:
 ```bash
 python -m robotactile_benchmark.cli report-matrix \
   --matrix-manifest deployment/requests/primary-matrix/<run>/matrix_manifest.json \
-  --reporting-spec configs/reporting_spec.json
+  --matrix-output deployment/outputs/matrices/<run> \
+  --reporting-spec configs/reporting_spec.example.json \
+  --output deployment/outputs/reports/<run>
 ```
+
+The tracked reporting specification is the canonical example for the default
+ACT `pull_out_key` system. Copy it into the ignored deployment tree and change
+the frozen `system_id` only when reproducing a different registered system.
 
 The report bridge strict-loads every matrix receipt and referenced artifact.
 Focused or incomplete primary grids, unknown evidence types, altered hashes,

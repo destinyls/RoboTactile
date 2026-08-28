@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Tuple
 
-from robotactile_benchmark.closed_loop.contracts import ACTION_SPEC
+from robotactile_benchmark.action_specs import validate_action_spec
 from robotactile_benchmark.closed_loop.interfaces import ClosedLoopPolicy
 
 PolicyAdapter = ClosedLoopPolicy
@@ -39,8 +39,7 @@ class ModelIntegrationCapabilities:
         ):
             if type(getattr(self, name)) is not bool:
                 raise TypeError(f"{name} must be a boolean")
-        if self.action_spec != ACTION_SPEC:
-            raise ValueError(f"action_spec must be {ACTION_SPEC}")
+        validate_action_spec(self.action_spec)
         if (
             not self.supported_conditions
             or len(set(self.supported_conditions)) != len(self.supported_conditions)

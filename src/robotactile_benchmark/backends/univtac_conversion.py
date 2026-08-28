@@ -5,10 +5,11 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from numbers import Integral
-from typing import Any, Dict, Tuple, cast
+from typing import Any, Dict, Optional, Tuple, cast
 
 import numpy as np
 
+from robotactile_benchmark.action_specs import EE8_ACTION_SPEC
 from robotactile_benchmark.adapters.univtac import (
     ContactPhaseState,
     UniVTACRecordBuilder,
@@ -109,7 +110,7 @@ def reorder_joint9(
     live_joint_names: Sequence[str],
     canonical_joint_names: Sequence[str],
 ) -> Array:
-    """Reorder joint9 by names and verify the two-finger shared-qpos contract."""
+    """Reorder the complete measured joint9 state by canonical joint names."""
 
     live, canonical = _joint_names(live_joint_names, canonical_joint_names)
     if not isinstance(raw_joint, np.ndarray):
@@ -122,13 +123,17 @@ def reorder_joint9(
     reordered = np.asarray(
         [raw_joint[indices[name]] for name in canonical], dtype=np.float32
     )
-    if not np.isclose(reordered[-2], reordered[-1], rtol=0.0, atol=1e-6):
-        raise UniVTACConversionError("joint9 violates the shared gripper qpos contract")
     return freeze_array(reordered, dtype=np.float32)
 
 
 def joint9_to_qpos8(canonical_joint9: Array) -> Array:
-    """Fold verified two-finger joint9 into 7-arm plus shared-gripper qpos8."""
+    """Project measured joint9 to the upstream model-visible qpos8 state.
+
+    UniVTAC commands both Franka finger joints through one shared scalar, while
+    its ``get_gripper_qpos`` observation reads ``panda_finger_joint1``.  The two
+    measured finger joints remain distinct physics evidence and may differ
+    under contact, so qpos8 follows that pinned upstream observation rule.
+    """
 
     if (
         not isinstance(canonical_joint9, np.ndarray)
@@ -139,8 +144,6 @@ def joint9_to_qpos8(canonical_joint9: Array) -> Array:
         raise UniVTACConversionError(
             "canonical joint9 must be finite float32 with shape [9]"
         )
-    if not np.isclose(canonical_joint9[-2], canonical_joint9[-1], rtol=0.0, atol=1e-6):
-        raise UniVTACConversionError("joint9 violates the shared gripper qpos contract")
     return freeze_array(
         np.concatenate((canonical_joint9[:7], canonical_joint9[-2:-1])),
         dtype=np.float32,
@@ -148,7 +151,7 @@ def joint9_to_qpos8(canonical_joint9: Array) -> Array:
 
 
 def validate_action_batch(actions: Array, config: UniVTACBackendConfig) -> Array:
-    """Validate the complete qpos8 batch before any simulator side effect."""
+    """Validate a complete registered 8D batch before simulator side effects."""
 
     if not isinstance(actions, np.ndarray):
         raise UniVTACConversionError(
@@ -168,8 +171,14 @@ def validate_action_batch(actions: Array, config: UniVTACBackendConfig) -> Array
     upper = np.asarray(config.action_upper_bounds, dtype=np.float32)
     if np.any(actions < lower) or np.any(actions > upper):
         raise UniVTACConversionError(
-            "actions violate frozen qpos8 bounds", code="action_bounds"
+            "actions violate frozen action bounds", code="action_bounds"
         )
+    if config.action_spec == EE8_ACTION_SPEC:
+        quaternion_norm = np.linalg.norm(actions[:, 3:7], axis=1)
+        if not np.allclose(quaternion_norm, 1.0, atol=1e-4, rtol=0.0):
+            raise UniVTACConversionError(
+                "ee8 quaternion must be unit length", code="action_quaternion"
+            )
     return freeze_array(actions, dtype=np.float32)
 
 
@@ -211,9 +220,43 @@ def _typed_array(
     return cast(Array, np.ascontiguousarray(array))
 
 
+def _tactile_rgb_array(
+    value: Any,
+    name: str,
+    expected_shape: Tuple[int, ...],
+) -> Array:
+    """Bridge pinned TacEx RGB buffers to an owned canonical uint8 copy."""
+
+    array = cuda_like_to_numpy(value, name)
+    if array.shape != expected_shape:
+        raise UniVTACConversionError(
+            f"{name} shape mismatch: expected {expected_shape}, got {array.shape}",
+            code="field_shape",
+        )
+    if array.dtype not in (np.dtype(np.uint8), np.dtype(np.float32)):
+        raise UniVTACConversionError(
+            f"{name} dtype mismatch: expected uint8 or float32, got {array.dtype}",
+            code="field_dtype",
+        )
+    if not np.isfinite(array).all():
+        raise UniVTACConversionError(f"{name} must be finite", code="field_nonfinite")
+    if array.dtype == np.dtype(np.float32):
+        if np.any(array < 0.0) or np.any(array > 255.0):
+            raise UniVTACConversionError(
+                f"{name} float32 values must be in [0,255]",
+                code="field_range",
+            )
+        if not np.equal(array, np.trunc(array)).all():
+            raise UniVTACConversionError(
+                f"{name} float32 values must be exact integers",
+                code="field_fractional",
+            )
+    return cast(Array, np.array(array, dtype=np.uint8, order="C", copy=True))
+
+
 def _raw_leaves(
     raw: Mapping[str, Any], config: UniVTACBackendConfig
-) -> Tuple[Array, Array, Array, Array, Array, Array, Array]:
+) -> Tuple[Array, Array, Array, Array, Array, Array, Array, Optional[Array]]:
     observation = _mapping(_field(raw, "observation", "root"), "observation")
     tactile = _mapping(_field(raw, "tactile", "root"), "tactile")
     embodiment = _mapping(_field(raw, "embodiment", "root"), "embodiment")
@@ -235,16 +278,23 @@ def _raw_leaves(
     )
     uint8 = np.dtype(np.uint8)
     float32 = np.dtype(np.float32)
+    raw_ee = None
+    if config.action_spec == EE8_ACTION_SPEC:
+        raw_ee = _typed_array(
+            _field(embodiment, "ee", "embodiment"),
+            "ee7",
+            (7,),
+            float32,
+        )
     return (
         _typed_array(_field(head, "rgb", "head"), "head RGB", config.head_shape, uint8),
         _typed_array(
             _field(wrist, "rgb", "wrist"), "wrist RGB", config.wrist_shape, uint8
         ),
-        _typed_array(
+        _tactile_rgb_array(
             _field(left, config.aliases.tactile_payload, config.aliases.left_tactile),
             "left tactile RGB",
             config.tactile_rgb_shape,
-            uint8,
         ),
         _typed_array(
             _field(left, "depth", config.aliases.left_tactile),
@@ -252,11 +302,10 @@ def _raw_leaves(
             config.tactile_depth_shape,
             float32,
         ),
-        _typed_array(
+        _tactile_rgb_array(
             _field(right, config.aliases.tactile_payload, config.aliases.right_tactile),
             "right tactile RGB",
             config.tactile_rgb_shape,
-            uint8,
         ),
         _typed_array(
             _field(right, "depth", config.aliases.right_tactile),
@@ -270,6 +319,7 @@ def _raw_leaves(
             (9,),
             float32,
         ),
+        raw_ee,
     )
 
 
@@ -298,15 +348,27 @@ def convert_raw_observation(
         raise UniVTACConversionError("native step must be a non-negative integer")
     if isinstance(benchmark_step, bool) or benchmark_step < 0:
         raise UniVTACConversionError("benchmark step must be a non-negative integer")
-    head, wrist, left_rgb, left_depth, right_rgb, right_depth, raw_joint = _raw_leaves(
-        raw, config
-    )
+    (
+        head,
+        wrist,
+        left_rgb,
+        left_depth,
+        right_rgb,
+        right_depth,
+        raw_joint,
+        raw_ee,
+    ) = _raw_leaves(raw, config)
     joint = reorder_joint9(
         raw_joint,
         handshake.live_joint_names,
         config.canonical_joint_names,
     )
     qpos8 = joint9_to_qpos8(joint)
+    proprio8 = qpos8
+    if raw_ee is not None:
+        proprio8 = freeze_array(
+            np.concatenate((raw_ee, joint[-2:-1])), dtype=np.float32
+        )
     builder_raw = {
         "step": benchmark_step,
         "observation": {
@@ -336,7 +398,7 @@ def convert_raw_observation(
         step_index=benchmark_step,
     )
     record = build_evaluation_record(
-        replace(record.observation, proprio=qpos8),
+        replace(record.observation, proprio=proprio8),
         record.provenance,
     )
     joint_witness = canonical_hash(
@@ -345,7 +407,7 @@ def convert_raw_observation(
             "canonical_joint_names": config.canonical_joint_names,
             "canonical_joint9": joint,
             "model_visible_qpos8": qpos8,
-            "shared_gripper_qpos": float(joint[-1]),
+            "shared_gripper_qpos": float(joint[-2]),
         }
     )
     state_hash = canonical_hash(
@@ -358,6 +420,7 @@ def convert_raw_observation(
             "right_rgb_marker": right_rgb,
             "right_depth": right_depth,
             "canonical_joint9": joint,
+            "model_visible_proprio8": proprio8,
         }
     )
     return ConvertedUniVTACObservation(

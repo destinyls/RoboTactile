@@ -46,20 +46,26 @@ directories:
 robotactile deployment init
 bash integrations/install_univtac.sh
 bash integrations/install_act_runtime.sh
-bash integrations/install_n0_twam.sh
+bash scripts/n0_twam/install_official_runtime.sh --root "$PWD/deployment"
 ```
 
-Each script verifies the exact origin and commit and writes a sibling canonical
-install receipt. Existing mismatched or dirty checkouts are never overwritten.
-The scripts do not install weights, datasets, Isaac Sim, or GPU dependencies.
-An explicit absolute destination remains available as the final script
-argument. See [Deployment layout](deployment_layout.md) and
+When the installer must create its deployment-local Python 3.11 fallback with
+micromamba, it uses four extraction/bytecode-compilation workers by default.
+This avoids spawning one worker per host CPU on shared filesystems. Override
+the bounded value only when appropriate with `--mamba-extract-threads N`
+(`1 <= N <= 32`).
+
+Each script verifies the exact origin and commit and writes a canonical install
+receipt. Existing mismatched or dirty checkouts are never overwritten. The N0
+installer also creates a deployment-local virtual environment; it does not
+modify system Python/CUDA or download model weights. See
+[Deployment layout](deployment_layout.md) and
 [External dependencies](external_dependencies.md) for the complete tree,
 immutable commit links, licenses, and HPC override.
 
-ACT and N0-TWAM currently remain release-blocked until reviewed local runtime
-changes are published in externally accessible commits. Their base commits are
-available for development but do not satisfy that final source gate.
+ACT runtime release readiness remains a separate gate. Official N0 source and
+weights are pinned, but live readiness still requires downloading and hashing
+the task-specific serving artifacts.
 
 ## Isaac Sim deployment
 

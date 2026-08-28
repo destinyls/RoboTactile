@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
@@ -20,6 +21,7 @@ from robotactile_benchmark.matrix import (
     build_primary_matrix_manifest,
     load_matrix_summary,
     run_matrix,
+    run_matrix_batch,
 )
 from robotactile_benchmark.trials import (
     Condition,
@@ -132,6 +134,26 @@ class FakeExecutor:
         )
 
 
+class FakeBatchExecutor:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def execute_batch(
+        self, cells: Sequence[MatrixCellSpec]
+    ) -> tuple[MatrixCellExecution, ...]:
+        self.calls += 1
+        return tuple(
+            MatrixCellExecution.completed(
+                CellArtifactReference(
+                    result_sha256="3" * 64,
+                    root_receipt_sha256="4" * 64,
+                    evidence_level="paired_cpu_fake_matrix_test",
+                )
+            )
+            for _ in cells
+        )
+
+
 def test_cpu_fake_primary_e2e_preserves_all_cells_and_executes_baselines_once(
     tmp_path: Path,
 ) -> None:
@@ -173,6 +195,31 @@ def test_resume_strictly_reuses_every_verified_cell_without_executor_calls(
     assert result.reused_cell_count == 142
     assert result.pending_cell_count == 0
     assert resumed.calls == []
+
+
+def test_batch_runner_executes_all_cells_once_and_reuses_only_final_summary(
+    tmp_path: Path,
+) -> None:
+    manifest = _manifest()
+    first = FakeBatchExecutor()
+    result = run_matrix_batch(tmp_path / "paired", manifest, first)
+    resumed = FakeBatchExecutor()
+    reused = run_matrix_batch(tmp_path / "paired", manifest, resumed)
+
+    assert first.calls == 1
+    assert result.executed_cell_count == len(manifest.cells)
+    assert result.pending_cell_count == 0
+    assert resumed.calls == 0
+    assert reused.reused_cell_count == len(manifest.cells)
+
+
+def test_batch_runner_rejects_partial_cell_receipts(tmp_path: Path) -> None:
+    manifest = _manifest()
+    output = tmp_path / "partial"
+    run_matrix(output, manifest, FakeExecutor(), max_new_cells=1)
+
+    with pytest.raises(ValueError, match="cannot resume"):
+        run_matrix_batch(output, manifest, FakeBatchExecutor())
 
 
 def test_partial_run_returns_every_unexecuted_cell_as_pending_then_resumes(

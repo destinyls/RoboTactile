@@ -19,6 +19,9 @@ from robotactile_benchmark.deployment.layout import (
     initialize_deployment_layout,
     resolve_deployment_root,
 )
+from robotactile_benchmark.execution.contracts import (
+    production_univtac_launcher_args,
+)
 from robotactile_benchmark.rest_references import ReferenceSplit
 
 
@@ -150,7 +153,7 @@ def generate_calibration_request(
         live_artifact_output_dir=live_artifact_output,
         act_device_name=act_device_name,
         simulator_device=simulator_device,
-        launcher_args={"enable_cameras": True, "headless": True},
+        launcher_args=production_univtac_launcher_args(),
     )
     loaded = write_calibration_request_bundle(output, spec)
     return {

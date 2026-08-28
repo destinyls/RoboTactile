@@ -103,6 +103,8 @@ def _validate_evidence_semantics(
 ) -> None:
     if len(evidence.action_entries) > LIVE_MAX_TRACE_RECORDS:
         raise LiveArtifactValidationError("live action trace exceeds cap")
+    if len(evidence.transition_entries) > LIVE_MAX_TRACE_RECORDS:
+        raise LiveArtifactValidationError("live transition trace exceeds cap")
     faulted = trial.condition in {Condition.FAULTED, Condition.RESTORED}
     if faulted != (fault is not None) or trial.fault_manifest_sha256 != (
         None if fault is None else fault.sha256

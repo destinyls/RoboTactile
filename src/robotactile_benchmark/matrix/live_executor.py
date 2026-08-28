@@ -6,7 +6,7 @@ import os
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence, Tuple
 
 from robotactile_benchmark.execution.contracts import (
     ArtifactExportStatus,
@@ -26,6 +26,14 @@ from robotactile_benchmark.execution.live_univtac import (
     LiveUniVTACExecutionResult,
     N0TransportFactory,
     execute_live_univtac_run,
+)
+from robotactile_benchmark.execution.paired_live_univtac import (
+    PairedBackendSessionFactory,
+    default_paired_backend_session_factory,
+    execute_paired_live_univtac_runs,
+)
+from robotactile_benchmark.execution.paired_receipt_io import (
+    write_paired_execution_receipt,
 )
 from robotactile_benchmark.matrix.contracts import (
     MatrixCellSpec,
@@ -121,6 +129,77 @@ class LiveMatrixCellExecutor:
             n0_transport_factory=self.n0_transport_factory,
             artifact_exporter=write_live_univtac_artifact,
         )
+
+
+@dataclass(frozen=True)
+class PairedLiveMatrixExecutor:
+    """Execute every requested matrix cell from one canonical live snapshot."""
+
+    matrix_output: Path
+    template: LiveMatrixExecutionTemplate
+    resource_resolver: LiveMatrixResourceResolver
+    policy_factory: LivePolicyFactory
+    session_factory: PairedBackendSessionFactory = (
+        default_paired_backend_session_factory
+    )
+
+    def __post_init__(self) -> None:
+        output = Path(self.matrix_output).absolute()
+        if output.is_symlink() or (output.exists() and not output.is_dir()):
+            raise ValueError("matrix output must be a real directory")
+        if type(self.template) is not LiveMatrixExecutionTemplate:
+            raise TypeError("template must be an exact LiveMatrixExecutionTemplate")
+        for name in ("resource_resolver", "policy_factory", "session_factory"):
+            if not callable(getattr(self, name)):
+                raise TypeError(f"{name} must be callable")
+        object.__setattr__(self, "matrix_output", output)
+
+    def execute_batch(
+        self, cells: Sequence[MatrixCellSpec]
+    ) -> Tuple[MatrixCellExecution, ...]:
+        ordered = tuple(cells)
+        if not ordered or ordered[0].trial.condition.value != "clean":
+            raise ValueError("paired live matrix must start with its clean cell")
+        artifacts = _prepare_artifacts_directory(self.matrix_output)
+        with tempfile.TemporaryDirectory(
+            prefix=".paired-matrix-", dir=artifacts
+        ) as temporary:
+            staging = Path(temporary)
+            requests = tuple(
+                materialize_live_matrix_request(
+                    cell,
+                    self.template,
+                    self.resource_resolver(cell),
+                    output_dir=staging / cell.sha256,
+                )
+                for cell in ordered
+            )
+            paired = execute_paired_live_univtac_runs(
+                requests,
+                session_factory=self.session_factory,
+                policy_factory=self.policy_factory,
+                artifact_exporter=write_live_univtac_artifact,
+            )
+            executions = []
+            for cell, execution, staged in zip(
+                ordered, paired.executions, (item.output_dir for item in requests)
+            ):
+                if staged is None:
+                    raise RuntimeError("paired matrix request lost its output path")
+                artifact = load_live_univtac_artifact(staged)
+                _validate_execution_links(cell, execution, artifact)
+                published = _publish_content_addressed(artifacts, staged, artifact)
+                executions.append(
+                    MatrixCellExecution.from_closed_loop(
+                        published.evidence.result,
+                        root_receipt_sha256=published.external_root_sha256,
+                        evidence_level=published.root_receipt.evidence_level,
+                    )
+                )
+            write_paired_execution_receipt(
+                self.matrix_output / "paired_execution_receipt.json", paired
+            )
+            return tuple(executions)
 
 
 def _prepare_artifacts_directory(matrix_output: Path) -> Path:

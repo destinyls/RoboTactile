@@ -16,14 +16,21 @@ from robotactile_benchmark.execution.official_act import (
     build_official_act_live_binding,
     make_official_act_policy_factory,
 )
-from robotactile_benchmark.matrix.live_executor import LiveMatrixCellExecutor
+from robotactile_benchmark.execution.paired_live_univtac import (
+    PairedBackendSessionFactory,
+    default_paired_backend_session_factory,
+)
+from robotactile_benchmark.matrix.live_executor import (
+    LiveMatrixCellExecutor,
+    PairedLiveMatrixExecutor,
+)
 from robotactile_benchmark.matrix.live_run_config import LiveMatrixRunConfig
 from robotactile_benchmark.matrix.manifest import MatrixManifest
 from robotactile_benchmark.matrix.results import MatrixCellStatus
-from robotactile_benchmark.matrix.runner import run_matrix
+from robotactile_benchmark.matrix.runner import run_matrix, run_matrix_batch
 from robotactile_benchmark.matrix.summary import MatrixRunResult
 
-LIVE_MATRIX_EVIDENCE_LEVEL = "unqualified_live_univtac_matrix_v1"
+LIVE_MATRIX_EVIDENCE_LEVEL = "unqualified_live_univtac_paired_matrix_v1"
 
 
 def run_live_matrix(
@@ -35,8 +42,9 @@ def run_live_matrix(
     backend_factory: Optional[LiveBackendFactory] = None,
     policy_factory: Optional[LivePolicyFactory] = None,
     policy_loader: Optional[OfficialACTPolicyLoader] = None,
+    paired_session_factory: Optional[PairedBackendSessionFactory] = None,
 ) -> MatrixRunResult:
-    """Run or resume cells while preserving strict content-addressed artifacts."""
+    """Use snapshot pairing by default; injected single-cell backends stay legacy."""
 
     if type(manifest) is not MatrixManifest:
         raise TypeError("manifest must be an exact MatrixManifest")
@@ -45,6 +53,25 @@ def run_live_matrix(
     if config.matrix_manifest_sha256 != manifest.sha256:
         raise ValueError("live matrix config does not bind the matrix manifest")
     selected_policy = policy_factory or _official_policy_factory(config, policy_loader)
+    if backend_factory is None and max_new_cells != 0:
+        if max_new_cells is not None:
+            raise ValueError("paired live matrix requires one complete fresh batch")
+        paired_executor = PairedLiveMatrixExecutor(
+            matrix_output=Path(output),
+            template=config.template(),
+            resource_resolver=config.resources_for,
+            policy_factory=selected_policy,
+            session_factory=(
+                default_paired_backend_session_factory
+                if paired_session_factory is None
+                else paired_session_factory
+            ),
+        )
+        return run_matrix_batch(Path(output), manifest, paired_executor)
+    if paired_session_factory is not None:
+        raise ValueError(
+            "paired_session_factory cannot be combined with a single-cell run"
+        )
     executor = LiveMatrixCellExecutor(
         matrix_output=Path(output),
         template=config.template(),

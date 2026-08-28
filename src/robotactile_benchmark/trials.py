@@ -8,6 +8,7 @@ from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Any, Dict, Optional, Tuple, cast
 
+from robotactile_benchmark.action_specs import validate_action_spec
 from robotactile_benchmark.contracts import canonical_hash
 from robotactile_benchmark.manifests import FaultManifest
 from robotactile_benchmark.operator_parameters import static_parameter_view
@@ -149,8 +150,7 @@ class TrialManifest:
             "config_sha256",
         ):
             _validate_sha256(field_name, getattr(self, field_name))
-        if self.action_spec != "qpos8_next_step":
-            raise ValueError("trial action spec must be qpos8_next_step")
+        object.__setattr__(self, "action_spec", validate_action_spec(self.action_spec))
         if self.condition is not Condition.NO_TOUCH:
             expected_base_hash = system_manifest_hash(
                 self.base_system_id,

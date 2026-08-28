@@ -30,10 +30,36 @@
       "type": "array", "minItems": 9, "maxItems": 100000,
       "items": {"$ref": "#/$defs/member"}
     },
-    "evidence_level": {"const": "unqualified_live_univtac_execution_v1"},
+    "capture_profile": {
+      "enum": ["metrics_only_v1", "preview_v1", "paper_full_v1"]
+    },
+    "evidence_level": {
+      "enum": [
+        "unqualified_live_univtac_execution_v1",
+        "live_univtac_diagnostic_capture_v1"
+      ]
+    },
     "simulator_qualification_claimed": {"const": false},
-    "semantic_version": {"const": "1.0"}
+    "semantic_version": {"enum": ["1.0", "1.1", "1.2"]}
   },
+  "allOf": [
+    {
+      "if": {"properties": {"semantic_version": {"const": "1.2"}}},
+      "then": {
+        "required": ["capture_profile"],
+        "properties": {
+          "capture_profile": {"enum": ["metrics_only_v1", "preview_v1"]},
+          "evidence_level": {"const": "live_univtac_diagnostic_capture_v1"}
+        }
+      },
+      "else": {
+        "properties": {
+          "capture_profile": {"const": "paper_full_v1"},
+          "evidence_level": {"const": "unqualified_live_univtac_execution_v1"}
+        }
+      }
+    }
+  ],
   "$defs": {
     "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "nullable_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},

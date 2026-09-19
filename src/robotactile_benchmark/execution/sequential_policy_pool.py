@@ -20,6 +20,12 @@ def _add_exception_note(error: BaseException, note: str) -> None:
     add_note = getattr(error, "add_note", None)
     if callable(add_note):
         add_note(note)
+        return
+    notes = getattr(error, "__notes__", None)
+    if notes is None:
+        error.__dict__["__notes__"] = [note]
+    elif isinstance(notes, list):
+        notes.append(note)
 
 
 class _SequentialPolicyLease:

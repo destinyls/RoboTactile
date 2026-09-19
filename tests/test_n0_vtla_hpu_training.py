@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from scripts.n0_vtla.hpu_training.contracts import SourceRecord, select_train_records
 from scripts.n0_vtla.hpu_training.qpos8 import pack_next_step_qpos8, vector_stats
@@ -94,7 +95,12 @@ def test_formal_launcher_is_persistent_and_uses_official_workers() -> None:
 
 
 def test_runtime_patch_is_source_bound_and_semantics_preserving() -> None:
-    source_path = Path("../N0-VTLA/n0vtla/models_pytorch/n0vtla_policy.py")
+    source_path = (
+        Path(__file__).resolve().parents[2]
+        / "N0-VTLA/n0vtla/models_pytorch/n0vtla_policy.py"
+    )
+    if not source_path.is_file():
+        pytest.skip("requires the reviewed external N0-VTLA source checkout")
 
     patched = patch_policy_source(source_path)
 

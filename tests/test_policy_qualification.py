@@ -34,23 +34,27 @@ def _identity(kind: str = "act", suffix: str = "") -> PolicyIdentity:
     )
 
 
-def _run(kind: str) -> PolicyQualificationReceipt:
+def _require_external_source(kind: str) -> None:
+    source = PAPER_ROOT / ACT_RUNTIME_PATH if kind == "act" else PAPER_ROOT / "N0-TWAM"
+    if not source.exists():
+        raise unittest.SkipTest(
+            f"requires the reviewed external {kind.upper()} source checkout"
+        )
+
+
+def _run(kind: str, *, task_id: str = "insert_HDMI") -> PolicyQualificationReceipt:
+    _require_external_source(kind)
     return run_cpu_policy_qualification(
         kind,
         identity=_identity(kind),
         workspace_root=PAPER_ROOT,
-        task_id="insert_HDMI",
+        task_id=task_id,
     )
 
 
 class PolicyQualificationTests(unittest.TestCase):
     def test_act_protocol_binds_pull_out_key_observation_task(self) -> None:
-        receipt = run_cpu_policy_qualification(
-            "act",
-            identity=_identity("act"),
-            workspace_root=PAPER_ROOT,
-            task_id="pull_out_key",
-        )
+        receipt = _run("act", task_id="pull_out_key")
 
         self.assertTrue(receipt.passed)
         self.assertEqual(receipt.task_id, "pull_out_key")

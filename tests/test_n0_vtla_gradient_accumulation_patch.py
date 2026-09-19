@@ -11,7 +11,10 @@ from scripts.n0_vtla.hpu_training.gradient_accumulation_patch import (
 
 
 def _pinned_source() -> Path:
-    return Path("../N0-VTLA/scripts/train_pytorch.py")
+    source = Path(__file__).resolve().parents[2] / "N0-VTLA/scripts/train_pytorch.py"
+    if not source.is_file():
+        pytest.skip("requires the reviewed external N0-VTLA source checkout")
+    return source
 
 
 def test_pinned_train_source_sha_and_patched_source_compile() -> None:

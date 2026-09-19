@@ -53,19 +53,72 @@ _DIRECTORIES = (
     "artifacts",
     "artifacts/models",
     "artifacts/models/act",
+    "artifacts/models/dream_tac",
+    "artifacts/models/ftp1_policy",
     "artifacts/models/n0_twam",
+    "artifacts/models/n0_vtla",
     "artifacts/deployment",
     "artifacts/preflight",
     "artifacts/rest-references",
     "artifacts/live-univtac",
     "requests",
     "requests/calibration",
-    "requests/four-condition",
+    "requests/three-condition",
     "requests/primary-matrix",
     "outputs",
     "outputs/matrices",
     "outputs/reports",
     "logs",
+)
+_LEGACY_FOUR_CONDITION_DIRECTORIES = tuple(
+    "requests/four-condition" if item == "requests/three-condition" else item
+    for item in _DIRECTORIES
+)
+_LEGACY_PRE_N0_VTLA_FOUR_CONDITION_DIRECTORIES = tuple(
+    item
+    for item in _LEGACY_FOUR_CONDITION_DIRECTORIES
+    if item != "artifacts/models/n0_vtla"
+)
+_LEGACY_PRE_FTP1_DIRECTORIES = tuple(
+    item for item in _DIRECTORIES if item != "artifacts/models/ftp1_policy"
+)
+_LEGACY_PRE_DREAM_TAC_DIRECTORIES = tuple(
+    item for item in _DIRECTORIES if item != "artifacts/models/dream_tac"
+)
+_LEGACY_PRE_DREAM_TAC_FOUR_CONDITION_DIRECTORIES = tuple(
+    item
+    for item in _LEGACY_FOUR_CONDITION_DIRECTORIES
+    if item != "artifacts/models/dream_tac"
+)
+_LEGACY_PRE_DREAM_TAC_PRE_N0_VTLA_FOUR_CONDITION_DIRECTORIES = tuple(
+    item
+    for item in _LEGACY_PRE_N0_VTLA_FOUR_CONDITION_DIRECTORIES
+    if item != "artifacts/models/dream_tac"
+)
+_LEGACY_PRE_DREAM_TAC_PRE_FTP1_PRE_N0_VTLA_FOUR_CONDITION_DIRECTORIES = tuple(
+    item
+    for item in _LEGACY_FOUR_CONDITION_DIRECTORIES
+    if item
+    not in {
+        "artifacts/models/dream_tac",
+        "artifacts/models/ftp1_policy",
+        "artifacts/models/n0_vtla",
+    }
+)
+_LEGACY_PRE_DREAM_TAC_PRE_FTP1_DIRECTORIES = tuple(
+    item
+    for item in _LEGACY_PRE_FTP1_DIRECTORIES
+    if item != "artifacts/models/dream_tac"
+)
+_COMPATIBLE_LEGACY_DIRECTORY_INVENTORIES = (
+    _LEGACY_FOUR_CONDITION_DIRECTORIES,
+    _LEGACY_PRE_N0_VTLA_FOUR_CONDITION_DIRECTORIES,
+    _LEGACY_PRE_FTP1_DIRECTORIES,
+    _LEGACY_PRE_DREAM_TAC_DIRECTORIES,
+    _LEGACY_PRE_DREAM_TAC_FOUR_CONDITION_DIRECTORIES,
+    _LEGACY_PRE_DREAM_TAC_PRE_N0_VTLA_FOUR_CONDITION_DIRECTORIES,
+    _LEGACY_PRE_DREAM_TAC_PRE_FTP1_DIRECTORIES,
+    _LEGACY_PRE_DREAM_TAC_PRE_FTP1_PRE_N0_VTLA_FOUR_CONDITION_DIRECTORIES,
 )
 
 
@@ -218,8 +271,33 @@ def initialize_deployment_layout(layout: DeploymentLayout) -> DeploymentLayoutRe
         root_path_sha256=canonical_hash(str(layout.root)),
         directories=_DIRECTORIES,
     )
+    existing = _compatible_existing_layout_receipt(layout, receipt)
+    if existing is not None:
+        return existing
     write_deployment_layout_receipt(layout.receipt_path, receipt)
     return receipt
+
+
+def _compatible_existing_layout_receipt(
+    layout: DeploymentLayout,
+    expected: DeploymentLayoutReceipt,
+) -> Optional[DeploymentLayoutReceipt]:
+    """Accept frozen additive legacy layouts without rewriting their receipts."""
+
+    path = layout.receipt_path
+    if not path.exists() and not path.is_symlink():
+        return None
+    existing = load_deployment_layout_receipt(path)
+    if existing == expected:
+        return existing
+    if (
+        existing.root_path_sha256 != expected.root_path_sha256
+        or existing.directories not in _COMPATIBLE_LEGACY_DIRECTORY_INVENTORIES
+    ):
+        raise FileExistsError("refusing to replace a different layout receipt")
+    for relative in existing.directories:
+        _check_directory(layout.root / relative)
+    return existing
 
 
 def deployment_layout_receipt_bytes(receipt: DeploymentLayoutReceipt) -> bytes:

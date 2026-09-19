@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "robotactile-dream-tac-hcu-optimizer-step-request-v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "accelerator_contract",
+    "dream_tac_commit",
+    "donor_experiment",
+    "phase",
+    "run_name",
+    "dream_tac_root",
+    "python_executable",
+    "hcu_environment_script",
+    "runtime_pythonpath_roots",
+    "materialization_root",
+    "output_root",
+    "source_manifest_sha256",
+    "materialization_receipt_sha256",
+    "t5_cache_sha256",
+    "base_checkpoint",
+    "base_dcp_root",
+    "base_dcp_receipt",
+    "tokenizer_checkpoint",
+    "overlay_receipt",
+    "casa_receipt",
+    "hcu_device",
+    "nproc_per_node",
+    "master_port",
+    "max_iter",
+    "save_iter",
+    "batch_size",
+    "num_workers",
+    "resume_checkpoint"
+  ],
+  "properties": {
+    "schema_version": {"const": "robotactile-dream-tac-hcu-optimizer-step-request-v1"},
+    "accelerator_contract": {"const": "hygon_hcu_hip_single_device_v1"},
+    "dream_tac_commit": {"const": "14bab51d6862fd07124745c55cd395ea5caa9fd3"},
+    "donor_experiment": {"const": "cosmos_predict2_2b_480p_franka_cut_banana_20260321"},
+    "phase": {"const": "p2_hcu_optimizer_step"},
+    "run_name": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]{2,95}$"},
+    "dream_tac_root": {"type": "string", "pattern": "^/"},
+    "python_executable": {"type": "string", "pattern": "^/"},
+    "hcu_environment_script": {"$ref": "#/$defs/bound_file"},
+    "runtime_pythonpath_roots": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^/"}
+    },
+    "materialization_root": {"type": "string", "pattern": "^/"},
+    "output_root": {"type": "string", "pattern": "^/"},
+    "source_manifest_sha256": {"$ref": "#/$defs/sha256"},
+    "materialization_receipt_sha256": {"$ref": "#/$defs/sha256"},
+    "t5_cache_sha256": {"$ref": "#/$defs/sha256"},
+    "base_checkpoint": {"$ref": "#/$defs/bound_file"},
+    "base_dcp_root": {"type": "string", "pattern": "^/"},
+    "base_dcp_receipt": {"$ref": "#/$defs/bound_file"},
+    "tokenizer_checkpoint": {"$ref": "#/$defs/bound_file"},
+    "overlay_receipt": {"$ref": "#/$defs/bound_file"},
+    "casa_receipt": {"$ref": "#/$defs/bound_file"},
+    "hcu_device": {"type": "integer", "minimum": 0, "maximum": 255},
+    "nproc_per_node": {"const": 1},
+    "master_port": {"type": "integer", "minimum": 1024, "maximum": 65535},
+    "max_iter": {"const": 1},
+    "save_iter": {"const": 1},
+    "batch_size": {"const": 1},
+    "num_workers": {"type": "integer", "minimum": 0, "maximum": 16},
+    "resume_checkpoint": {"type": "null"}
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "not": {"const": "0000000000000000000000000000000000000000000000000000000000000000"}
+    },
+    "bound_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "pattern": "^/"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}

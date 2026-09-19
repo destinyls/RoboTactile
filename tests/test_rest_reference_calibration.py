@@ -117,8 +117,6 @@ def _request(root: Path, task: str = "pull_out_key") -> LiveUniVTACRunRequest:
         output_dir=None,
         fault_manifest_path=None,
         rest_references_path=None,
-        restoration_index=None,
-        restoration_mode=None,
         matched_no_touch_system_id=None,
         matched_no_touch_artifact_path=None,
         act_device_name="cpu",
@@ -317,14 +315,13 @@ def test_pull_out_key_generator_accepts_bound_rest_reference_artifact() -> None:
         assert calibration_loaded.references.sha256 == (
             load_rest_reference_artifact(calibration).references.sha256
         )
-        for condition in (Condition.FAULTED, Condition.RESTORED):
-            loaded = load_live_univtac_run(
-                load_live_univtac_request(
-                    output / "requests" / f"{condition.value}.json"
-                )
+        loaded = load_live_univtac_run(
+            load_live_univtac_request(
+                output / "requests" / f"{Condition.FAULTED.value}.json"
             )
-            assert loaded.rest_references is not None
-            assert loaded.fault_manifest is not None
-            assert loaded.fault_manifest.parameters["rest_reference_sha256"] == (
-                loaded.rest_references.sha256
-            )
+        )
+        assert loaded.rest_references is not None
+        assert loaded.fault_manifest is not None
+        assert loaded.fault_manifest.parameters["rest_reference_sha256"] == (
+            loaded.rest_references.sha256
+        )

@@ -52,10 +52,21 @@ def _baseline(
     return references.payload_for(slot_id)
 
 
-def _f1(payload: Array, manifest: FaultManifest, index: int) -> Array:
+def _f1(
+    payload: Array,
+    baseline: Array,
+    manifest: FaultManifest,
+    index: int,
+) -> Array:
+    if manifest.parameters.get("response_domain") == "absolute_black_frame":
+        return np.zeros_like(payload)
+    target = float(manifest.parameters["target_gain"])
+    if manifest.parameters["temporal_path"] == "immediate_step":
+        rest = _normalize(baseline)
+        current = _normalize(payload)
+        return _restore(payload, rest + target * (current - rest))
     span = max(1, manifest.stop_index - manifest.start_index - 1)
     progress = (index - manifest.start_index) / float(span)
-    target = float(manifest.parameters["target_gain"])
     gain = 1.0 - (1.0 - target) * progress
     return _restore(payload, _normalize(payload) * gain)
 
@@ -244,12 +255,17 @@ def expected_pixel_payloads(
             sensor = record.observation.sensor(slot_id)
             if sensor.payload is None:
                 raise ValueError("pixel-signature reference requires present payloads")
-            needs_baseline = manifest.operator_id in {
-                "F2_spatial_sensitivity_loss",
-                "F4_local_nonresponsive_patch",
-                "F6_history_residual_imprint",
-                "C2_frame_misregistration",
-            }
+            needs_baseline = (
+                manifest.operator_id
+                in {
+                    "F1_global_response_drift",
+                    "F2_spatial_sensitivity_loss",
+                    "F4_local_nonresponsive_patch",
+                    "F6_history_residual_imprint",
+                    "C2_frame_misregistration",
+                }
+                and manifest.parameters.get("response_domain") != "absolute_black_frame"
+            )
             if needs_baseline and references is None:
                 raise ValueError(
                     f"{manifest.operator_id} reference requires a rest bundle"
@@ -276,7 +292,7 @@ def expected_pixel_payloads(
                 continue
             operator_id = manifest.operator_id
             if operator_id == "F1_global_response_drift":
-                expected = _f1(sensor.payload, manifest, index)
+                expected = _f1(sensor.payload, baseline, manifest, index)
             elif operator_id == "F2_spatial_sensitivity_loss":
                 expected = _f2(sensor.payload, baseline, manifest)
             elif operator_id == "F3_persistent_surface_artifact":

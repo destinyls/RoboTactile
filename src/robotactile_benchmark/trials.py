@@ -1,4 +1,4 @@
-"""Immutable paired-trial contracts for the four benchmark conditions."""
+"""Immutable paired-trial contracts for the benchmark conditions."""
 
 from __future__ import annotations
 
@@ -11,7 +11,8 @@ from typing import Any, Dict, Optional, Tuple, cast
 from robotactile_benchmark.action_specs import validate_action_spec
 from robotactile_benchmark.contracts import canonical_hash
 from robotactile_benchmark.manifests import FaultManifest
-from robotactile_benchmark.operator_parameters import static_parameter_view
+
+TRIAL_MANIFEST_SEMANTIC_VERSION = "2.0"
 
 
 class Condition(str, Enum):
@@ -20,14 +21,6 @@ class Condition(str, Enum):
     CLEAN = "clean"
     FAULTED = "faulted"
     NO_TOUCH = "no_touch"
-    RESTORED = "restored"
-
-
-class RestorationMode(str, Enum):
-    """How a contract-valid tactile stream is restored."""
-
-    VALID_STREAM_RESUME = "valid_stream_resume"
-    MAINTENANCE_OR_REPLACEMENT = "maintenance_or_replacement"
 
 
 class TerminalStatus(str, Enum):
@@ -80,8 +73,6 @@ _TRIAL_FIELDS = frozenset(
         "action_spec",
         "fault_manifest_sha256",
         "matched_no_touch_system_id",
-        "restoration_index",
-        "restoration_mode",
         "semantic_version",
     }
 )
@@ -116,24 +107,16 @@ class TrialManifest:
     action_spec: str
     fault_manifest_sha256: Optional[str]
     matched_no_touch_system_id: Optional[str]
-    restoration_index: Optional[int]
-    restoration_mode: Optional[RestorationMode]
-    semantic_version: str = "1.0"
+    semantic_version: str = TRIAL_MANIFEST_SEMANTIC_VERSION
 
     def __post_init__(self) -> None:
         initial_seed = _strict_int(self.initial_seed, "initial_seed")
         exogenous_seed = _strict_int(self.exogenous_seed, "exogenous_seed")
         if not isinstance(self.condition, Condition):
             object.__setattr__(self, "condition", Condition(self.condition))
-        if self.restoration_mode is not None and not isinstance(
-            self.restoration_mode, RestorationMode
-        ):
-            object.__setattr__(
-                self, "restoration_mode", RestorationMode(self.restoration_mode)
-            )
         if initial_seed < 0 or exogenous_seed < 0:
             raise ValueError("trial seeds must be non-negative")
-        if self.semantic_version != "1.0":
+        if self.semantic_version != TRIAL_MANIFEST_SEMANTIC_VERSION:
             raise ValueError("unsupported trial-manifest semantic version")
         for field_name in (
             "task",
@@ -171,18 +154,11 @@ class TrialManifest:
             and self.executed_system_id != self.base_system_id
         ):
             raise ValueError("clean condition must execute the base system")
-        if self.condition in {Condition.FAULTED, Condition.RESTORED}:
+        if self.condition is Condition.FAULTED:
             if self.fault_manifest_sha256 is None:
-                raise ValueError("faulted/restored condition requires a fault manifest")
+                raise ValueError("faulted condition requires a fault manifest")
             if self.executed_system_id != self.base_system_id:
-                raise ValueError("faulted/restored must execute the base system")
-        if self.condition is Condition.RESTORED:
-            if self.restoration_index is None or self.restoration_index < 0:
-                raise ValueError("restored condition requires a restoration index")
-            if self.restoration_mode is None:
-                raise ValueError("restored condition requires a restoration mode")
-        elif self.restoration_index is not None or self.restoration_mode is not None:
-            raise ValueError("restoration metadata is only valid for restored trials")
+                raise ValueError("faulted condition must execute the base system")
         if self.condition is Condition.NO_TOUCH:
             if not self.matched_no_touch_system_id:
                 raise ValueError(
@@ -236,12 +212,6 @@ class TrialManifest:
             "action_spec": self.action_spec,
             "fault_manifest_sha256": self.fault_manifest_sha256,
             "matched_no_touch_system_id": self.matched_no_touch_system_id,
-            "restoration_index": self.restoration_index,
-            "restoration_mode": (
-                self.restoration_mode.value
-                if self.restoration_mode is not None
-                else None
-            ),
             "semantic_version": self.semantic_version,
         }
 
@@ -257,12 +227,9 @@ class TrialManifest:
             )
         fault_hash = value["fault_manifest_sha256"]
         no_touch_id = value["matched_no_touch_system_id"]
-        restoration_index = value["restoration_index"]
-        restoration_mode = value["restoration_mode"]
         for optional_string, name in (
             (fault_hash, "fault_manifest_sha256"),
             (no_touch_id, "matched_no_touch_system_id"),
-            (restoration_mode, "restoration_mode"),
         ):
             if optional_string is not None and not isinstance(optional_string, str):
                 raise TypeError(f"{name} must be a string or null")
@@ -286,16 +253,6 @@ class TrialManifest:
             action_spec=_strict_str(value["action_spec"], "action_spec"),
             fault_manifest_sha256=fault_hash,
             matched_no_touch_system_id=no_touch_id,
-            restoration_index=(
-                _strict_int(restoration_index, "restoration_index")
-                if restoration_index is not None
-                else None
-            ),
-            restoration_mode=(
-                RestorationMode(restoration_mode)
-                if restoration_mode is not None
-                else None
-            ),
             semantic_version=_strict_str(value["semantic_version"], "semantic_version"),
         )
 
@@ -303,41 +260,14 @@ class TrialManifest:
 def build_paired_trial_grid(
     clean: TrialManifest,
     faulted_manifest: FaultManifest,
-    restored_manifest: FaultManifest,
-    restoration_index: int,
-    restoration_mode: RestorationMode,
     no_touch_system_id: str,
     no_touch_checkpoint_sha256: str,
     no_touch_config_sha256: str,
 ) -> Tuple[TrialManifest, ...]:
-    """Build clean/faulted/no-touch/restored cells from one frozen pair key."""
+    """Build clean, faulted, and no-touch cells from one frozen pair key."""
 
     if clean.condition is not Condition.CLEAN:
         raise ValueError("paired grid must start from a clean trial")
-    invariant_fields = (
-        "operator_id",
-        "severity_level",
-        "operator_seed",
-        "start_index",
-        "sensor_slots",
-        "observability",
-        "semantic_version",
-        "implementation_version",
-        "severity_registry",
-    )
-    if any(
-        getattr(faulted_manifest, field_name) != getattr(restored_manifest, field_name)
-        for field_name in invariant_fields
-    ):
-        raise ValueError("faulted/restored manifests must differ only at stop_index")
-    if static_parameter_view(faulted_manifest.parameters) != static_parameter_view(
-        restored_manifest.parameters
-    ):
-        raise ValueError("faulted/restored manifests must share one operator instance")
-    if restored_manifest.stop_index != restoration_index:
-        raise ValueError("restoration index must equal the restored manifest stop")
-    if faulted_manifest.stop_index <= restoration_index:
-        raise ValueError("faulted manifest must persist beyond restoration index")
     faulted = replace(
         clean,
         condition=Condition.FAULTED,
@@ -351,11 +281,4 @@ def build_paired_trial_grid(
         config_sha256=no_touch_config_sha256,
         matched_no_touch_system_id=no_touch_system_id,
     )
-    restored = replace(
-        clean,
-        condition=Condition.RESTORED,
-        fault_manifest_sha256=restored_manifest.sha256,
-        restoration_index=restoration_index,
-        restoration_mode=restoration_mode,
-    )
-    return clean, faulted, no_touch, restored
+    return clean, faulted, no_touch

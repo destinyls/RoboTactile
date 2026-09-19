@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import os
 import re
 import stat
+import tempfile
 from collections.abc import Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Iterator, cast
 
 from robotactile_benchmark.closed_loop.artifact_io import (
     canonical_json_bytes,
@@ -26,6 +29,8 @@ CHECKPOINT_REVISION = "7694e63707a8c9e69e1a1242c4ed74ee39b7bb51"
 
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _COMMIT = re.compile(r"[0-9a-f]{40}")
+_DIGEST_CACHE_ENV = "ROBOTACTILE_N0_DIGEST_CACHE_DIR"
+_DIGEST_CACHE_SCHEMA = "robotactile-n0-digest-cache-v1"
 _SERVE_TASK_IDS = {
     "grasp_classify": "univtac_grasp_classify_hdf5_current",
     "insert_HDMI": "univtac_insert_HDMI_rot6d_current",
@@ -93,14 +98,157 @@ def _inside(root: Path, path: Path, name: str) -> None:
         raise ValueError(f"{name} must be below bundle_root")
 
 
-def _stat_identity(metadata: os.stat_result) -> tuple[int, int, int, int, int]:
+def _stat_identity(metadata: os.stat_result) -> tuple[int, int, int, int]:
+    """Return content-relevant identity stable across distributed filesystems."""
+
     return (
         metadata.st_dev,
         metadata.st_ino,
         metadata.st_size,
         metadata.st_mtime_ns,
-        metadata.st_ctime_ns,
     )
+
+
+def _digest_cache_root() -> Path | None:
+    raw = os.environ.get(_DIGEST_CACHE_ENV)
+    if raw is None:
+        return None
+    if not raw or "\n" in raw:
+        raise ValueError(f"{_DIGEST_CACHE_ENV} must be a non-empty absolute path")
+    root = Path(raw)
+    if not root.is_absolute():
+        raise ValueError(f"{_DIGEST_CACHE_ENV} must be an absolute path")
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if root.is_symlink() or not root.is_dir():
+        raise ValueError(f"{_DIGEST_CACHE_ENV} must be a real directory")
+    metadata = root.stat()
+    if metadata.st_uid != os.getuid() or stat.S_IMODE(metadata.st_mode) & 0o022:
+        raise ValueError(f"{_DIGEST_CACHE_ENV} must be private and owned by this user")
+    return root
+
+
+def _digest_cache_receipt_path(root: Path, absolute_path: str) -> Path:
+    key = hashlib.sha256(absolute_path.encode("utf-8")).hexdigest()
+    return root / f"{key}.json"
+
+
+@contextmanager
+def _digest_cache_lock(root: Path) -> Iterator[None]:
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(root / ".lock", flags, 0o600)
+    except OSError as error:
+        raise ValueError("N0-TWAM digest cache lock is unavailable") from error
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+def _digest_cache_document(
+    absolute_path: str,
+    identity: tuple[int, int, int, int],
+    digest: str,
+) -> dict[str, object]:
+    return {
+        "absolute_path": absolute_path,
+        "identity": {
+            "st_dev": identity[0],
+            "st_ino": identity[1],
+            "st_size": identity[2],
+            "st_mtime_ns": identity[3],
+        },
+        "schema_version": _DIGEST_CACHE_SCHEMA,
+        "sha256": digest,
+    }
+
+
+def _load_digest_cache_receipt(
+    path: Path,
+    absolute_path: str,
+    identity: tuple[int, int, int, int],
+) -> str | None:
+    if path.is_symlink() or not path.is_file():
+        return None
+    try:
+        document = strict_json_bytes(path.read_bytes(), "N0 digest cache receipt")
+    except (OSError, ValueError):
+        return None
+    if not isinstance(document, Mapping) or set(document) != {
+        "absolute_path",
+        "identity",
+        "schema_version",
+        "sha256",
+    }:
+        return None
+    recorded_identity = document["identity"]
+    if not isinstance(recorded_identity, Mapping) or set(recorded_identity) != {
+        "st_dev",
+        "st_ino",
+        "st_size",
+        "st_mtime_ns",
+    }:
+        return None
+    identity_values = tuple(
+        recorded_identity[name]
+        for name in ("st_dev", "st_ino", "st_size", "st_mtime_ns")
+    )
+    digest = document["sha256"]
+    if (
+        document["schema_version"] != _DIGEST_CACHE_SCHEMA
+        or document["absolute_path"] != absolute_path
+        or any(type(value) is not int for value in identity_values)
+        or identity_values != identity
+        or not isinstance(digest, str)
+        or _SHA256.fullmatch(digest) is None
+    ):
+        return None
+    return digest
+
+
+def _write_digest_cache_receipt(path: Path, document: Mapping[str, object]) -> None:
+    payload = canonical_json_bytes(document)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _persistent_file_sha256(
+    absolute_path: str,
+    identity: tuple[int, int, int, int],
+    root: Path,
+) -> str:
+    receipt = _digest_cache_receipt_path(root, absolute_path)
+    with _digest_cache_lock(root):
+        selected = Path(absolute_path)
+        try:
+            current = selected.lstat()
+        except OSError as error:
+            raise ValueError(
+                f"N0-TWAM artifact changed while hashing: {absolute_path}"
+            ) from error
+        if not stat.S_ISREG(current.st_mode) or _stat_identity(current) != identity:
+            raise ValueError(f"N0-TWAM artifact changed while hashing: {absolute_path}")
+        cached = _load_digest_cache_receipt(receipt, absolute_path, identity)
+        if cached is not None:
+            return cached
+        digest = _cached_file_sha256(absolute_path, *identity)
+        _write_digest_cache_receipt(
+            receipt, _digest_cache_document(absolute_path, identity, digest)
+        )
+        return digest
 
 
 @lru_cache(maxsize=None)
@@ -110,9 +258,8 @@ def _cached_file_sha256(
     st_ino: int,
     st_size: int,
     st_mtime_ns: int,
-    st_ctime_ns: int,
 ) -> str:
-    expected_identity = (st_dev, st_ino, st_size, st_mtime_ns, st_ctime_ns)
+    expected_identity = (st_dev, st_ino, st_size, st_mtime_ns)
     flags = (
         os.O_RDONLY
         | getattr(os, "O_BINARY", 0)
@@ -171,7 +318,11 @@ def _file_sha256(path: Path, name: str) -> str:
     if not stat.S_ISREG(metadata.st_mode):
         raise ValueError(f"N0-TWAM {name} must be a non-symlink regular file")
     identity = _stat_identity(metadata)
-    digest = _cached_file_sha256(str(selected), *identity)
+    cache_root = _digest_cache_root()
+    if cache_root is None:
+        digest = _cached_file_sha256(str(selected), *identity)
+    else:
+        digest = _persistent_file_sha256(str(selected), identity, cache_root)
     try:
         current = selected.lstat()
     except OSError as error:

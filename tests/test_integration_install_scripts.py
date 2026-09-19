@@ -21,7 +21,9 @@ def _run(script: str, *arguments: str) -> subprocess.CompletedProcess[str]:
 def test_wrappers_support_help_without_network_or_writes() -> None:
     for script in (
         "install_act_runtime.sh",
+        "install_dream_tac.sh",
         "install_n0_twam.sh",
+        "install_n0_vtla.sh",
         "install_univtac.sh",
     ):
         completed = _run(script, "--help")

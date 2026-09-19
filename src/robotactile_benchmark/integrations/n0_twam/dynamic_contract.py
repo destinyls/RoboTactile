@@ -317,7 +317,7 @@ def cadence_gate(
     physics_steps_per_action: int,
     action_rows_per_keyframe: int = 3,
 ) -> dict[str, object]:
-    """Evaluate the physical 60 Hz endpoint and 20 Hz feedback contract."""
+    """Evaluate observed physics deltas against the explicitly supplied cadence."""
 
     if any(
         isinstance(value, bool) or not isinstance(value, int) or value < 1
@@ -338,7 +338,7 @@ def cadence_gate(
     passed = (
         remainder == 0
         and native_delta == native_steps_per_action
-        and physics_delta == physics_steps_per_action == 2
+        and physics_delta == physics_steps_per_action
         and fixed.get("stock_move_loop_used") is False
         and fixed.get("render_contract")
         == "one_endpoint_render_no_intermediate_render_v1"
@@ -354,10 +354,10 @@ def cadence_gate(
         "passed": passed,
         "physics_step_delta": physics_delta,
         "required": {
-            "action_endpoint_hz": 60.0,
-            "feedback_keyframe_hz": 20.0,
+            "action_endpoint_hz": endpoint_hz,
+            "feedback_keyframe_hz": endpoint_hz / action_rows_per_keyframe,
             "native_step_delta": native_steps_per_action,
-            "physics_step_delta": 2,
+            "physics_step_delta": physics_steps_per_action,
             "render_contract": "one_endpoint_render_no_intermediate_render_v1",
             "stock_move_loop_used": False,
         },

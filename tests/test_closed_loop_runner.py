@@ -34,7 +34,6 @@ from robotactile_benchmark.fixtures import make_synthetic_episode
 from robotactile_benchmark.manifests import FaultManifest, Observability
 from robotactile_benchmark.trials import (
     Condition,
-    RestorationMode,
     TerminalStatus,
     TrialManifest,
     system_manifest_hash,
@@ -62,8 +61,6 @@ def _trial(
         "action_spec": "qpos8_next_step",
         "fault_manifest_sha256": None,
         "matched_no_touch_system_id": None,
-        "restoration_index": None,
-        "restoration_mode": None,
     }
     if condition is Condition.NO_TOUCH:
         values.update(
@@ -674,13 +671,35 @@ class ClosedLoopRunnerTests(unittest.TestCase):
         self.assertEqual(result.observation_count, 4)
         self.assertEqual(result.control_cycle_count, 3)
 
-    def test_restoration_failure_keeps_operator_validation_codes(self) -> None:
+    def test_partial_final_chunk_commits_runner_timeout(self) -> None:
+        trial = _trial()
+        policy = DeterministicFakePolicy.for_trial(trial, action_horizon=3)
+
+        result, _, observed_policy = self._run(
+            backend=DeterministicFakeBackend(make_synthetic_episode(length=10)),
+            policy=policy,
+            spec=_spec(
+                execute_action_steps=3,
+                max_control_cycles=2,
+                max_observation_steps=5,
+            ),
+        )
+
+        self.assertEqual(result.terminal_status, TerminalStatus.TIMEOUT)
+        self.assertEqual(result.observation_count, 5)
+        self.assertEqual(result.control_cycle_count, 2)
+        self.assertEqual(len(observed_policy.committed), 2)
+        self.assertEqual(observed_policy.committed[-1].executed_actions.shape, (1, 8))
+        self.assertIs(
+            observed_policy.committed[-1].terminal_signal,
+            BackendSignal.TIMEOUT,
+        )
+
+    def test_faulted_failure_keeps_operator_validation_codes(self) -> None:
         fault = _fault("A2_frame_erasure")
         trial = _trial(
-            Condition.RESTORED,
+            Condition.FAULTED,
             fault_manifest_sha256=fault.sha256,
-            restoration_index=fault.stop_index,
-            restoration_mode=RestorationMode.VALID_STREAM_RESUME,
         )
 
         result, _, _ = self._run(
@@ -693,7 +712,6 @@ class ClosedLoopRunnerTests(unittest.TestCase):
         self.assertEqual(result.failure_stage, "validation")
         self.assertEqual(result.failure_code, "validator_rejected")
         self.assertIn("A2_RESUME_MISSING", result.validation_failure_codes)
-        self.assertIn("RESTORATION_NOT_OBSERVED", result.validation_failure_codes)
 
     def test_trial_result_rejects_forged_trace_and_mutable_semantics(self) -> None:
         result, _, _ = self._run()
@@ -905,37 +923,27 @@ class ClosedLoopRunnerTests(unittest.TestCase):
         self.assertEqual(backend.close_count, 1)
         self.assertEqual(observed_policy.close_count, 1)
 
-    def test_close_crash_preserves_restoration_and_operator_validation_codes(
-        self,
-    ) -> None:
-        for operator_id, expected_codes in (
-            ("A1_stream_absence", ("RESTORATION_NOT_OBSERVED",)),
-            ("A2_frame_erasure", ("A2_RESUME_MISSING", "RESTORATION_NOT_OBSERVED")),
-        ):
-            with self.subTest(operator_id=operator_id):
-                fault = _fault(operator_id)
-                trial = _trial(
-                    Condition.RESTORED,
-                    fault_manifest_sha256=fault.sha256,
-                    restoration_index=fault.stop_index,
-                    restoration_mode=RestorationMode.VALID_STREAM_RESUME,
-                )
-                result, _, _ = self._run(
-                    trial=trial,
-                    fault=fault,
-                    backend=DeterministicFakeBackend(
-                        make_synthetic_episode(length=10),
-                        terminal_signal=BackendSignal.SUCCESS,
-                        raise_on_close=True,
-                    ),
-                    spec=_spec(max_control_cycles=1, max_observation_steps=2),
-                )
+    def test_close_crash_preserves_operator_validation_codes(self) -> None:
+        fault = _fault("A2_frame_erasure")
+        trial = _trial(
+            Condition.FAULTED,
+            fault_manifest_sha256=fault.sha256,
+        )
+        result, _, _ = self._run(
+            trial=trial,
+            fault=fault,
+            backend=DeterministicFakeBackend(
+                make_synthetic_episode(length=10),
+                terminal_signal=BackendSignal.SUCCESS,
+                raise_on_close=True,
+            ),
+            spec=_spec(max_control_cycles=1, max_observation_steps=2),
+        )
 
-                self.assertEqual(result.terminal_status, TerminalStatus.CRASH)
-                self.assertEqual(result.failure_stage, "close")
-                self.assertFalse(result.validation_passed)
-                for expected_code in expected_codes:
-                    self.assertIn(expected_code, result.validation_failure_codes)
+        self.assertEqual(result.terminal_status, TerminalStatus.CRASH)
+        self.assertEqual(result.failure_stage, "close")
+        self.assertFalse(result.validation_passed)
+        self.assertIn("A2_RESUME_MISSING", result.validation_failure_codes)
 
     def test_rehashed_receipt_rejects_unknown_and_impossible_failure_stages(
         self,

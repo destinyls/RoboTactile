@@ -9,6 +9,7 @@ from robotactile_benchmark.closed_loop.artifact_semantics import (
 )
 from robotactile_benchmark.closed_loop.capture import ClosedLoopExecutionEvidence
 from robotactile_benchmark.closed_loop.contracts import ClosedLoopRunSpec
+from robotactile_benchmark.closed_loop.validation import validate_online_delivery
 from robotactile_benchmark.contracts import canonical_hash
 from robotactile_benchmark.execution.live_artifacts_contracts import (
     LIVE_MAX_TRACE_RECORDS,
@@ -23,7 +24,7 @@ from robotactile_benchmark.execution.loading import LoadedLiveUniVTACRun
 from robotactile_benchmark.manifests import FaultManifest
 from robotactile_benchmark.rest_references import RestReferenceBundle
 from robotactile_benchmark.trials import Condition, TrialManifest
-from robotactile_benchmark.validators import ValidationReport, validate_delivery
+from robotactile_benchmark.validators import ValidationReport
 
 
 def validate_live_write_inputs(
@@ -105,7 +106,7 @@ def _validate_evidence_semantics(
         raise LiveArtifactValidationError("live action trace exceeds cap")
     if len(evidence.transition_entries) > LIVE_MAX_TRACE_RECORDS:
         raise LiveArtifactValidationError("live transition trace exceeds cap")
-    faulted = trial.condition in {Condition.FAULTED, Condition.RESTORED}
+    faulted = trial.condition is Condition.FAULTED
     if faulted != (fault is not None) or trial.fault_manifest_sha256 != (
         None if fault is None else fault.sha256
     ):
@@ -124,7 +125,7 @@ def _validate_evidence_semantics(
         return
     if fault is None:
         raise LiveArtifactValidationError("identity trace cannot carry validation")
-    rerun = validate_delivery(
+    rerun = validate_online_delivery(
         finalization.clean_records,
         finalization.delivered_records,
         fault,

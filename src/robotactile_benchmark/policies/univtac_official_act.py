@@ -10,11 +10,12 @@ from __future__ import annotations
 import importlib.util
 import sys
 from collections.abc import Callable, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from types import MappingProxyType
-from typing import Any, Optional, Protocol, Tuple, cast
+from types import MappingProxyType, ModuleType
+from typing import Any, Iterator, Optional, Protocol, Tuple, cast
 
 import numpy as np
 
@@ -144,6 +145,74 @@ def _runtime_args(
     }
 
 
+def _pinned_module(
+    module_name: str,
+    expected_path: Path,
+) -> ModuleType:
+    module = sys.modules.get(module_name)
+    if type(module) is not ModuleType or module.__name__ != module_name:
+        raise RuntimeError(f"pinned official ACT {module_name} module is unavailable")
+    module_file = getattr(module, "__file__", None)
+    if not isinstance(module_file, str):
+        raise RuntimeError(f"pinned official ACT {module_name} origin is unavailable")
+    try:
+        actual_path = Path(module_file).resolve(strict=True)
+        pinned_path = expected_path.resolve(strict=True)
+    except OSError as error:
+        raise RuntimeError(
+            f"pinned official ACT {module_name} origin cannot be resolved"
+        ) from error
+    if actual_path != pinned_path:
+        raise RuntimeError(f"pinned official ACT {module_name} origin mismatch")
+    return module
+
+
+@contextmanager
+def _disable_pinned_resnet_pretraining(source_path: Path) -> Iterator[None]:
+    """Disable upstream torchvision downloads for one runtime construction."""
+
+    source_root = source_path.parent
+    backbone = _pinned_module(
+        "detr.models.backbone",
+        source_root / "detr/models/backbone.py",
+    )
+    misc = _pinned_module(
+        "util.misc",
+        source_root / "detr/util/misc.py",
+    )
+    original = getattr(backbone, "is_main_process", None)
+    canonical = getattr(misc, "is_main_process", None)
+    if not callable(original) or original is not canonical:
+        raise RuntimeError("pinned official ACT is_main_process identity mismatch")
+    if getattr(original, "__module__", None) != "util.misc":
+        raise RuntimeError("pinned official ACT is_main_process owner mismatch")
+    code = getattr(original, "__code__", None)
+    if code is None:
+        raise RuntimeError("pinned official ACT is_main_process code is unavailable")
+    try:
+        function_path = Path(code.co_filename).resolve(strict=True)
+        expected_path = (source_root / "detr/util/misc.py").resolve(strict=True)
+    except (AttributeError, OSError) as error:
+        raise RuntimeError(
+            "pinned official ACT is_main_process source cannot be resolved"
+        ) from error
+    if function_path != expected_path:
+        raise RuntimeError("pinned official ACT is_main_process source mismatch")
+
+    def disabled_is_main_process() -> bool:
+        return False
+
+    backbone.__dict__["is_main_process"] = disabled_is_main_process
+    try:
+        if getattr(backbone, "is_main_process", None) is not disabled_is_main_process:
+            raise RuntimeError(
+                "pinned official ACT pretraining guard was not installed"
+            )
+        yield
+    finally:
+        backbone.__dict__["is_main_process"] = original
+
+
 def _construct_pinned_upstream_runtime(
     *,
     source_path: Path,
@@ -184,7 +253,10 @@ def _construct_pinned_upstream_runtime(
         if not callable(cuda_device):
             raise RuntimeError("official ACT CUDA device context is unavailable")
         args = _runtime_args(profile, task_id, encoder_path, device_name)
-        with cuda_device(device_name):
+        with (
+            _disable_pinned_resnet_pretraining(source_path),
+            cuda_device(device_name),
+        ):
             return runtime_class(args)
     finally:
         sys.path[:] = old_path
@@ -222,7 +294,19 @@ class _OwnedRuntime:
     def get_action(self, observation: Mapping[str, object]) -> Array:
         if self._runtime is None:
             raise RuntimeError("official ACT runtime is closed")
-        return cast(Array, self._runtime.get_action(observation))
+        action = self._runtime.get_action(observation)
+        if (
+            isinstance(action, np.ndarray)
+            and action.dtype == np.float64
+            and action.shape == (1, 8)
+            and np.isfinite(action).all()
+        ):
+            # Upstream temporal aggregation builds its exponential weights with
+            # NumPy's float64 default and promotes an otherwise float32 action.
+            # Canonicalize only that exact, finite official output at the pinned
+            # runtime boundary; the policy keeps rejecting every other mismatch.
+            return np.ascontiguousarray(action, dtype=np.float32)
+        return cast(Array, action)
 
     def close(self) -> None:
         if self._runtime is None:

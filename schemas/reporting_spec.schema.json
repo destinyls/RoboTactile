@@ -24,7 +24,7 @@
       "items": {"type": "integer", "minimum": 1, "maximum": 5}
     },
     "confidence_level": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1},
-    "semantic_version": {"const": "1.0"}
+    "semantic_version": {"const": "2.0"}
   },
   "$defs": {
     "operator": {"enum": [

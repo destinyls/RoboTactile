@@ -74,9 +74,10 @@ def test_documented_capability_boundary_is_explicit() -> None:
     guide = (ROOT / "docs/reproducibility.md").read_text(encoding="utf-8")
 
     assert "N0 UniVTAC Clean" in readme
-    assert "Campaign driver pending" in readme
-    assert "current complete live primary matrix is ACT-specific" in guide
-    assert "Do not present those commands as an N0-TWAM fault benchmark" in guide
+    assert "N0 UniVTAC fault robustness | Implemented" in readme
+    assert "complete ACT live primary matrix remains ACT-specific" in guide
+    assert "N0 Clean/Faulted campaign is implemented" in guide
+    assert "reports A1/A2 as unsupported" in guide
 
 
 def test_release_install_uses_an_exact_wheel_and_locked_visualization() -> None:

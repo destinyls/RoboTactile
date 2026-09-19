@@ -1,4 +1,4 @@
-"""Paired aggregation for four-condition RoboTactile result matrices."""
+"""Paired aggregation for clean/faulted/no-touch result matrices."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ from robotactile_benchmark.reporting.cells import build_operator_cells, paired_v
 from robotactile_benchmark.reporting.contracts import OutcomeRecord, ReportingSpec
 from robotactile_benchmark.reporting.coverage import (
     build_coverage_summary,
-    build_recovery_summary,
     primary_task_score_complete,
 )
 from robotactile_benchmark.reporting.statistics import (
@@ -191,7 +190,7 @@ def _task_summaries(
                 clean_gain=clean_gain,
                 fault_sr=fault_sr,
                 paired_delta_sr=mean(
-                    fault_scores[pair] - _required_success(clean[pair])
+                    _required_success(clean[pair]) - fault_scores[pair]
                     for pair in scoreable
                 ),
                 no_touch_relative_fault_delta=(
@@ -218,7 +217,7 @@ def _task_summaries(
 def aggregate_benchmark(
     outcomes: Iterable[OutcomeRecord], spec: ReportingSpec
 ) -> BenchmarkSummary:
-    """Aggregate verified outcomes without dropping unsupported cells."""
+    """Aggregate outcomes; paired degradation is clean minus faulted SR."""
 
     records = tuple(outcomes)
     if not records:
@@ -238,7 +237,7 @@ def aggregate_benchmark(
     tasks = _task_summaries(clean, no_touch, fault_scores, faults, spec)
     differences_by_task = {
         task.task: tuple(
-            fault_scores[pair] - _required_success(clean[pair])
+            _required_success(clean[pair]) - fault_scores[pair]
             for pair in sorted(clean)
             if pair[0] == task.task
             and pair in fault_scores
@@ -274,7 +273,6 @@ def aggregate_benchmark(
                 item.severity_level,
             ),
         ),
-        recovery=build_recovery_summary(records),
         coverage=coverage,
         macro_clean_sr=mean(task.clean_sr for task in tasks),
         macro_no_touch_sr=(

@@ -32,7 +32,6 @@ from robotactile_benchmark.matrix.io import canonical_matrix_json_bytes
 from robotactile_benchmark.matrix.live_run_config import LiveMatrixRunConfigError
 from robotactile_benchmark.trials import (
     Condition,
-    RestorationMode,
     TrialManifest,
     system_manifest_hash,
 )
@@ -55,8 +54,6 @@ def _manifest():  # type: ignore[no-untyped-def]
         action_spec=ACTION_SPEC,
         fault_manifest_sha256=None,
         matched_no_touch_system_id=None,
-        restoration_index=None,
-        restoration_mode=None,
     )
     fault = FaultManifest(
         operator_id="A1_stream_absence",
@@ -69,10 +66,9 @@ def _manifest():  # type: ignore[no-untyped-def]
         parameters={},
     )
     return build_focused_phase_manifest(
-        matrix_id="live-cli-four-condition-v1",
+        matrix_id="live-cli-three-condition-v1",
         clean=clean,
-        grid_points=(MatrixGridPoint("contact-window", fault, 3),),
-        restoration_mode=RestorationMode.VALID_STREAM_RESUME,
+        grid_points=(MatrixGridPoint("contact-window", fault),),
         no_touch_system_id="univtac-act-vision-only",
         no_touch_checkpoint_sha256="e" * 64,
         no_touch_config_sha256="f" * 64,

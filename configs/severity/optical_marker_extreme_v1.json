@@ -1,0 +1,23 @@
+{
+  "registry_id": "optical_marker_extreme_v1",
+  "semantic_version": "1.0",
+  "calibration_status": "opt-in observation-level engineering extreme; not physically calibrated; outside standard S1-S5 claims; A1 and C1 already at ceiling and unchanged from stress",
+  "cross_operator_comparable": false,
+  "level": 5,
+  "paths": {
+    "A1_stream_absence": {"unit": "affected_window_fraction", "value": 1.0},
+    "A2_frame_erasure": {"unit": "requested_erased_frame_fraction", "value": 0.98},
+    "F1_global_response_drift": {"unit": "target_red_channel_gain", "value": 0.04},
+    "F2_spatial_sensitivity_loss": {"unit": "retained_regional_gain", "value": 0.005},
+    "F3_persistent_surface_artifact": {"unit": "scar_rgb_amplitude_dose", "value": 14},
+    "F4_local_nonresponsive_patch": {"unit": "core_radius_fraction_of_min_image_dimension", "value": 0.42},
+    "F5_contact_shape_distortion": {"unit": "peak_displacement_fraction_of_min_image_dimension", "value": 0.20},
+    "F6_history_residual_imprint": {"unit": "history_mix", "value": 0.97},
+    "F7_high_load_saturation": {"unit": "normalized_optical_residual_l2_knee", "value": 0.002},
+    "T1_fixed_source_delay": {"unit": "requested_delay_seconds", "value": 1.50},
+    "T2_held_last_freeze": {"unit": "requested_freeze_seconds", "value": 1.50},
+    "T3_inter_sensor_skew": {"unit": "requested_skew_seconds", "value": 1.50},
+    "C1_sensor_identity_misrouting": {"unit": "misrouted_window_fraction", "value": 1.0},
+    "C2_frame_misregistration": {"unit": "horizontal_translation_pixels", "value": 96}
+  }
+}

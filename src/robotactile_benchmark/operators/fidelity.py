@@ -88,6 +88,7 @@ class GlobalResponseDriftOperator:
         rest_references: Optional[RestReferenceBundle] = None,
     ) -> Tuple[EvaluationRecord, ...]:
         target_gain = float(manifest.parameters["target_gain"])
+        immediate = manifest.parameters["temporal_path"] == "immediate_step"
         span = max(1, manifest.stop_index - manifest.start_index - 1)
 
         def transform(
@@ -96,6 +97,12 @@ class GlobalResponseDriftOperator:
             payload: Array,
             record: EvaluationRecord,
         ) -> Array:
+            if immediate:
+                if manifest.parameters.get("response_domain") == "absolute_black_frame":
+                    return np.zeros_like(payload)
+                baseline = normalize(baseline_for(slot_id, manifest, rest_references))
+                current = normalize(payload)
+                return clip_like(payload, baseline + target_gain * (current - baseline))
             progress = (index - manifest.start_index) / float(span)
             gain = 1.0 - (1.0 - target_gain) * progress
             return clip_like(payload, normalize(payload) * gain)

@@ -1,4 +1,4 @@
-"""Static ACT and N0-TWAM registry with strict checked-in configs."""
+"""Static first-class model registry with strict checked-in configs."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from importlib import resources
 from pathlib import Path
 from typing import Mapping, Optional, cast
 
-from robotactile_benchmark.action_specs import EE8_ACTION_SPEC
+from robotactile_benchmark.action_specs import EE8_ACTION_SPEC, QPOS8_ACTION_SPEC
 from robotactile_benchmark.closed_loop.artifact_io import (
     canonical_json_bytes,
     strict_json_bytes,
@@ -27,7 +27,7 @@ _ACT = ModelIntegrationSpec(
     integration_id="act",
     display_name="ACT",
     adapter_api_version="robotactile-policy-adapter-v1",
-    external_pin_id="act_runtime",
+    external_pin_id="univtac",
     factory_path="robotactile_benchmark.integrations.act.factory:load_act_adapter",
     artifact_schema="official_act_artifact_manifest.schema.json",
     qualification_protocol="live-preflight-v1",
@@ -38,7 +38,48 @@ _ACT = ModelIntegrationSpec(
         matched_no_touch=True,
         stateful_commit=False,
         action_spec=ACTION_SPEC,
-        supported_conditions=("clean", "faulted", "no_touch", "restored"),
+        supported_conditions=("clean", "faulted", "no_touch"),
+    ),
+)
+_DREAM_TAC = ModelIntegrationSpec(
+    integration_id="dream_tac",
+    display_name="Dream-Tac",
+    adapter_api_version="robotactile-policy-adapter-v1",
+    external_pin_id="dream_tac",
+    factory_path=(
+        "robotactile_benchmark.integrations.dream_tac.factory:load_dream_tac_adapter"
+    ),
+    artifact_schema="dream_tac_artifact_manifest.schema.json",
+    qualification_protocol="source-bound-http-ee8-v1",
+    license_spdx="Apache-2.0",
+    capabilities=ModelIntegrationCapabilities(
+        consumes_tactile=True,
+        structural_absence=False,
+        matched_no_touch=False,
+        stateful_commit=False,
+        action_spec=EE8_ACTION_SPEC,
+        supported_conditions=("clean", "faulted"),
+    ),
+)
+_FTP1_POLICY = ModelIntegrationSpec(
+    integration_id="ftp1_policy",
+    display_name="FTP-1",
+    adapter_api_version="robotactile-policy-adapter-v1",
+    external_pin_id="ftp1_policy",
+    factory_path=(
+        "robotactile_benchmark.integrations.ftp1_policy.factory:"
+        "load_ftp1_policy_adapter"
+    ),
+    artifact_schema="ftp1_policy_artifact_manifest.schema.json",
+    qualification_protocol="official-zmq-temporal-ensemble-v1",
+    license_spdx="Apache-2.0",
+    capabilities=ModelIntegrationCapabilities(
+        consumes_tactile=True,
+        structural_absence=False,
+        matched_no_touch=False,
+        stateful_commit=True,
+        action_spec=QPOS8_ACTION_SPEC,
+        supported_conditions=("clean", "faulted"),
     ),
 )
 _N0_TWAM = ModelIntegrationSpec(
@@ -58,10 +99,30 @@ _N0_TWAM = ModelIntegrationSpec(
         matched_no_touch=False,
         stateful_commit=True,
         action_spec=EE8_ACTION_SPEC,
-        supported_conditions=("clean", "faulted", "restored"),
+        supported_conditions=("clean", "faulted"),
     ),
 )
-_REGISTRY = (_ACT, _N0_TWAM)
+_N0_VTLA = ModelIntegrationSpec(
+    integration_id="n0_vtla",
+    display_name="N0-VTLA",
+    adapter_api_version="robotactile-policy-adapter-v1",
+    external_pin_id="n0_vtla",
+    factory_path=(
+        "robotactile_benchmark.integrations.n0_vtla.factory:load_n0_vtla_adapter"
+    ),
+    artifact_schema="n0_vtla_artifact_manifest.schema.json",
+    qualification_protocol="official-zmq-full-chunk-v1",
+    license_spdx="CC-BY-SA-4.0",
+    capabilities=ModelIntegrationCapabilities(
+        consumes_tactile=True,
+        structural_absence=False,
+        matched_no_touch=False,
+        stateful_commit=False,
+        action_spec=ACTION_SPEC,
+        supported_conditions=("clean", "faulted"),
+    ),
+)
+_REGISTRY = (_ACT, _DREAM_TAC, _FTP1_POLICY, _N0_TWAM, _N0_VTLA)
 
 
 def list_model_integrations() -> tuple[ModelIntegrationSpec, ...]:
@@ -104,9 +165,13 @@ class ModelIntegrationConfig:
             raise ValueError("relative artifact_manifest cannot escape its root")
         if not self.device or self.device.strip() != self.device:
             raise ValueError("device must be a non-empty string")
-        expected_transport = (
-            "in_process" if spec.integration_id == "act" else "official_websocket"
-        )
+        expected_transport = {
+            "act": "in_process",
+            "dream_tac": "official_http",
+            "ftp1_policy": "official_zmq",
+            "n0_twam": "official_websocket",
+            "n0_vtla": "official_zmq",
+        }[spec.integration_id]
         if self.transport != expected_transport:
             raise ValueError("transport does not match the registered integration")
 

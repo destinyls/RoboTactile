@@ -315,7 +315,8 @@ def test_task_shard_isolates_n0_subprocesses_from_isaac_python() -> None:
         '"PYTHONPATH"',
         '"PYTHONUSERBASE"',
         '"VIRTUAL_ENV"',
-        "n0_environment = _n0_subprocess_environment()",
+        "n0_environment = _n0_subprocess_environment(layout.root)",
+        '"ROBOTACTILE_N0_DIGEST_CACHE_DIR"',
         "env=n0_environment",
         "environment=n0_environment",
     ):

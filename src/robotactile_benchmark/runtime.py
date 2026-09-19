@@ -6,7 +6,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
-from robotactile_benchmark.constants import REST_REFERENCE_OPERATOR_IDS
+from robotactile_benchmark.constants import (
+    OPTICAL_MARKER_REGISTRY_IDS,
+    operator_requires_rest_reference,
+)
 from robotactile_benchmark.contracts import (
     EvaluationRecord,
     canonical_hash,
@@ -49,7 +52,10 @@ def apply_fault(
     clean_records = tuple(clean_records)
     if manifest.stop_index > len(clean_records):
         raise ValueError("fault window exceeds the episode length")
-    if manifest.operator_id in REST_REFERENCE_OPERATOR_IDS:
+    if operator_requires_rest_reference(
+        manifest.operator_id,
+        severity_registry=manifest.severity_registry,
+    ):
         if rest_references is None:
             raise ValueError("this operator requires a frozen rest-reference bundle")
         if manifest.parameters["rest_reference_sha256"] != rest_references.sha256:
@@ -67,11 +73,29 @@ def apply_fault(
         last_erasure = manifest.start_index + int(
             manifest.parameters["erased_offsets"][-1]
         )
-        if last_erasure >= len(clean_records) - 1:
+        if (
+            last_erasure >= len(clean_records) - 1
+            and manifest.parameters.get("a2_end_policy") != "episode_censored_v1"
+        ):
             raise ValueError("A2 requires a later clean payload to resume")
-    operator = get_operator(manifest.operator_id)
-    records = operator.apply(clean_records, manifest, rest_references)
-    validation = validate_delivery(
-        clean_records, records, manifest, rest_references=rest_references
-    )
+    if manifest.severity_registry in OPTICAL_MARKER_REGISTRY_IDS:
+        from robotactile_benchmark.streaming.session import StreamingFaultSession
+
+        session = StreamingFaultSession(manifest, rest_references)
+        records = tuple(session.deliver_one(record) for record in clean_records)
+    else:
+        operator = get_operator(manifest.operator_id)
+        records = operator.apply(clean_records, manifest, rest_references)
+    if manifest.parameters.get("a2_end_policy") == "episode_censored_v1":
+        from robotactile_benchmark.closed_loop.validation import (
+            validate_online_delivery,
+        )
+
+        validation = validate_online_delivery(
+            clean_records, records, manifest, rest_references
+        )
+    else:
+        validation = validate_delivery(
+            clean_records, records, manifest, rest_references=rest_references
+        )
     return ReplayResult(records, validation, trace_hash(records, manifest))

@@ -8,6 +8,8 @@ from robotactile_benchmark.policies.univtac_official_act_loading import (
     OfficialUniVTACACTArtifactManifest,
 )
 
+PULL_OUT_KEY_MATRIX_SEMANTIC_VERSION = "2.0"
+
 
 def artifact_document(
     manifest: OfficialUniVTACACTArtifactManifest,
@@ -57,5 +59,5 @@ def trial_set_document(
         "exogenous_seed": exogenous_seed,
         "action_horizon": action_horizon,
         "max_observation_steps": max_observation_steps,
-        "semantic_version": "1.0",
+        "semantic_version": PULL_OUT_KEY_MATRIX_SEMANTIC_VERSION,
     }

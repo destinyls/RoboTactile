@@ -79,6 +79,35 @@ def test_official_client_runs_reset_infer_commit_without_retry() -> None:
     assert rpc.closed is True
 
 
+def test_official_client_uses_tensor_free_tactile_drop_protocol() -> None:
+    rpc = FakeRPC()
+    client = OfficialN0Client(rpc)
+    client.reset(prompt=_PULL_PROMPT, seed=17)
+    observation = _observation(_PULL_PROMPT)
+    observation.pop("tactile")
+    observation["tactile_cond_drop"] = True
+    action = client.infer(observation)
+    keyframes = tuple(
+        {"observation.images.top": np.zeros((2, 2, 3), np.uint8)} for _ in range(4)
+    )
+    client.commit(
+        video_keyframes=keyframes,
+        tactile_keyframes=None,
+        inferred_action=action,
+        native_action=action,
+        action_transform=OfficialN0CommitTransform.IDENTITY,
+        current_state=_state(),
+        prompt=_PULL_PROMPT,
+        observed_tactile_absent=True,
+    )
+
+    infer_request, commit_request = rpc.requests[-2:]
+    assert infer_request["tactile_cond_drop"] is True
+    assert "tactile" not in infer_request
+    assert commit_request["tactile_cond_drop"] is True
+    assert "tactile" not in commit_request
+
+
 def test_official_client_enters_indeterminate_state_after_commit_failure() -> None:
     class FailingRPC(FakeRPC):
         def infer(self, observation: Mapping[str, object]) -> Mapping[str, object]:

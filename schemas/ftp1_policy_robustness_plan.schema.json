@@ -1,0 +1,372 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robotactile.invalid/schemas/ftp1_policy_robustness_plan.schema.json",
+  "title": "FTP-1 robustness paired request plan receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_manifest",
+    "base_system_id",
+    "budgets",
+    "dataset_sha256",
+    "evidence_level",
+    "exogenous_seed",
+    "fault_window",
+    "initial_seed",
+    "member_sha256",
+    "ordered_requests",
+    "pair_key",
+    "paired_run",
+    "plan_contract_sha256",
+    "plan_id",
+    "policy_kind",
+    "rest_reference",
+    "schema_version",
+    "severity_profile",
+    "simulator_execution_claimed",
+    "task_id",
+    "task_success_claimed",
+    "unsupported_contracts"
+  ],
+  "properties": {
+    "artifact_manifest": { "$ref": "#/$defs/artifactManifest" },
+    "base_system_id": { "type": "string", "minLength": 1 },
+    "budgets": { "$ref": "#/$defs/budgets" },
+    "dataset_sha256": { "$ref": "#/$defs/sha256" },
+    "evidence_level": {
+      "const": "request_generation_only_no_model_or_simulator_execution_v1"
+    },
+    "exogenous_seed": { "type": "integer", "minimum": 0 },
+    "fault_window": { "$ref": "#/$defs/faultWindow" },
+    "initial_seed": { "type": "integer", "minimum": 0 },
+    "member_sha256": {
+      "type": "object",
+      "minProperties": 30,
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"
+      },
+      "additionalProperties": { "$ref": "#/$defs/sha256" }
+    },
+    "ordered_requests": {
+      "type": "array",
+      "minItems": 13,
+      "maxItems": 13,
+      "prefixItems": [
+        {
+          "allOf": [
+            { "$ref": "#/$defs/request" },
+            {
+              "properties": {
+                "condition": { "const": "clean" },
+                "fault_manifest_path": { "type": "null" },
+                "fault_manifest_sha256": { "type": "null" },
+                "fault_start_index": { "type": "null" },
+                "operator_id": { "type": "null" },
+                "ordinal": { "const": 0 },
+                "severity_level": { "type": "null" }
+              }
+            }
+          ]
+        }
+      ],
+      "items": { "$ref": "#/$defs/request" }
+    },
+    "pair_key": { "$ref": "#/$defs/sha256" },
+    "paired_run": { "$ref": "#/$defs/pairedRun" },
+    "plan_contract_sha256": { "$ref": "#/$defs/sha256" },
+    "plan_id": {
+      "type": "string",
+      "pattern": "^ftp1-[A-Za-z0-9_]+-[0-9a-f]{16}$"
+    },
+    "policy_kind": { "const": "ftp1_policy" },
+    "rest_reference": { "$ref": "#/$defs/restReference" },
+    "schema_version": { "const": "robotactile-ftp1-robustness-plan-v1" },
+    "severity_profile": { "$ref": "#/$defs/severityProfile" },
+    "simulator_execution_claimed": { "const": false },
+    "task_id": {
+      "enum": [
+        "insert_hole",
+        "insert_tube",
+        "lift_bottle",
+        "lift_can",
+        "pull_out_key",
+        "put_bottle_in_shelf"
+      ]
+    },
+    "task_success_claimed": { "const": false },
+    "unsupported_contracts": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": { "$ref": "#/$defs/unsupportedContract" }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "artifactManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "checkpoint_revision",
+        "checkpoint_sha256",
+        "config_sha256",
+        "integration_config_path",
+        "integration_config_sha256",
+        "manifest_path",
+        "manifest_sha256",
+        "source_commit"
+      ],
+      "properties": {
+        "checkpoint_revision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "checkpoint_sha256": { "$ref": "#/$defs/sha256" },
+        "config_sha256": { "$ref": "#/$defs/sha256" },
+        "integration_config_path": { "type": "string", "minLength": 1 },
+        "integration_config_sha256": { "$ref": "#/$defs/sha256" },
+        "manifest_path": { "type": "string", "minLength": 1 },
+        "manifest_sha256": { "$ref": "#/$defs/sha256" },
+        "source_commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+      }
+    },
+    "budgets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_control_cycles",
+        "max_observation_steps",
+        "simulator_device",
+        "wall_timeout_s"
+      ],
+      "properties": {
+        "max_control_cycles": { "type": "integer", "minimum": 1 },
+        "max_observation_steps": { "type": "integer", "minimum": 2 },
+        "simulator_device": { "type": "string", "minLength": 1 },
+        "wall_timeout_s": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "faultWindow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operator_start_indices", "start_index", "stop_index"],
+      "properties": {
+        "operator_start_indices": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "F1_global_response_drift",
+            "F2_spatial_sensitivity_loss",
+            "F3_persistent_surface_artifact",
+            "F4_local_nonresponsive_patch",
+            "F5_contact_shape_distortion",
+            "F6_history_residual_imprint",
+            "F7_high_load_saturation",
+            "T1_fixed_source_delay",
+            "T2_held_last_freeze",
+            "T3_inter_sensor_skew",
+            "C1_sensor_identity_misrouting",
+            "C2_frame_misregistration"
+          ],
+          "properties": {
+            "F1_global_response_drift": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "F2_spatial_sensitivity_loss": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "F3_persistent_surface_artifact": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "F4_local_nonresponsive_patch": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "F5_contact_shape_distortion": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "F6_history_residual_imprint": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "F7_high_load_saturation": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "T1_fixed_source_delay": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "T2_held_last_freeze": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "T3_inter_sensor_skew": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "C1_sensor_identity_misrouting": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "C2_frame_misregistration": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "start_index": { "type": "integer", "minimum": 0 },
+        "stop_index": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "severityProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence_scope", "profile_id", "registry_id", "severity_level"],
+      "properties": {
+        "evidence_scope": { "enum": ["registered_s1_s5", "diagnostic_non_paper"] },
+        "profile_id": {
+          "enum": [
+            "registered_s1",
+            "registered_s2",
+            "registered_s3",
+            "registered_s4",
+            "registered_s5",
+            "diagnostic_stress_max"
+          ]
+        },
+        "registry_id": {
+          "enum": ["provisional_engineering_v2", "diagnostic_stress_max_v1"]
+        },
+        "severity_level": { "type": "integer", "minimum": 1, "maximum": 5 }
+      }
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "condition",
+        "fault_manifest_path",
+        "fault_manifest_sha256",
+        "fault_start_index",
+        "live_output_dir",
+        "operator_id",
+        "ordinal",
+        "request_file_sha256",
+        "request_path",
+        "severity_level",
+        "trial_manifest_sha256"
+      ],
+      "properties": {
+        "condition": { "enum": ["clean", "faulted"] },
+        "fault_manifest_path": {
+          "type": ["string", "null"],
+          "pattern": "^fault_manifests/"
+        },
+        "fault_manifest_sha256": {
+          "oneOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }]
+        },
+        "fault_start_index": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "live_output_dir": { "type": "string", "minLength": 1 },
+        "operator_id": {
+          "type": ["string", "null"],
+          "enum": [
+            null,
+            "F1_global_response_drift",
+            "F2_spatial_sensitivity_loss",
+            "F3_persistent_surface_artifact",
+            "F4_local_nonresponsive_patch",
+            "F5_contact_shape_distortion",
+            "F6_history_residual_imprint",
+            "F7_high_load_saturation",
+            "T1_fixed_source_delay",
+            "T2_held_last_freeze",
+            "T3_inter_sensor_skew",
+            "C1_sensor_identity_misrouting",
+            "C2_frame_misregistration"
+          ]
+        },
+        "ordinal": { "type": "integer", "minimum": 0, "maximum": 12 },
+        "request_file_sha256": { "$ref": "#/$defs/sha256" },
+        "request_path": { "type": "string", "pattern": "^requests/" },
+        "severity_level": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "maximum": 5
+        },
+        "trial_manifest_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "pairedRun": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["receipt_path", "request_paths", "subcommand"],
+      "properties": {
+        "receipt_path": { "type": "string", "minLength": 1 },
+        "request_paths": {
+          "type": "array",
+          "minItems": 13,
+          "maxItems": 13,
+          "items": { "type": "string", "pattern": "^requests/" }
+        },
+        "subcommand": { "const": "live-univtac-paired-run" }
+      }
+    },
+    "restReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bundled_path",
+        "no_contact_validation_sha256",
+        "rest_reference_sha256",
+        "root_receipt_sha256"
+      ],
+      "properties": {
+        "bundled_path": { "const": "rest_reference_artifact" },
+        "no_contact_validation_sha256": { "$ref": "#/$defs/sha256" },
+        "rest_reference_sha256": { "$ref": "#/$defs/sha256" },
+        "root_receipt_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "unsupportedContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "applicability",
+        "black_frame_used",
+        "fault_manifest_generated",
+        "file_sha256",
+        "operator_id",
+        "pair_key",
+        "path",
+        "policy_kind",
+        "reason_code",
+        "request_generated",
+        "status",
+        "substituted_payload",
+        "task_id"
+      ],
+      "properties": {
+        "applicability": { "const": "N/A" },
+        "black_frame_used": { "const": false },
+        "fault_manifest_generated": { "const": false },
+        "file_sha256": { "$ref": "#/$defs/sha256" },
+        "operator_id": { "enum": ["A1_stream_absence", "A2_frame_erasure"] },
+        "pair_key": { "$ref": "#/$defs/sha256" },
+        "path": { "type": "string", "pattern": "^unsupported_contracts/" },
+        "policy_kind": { "const": "ftp1_policy" },
+        "reason_code": { "const": "ftp1_requires_both_tactile_streams_v1" },
+        "request_generated": { "const": false },
+        "status": { "const": "unsupported_contract" },
+        "substituted_payload": { "const": false },
+        "task_id": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

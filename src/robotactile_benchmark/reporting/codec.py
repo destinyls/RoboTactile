@@ -10,7 +10,6 @@ from robotactile_benchmark.reporting.summary_contracts import (
     BenchmarkSummary,
     CoverageSummary,
     OperatorCellSummary,
-    RecoverySummary,
     TaskSummary,
 )
 
@@ -94,9 +93,6 @@ def summary_from_dict(value: object) -> BenchmarkSummary:
     )
     if len(matches) != 1:
         raise ValueError("worst cell pointer is not unique")
-    recovery_data = _exact_dict(
-        data["recovery"], set(RecoverySummary.__dataclass_fields__), "recovery"
-    )
     coverage_data = _exact_dict(
         data["coverage"], set(CoverageSummary.__dataclass_fields__), "coverage"
     )
@@ -116,7 +112,6 @@ def summary_from_dict(value: object) -> BenchmarkSummary:
         tasks=tuple(_task(item) for item in tasks),
         operator_cells=decoded_cells,
         worst_cell=matches[0],
-        recovery=RecoverySummary(**recovery_data),
         coverage=CoverageSummary(
             requested_count=coverage_data["requested_count"],
             eligible_count=coverage_data["eligible_count"],

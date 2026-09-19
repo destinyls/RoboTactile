@@ -11,6 +11,9 @@ from robotactile_benchmark.backends.univtac_contracts import UniVTACContractErro
 from robotactile_benchmark.backends.univtac_extended_task_diagnostics import (
     capture_extended_task_diagnostics,
 )
+from robotactile_benchmark.backends.univtac_success_profiles import (
+    INSERT_HOLE_STRICT_THRESHOLDS,
+)
 
 _INSERTION_PLACEMENT_PHASES = (
     "approach_complete",
@@ -98,18 +101,20 @@ def _grasp_classify(task: Any) -> Mapping[str, object]:
     tactile_attachment = getattr(task, "_robotactile_tactile_attachment", None)
     robot_manager = getattr(task, "_robot_manager", None)
     get_gripper_pose = getattr(robot_manager, "get_gripper_center_pose", None)
-    if (
-        not callable(get_pose)
-        or target_pose is None
-        or not isinstance(initialization, Mapping)
-        or not isinstance(tactile_attachment, Mapping)
-        or not callable(get_gripper_pose)
-    ):
+    if not callable(get_pose) or target_pose is None or not callable(get_gripper_pose):
         return {
             "diagnostic_schema": "univtac-grasp-classify-predicate-v1",
             "available": False,
-            "unavailable_reason": "task_actors_or_initialization_unavailable",
+            "unavailable_reason": "task_actors_or_robot_pose_unavailable",
         }
+    if initialization is not None and not isinstance(initialization, Mapping):
+        raise UniVTACContractError(
+            "grasp_classify initialization diagnostics must be a mapping"
+        )
+    if tactile_attachment is not None and not isinstance(tactile_attachment, Mapping):
+        raise UniVTACContractError(
+            "grasp_classify tactile attachment diagnostics must be a mapping"
+        )
     prism_pose = get_pose()
     rebase = getattr(prism_pose, "rebase", None)
     if not callable(rebase):
@@ -135,7 +140,7 @@ def _grasp_classify(task: Any) -> Mapping[str, object]:
         "diagnostic_schema": "univtac-grasp-classify-predicate-v1",
         "available": True,
         "gripper_center_pose": _pose(get_gripper_pose(), "gripper center"),
-        "initialization": dict(initialization),
+        "initialization": (None if initialization is None else dict(initialization)),
         "orientation_alignment_to_world_z": orientation_alignment,
         "predicate_success": predicate_success,
         "prism_pose": _pose(prism_pose, "prism"),
@@ -147,7 +152,9 @@ def _grasp_classify(task: Any) -> Mapping[str, object]:
             "orientation_alignment_gt_0_965": orientation_pass,
         },
         "target_pose": _pose(target_pose, "target"),
-        "tactile_attachment": dict(tactile_attachment),
+        "tactile_attachment": (
+            None if tactile_attachment is None else dict(tactile_attachment)
+        ),
     }
 
 
@@ -207,6 +214,14 @@ def _insertion_inhand(
             "abs(origin_inhand_pose[2] - current_inhand_pose[2]) > threshold"
         ),
     }
+    if task_id == "insert_hole":
+        result.update(
+            _insert_hole_success_metrics(
+                task=task,
+                prism_pose=prism_pose,
+                inhand_z_drift_m=inhand_z_bias_m,
+            )
+        )
     placement_witnesses = getattr(task, "_robotactile_placement_witnesses", None)
     if include_placement_assessment and placement_witnesses is not None:
         if not isinstance(placement_witnesses, tuple) or not all(
@@ -221,6 +236,72 @@ def _insertion_inhand(
             witnesses=normalized,
         )
     return result
+
+
+def _insert_hole_success_metrics(
+    *,
+    task: Any,
+    prism_pose: object,
+    inhand_z_drift_m: float,
+) -> Mapping[str, object]:
+    """Recompute official and strict insertion geometry from one live pose."""
+
+    target_pose = getattr(task, "target_pose", None)
+    rebase = getattr(prism_pose, "rebase", None)
+    if target_pose is None or not callable(rebase):
+        return {
+            "success_metrics_available": False,
+            "success_metrics_unavailable_reason": "target_pose_unavailable",
+        }
+    relative_pose = rebase(target_pose)
+    relative = np.asarray(getattr(relative_pose, "p", None), dtype=np.float64)
+    matrix_method = getattr(relative_pose, "to_transformation_matrix", None)
+    if (
+        relative.shape != (3,)
+        or not np.isfinite(relative).all()
+        or not callable(matrix_method)
+    ):
+        raise UniVTACContractError("insert_hole relative pose is invalid")
+    matrix = np.asarray(matrix_method(), dtype=np.float64)
+    if matrix.shape != (4, 4) or not np.isfinite(matrix).all():
+        raise UniVTACContractError("insert_hole relative transform is invalid")
+
+    xy_error_m = float(np.linalg.norm(relative[:2]))
+    insertion_depth_m = -float(relative[2])
+    alignment_dot = float(np.dot(matrix[:3, 2], (0.0, 0.0, 1.0)))
+    official_conditions = {
+        "abs_relative_x_lt_0_01": bool(abs(relative[0]) < 0.01),
+        "abs_relative_y_lt_0_01": bool(abs(relative[1]) < 0.01),
+        "insertion_depth_m_gt_0_04": bool(insertion_depth_m > 0.04),
+        "alignment_dot_gt_0_99": bool(alignment_dot > 0.99),
+        "inhand_z_drift_m_lt_0_04": bool(inhand_z_drift_m < 0.04),
+    }
+    thresholds = INSERT_HOLE_STRICT_THRESHOLDS
+    strict_conditions = {
+        "xy_error_m_lt_0_005": bool(xy_error_m < thresholds.xy_error_m),
+        "insertion_depth_m_gt_0_050": bool(
+            insertion_depth_m > thresholds.insertion_depth_m
+        ),
+        "alignment_dot_gt_0_999": bool(alignment_dot > thresholds.alignment_dot),
+        "inhand_z_drift_m_lt_0_025": bool(
+            inhand_z_drift_m < thresholds.inhand_z_drift_m
+        ),
+    }
+    return {
+        "diagnostic_schema": "univtac-insert-hole-dual-success-v1",
+        "success_metrics_available": True,
+        "target_pose": _pose(target_pose, "target"),
+        "relative_position_xyz": [float(item) for item in relative],
+        "xy_error_m": xy_error_m,
+        "insertion_depth_m": insertion_depth_m,
+        "alignment_dot": alignment_dot,
+        "inhand_z_drift_m": inhand_z_drift_m,
+        "official_success_conditions": official_conditions,
+        "predicate_success": all(official_conditions.values()),
+        "strict_success_conditions": strict_conditions,
+        "strict_instantaneous_success": all(strict_conditions.values()),
+        "strict_thresholds": thresholds.to_dict(),
+    }
 
 
 def _placement_reset_assessment(
@@ -305,26 +386,34 @@ def capture_task_diagnostics(
 ) -> Mapping[str, object]:
     """Capture task-specific read-only state or an explicit empty mapping."""
 
+    result: Mapping[str, object]
     if task_id == "lift_bottle":
-        return _lift_bottle(task)
-    if task_id == "grasp_classify":
-        return _grasp_classify(task)
-    if task_id == "insert_hole":
-        return _insertion_inhand(
+        result = _lift_bottle(task)
+    elif task_id == "grasp_classify":
+        result = _grasp_classify(task)
+    elif task_id == "insert_hole":
+        result = _insertion_inhand(
             task,
             task_id=task_id,
             early_stop_threshold_m=0.04,
             include_placement_assessment=include_placement_assessment,
         )
-    if task_id == "insert_tube":
-        return _insertion_inhand(
+    elif task_id == "insert_tube":
+        result = _insertion_inhand(
             task,
             task_id=task_id,
             early_stop_threshold_m=0.03,
             include_placement_assessment=include_placement_assessment,
         )
-    extended = capture_extended_task_diagnostics(task, task_id)
-    return {} if extended is None else extended
+    else:
+        extended = capture_extended_task_diagnostics(task, task_id)
+        result = {} if extended is None else extended
+    calibration = getattr(task, "_robotactile_rest_calibration", None)
+    if calibration is None:
+        return result
+    if not isinstance(calibration, Mapping):
+        raise UniVTACContractError("rest calibration witness must be a mapping")
+    return {**result, "rest_calibration": dict(calibration)}
 
 
 __all__ = ["capture_task_diagnostics"]

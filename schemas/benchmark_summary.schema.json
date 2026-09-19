@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": [
     "spec", "source_root_sha256", "tasks", "operator_cells", "worst_cell",
-    "recovery", "coverage", "macro_clean_sr", "macro_no_touch_sr",
+    "coverage", "macro_clean_sr", "macro_no_touch_sr",
     "macro_fault_sr", "macro_paired_delta_sr", "macro_tgr",
     "paired_delta_interval", "semantic_version"
   ],
@@ -26,7 +26,6 @@
         "severity_level": {"type": "integer", "minimum": 1, "maximum": 5}
       }
     },
-    "recovery": {"$ref": "#/$defs/recovery"},
     "coverage": {"$ref": "#/$defs/coverage"},
     "macro_clean_sr": {"$ref": "#/$defs/rate"},
     "macro_no_touch_sr": {"$ref": "#/$defs/rate"},
@@ -34,7 +33,7 @@
     "macro_paired_delta_sr": {"type": "number"},
     "macro_tgr": {"type": ["number", "null"]},
     "paired_delta_interval": {"$ref": "#/$defs/interval"},
-    "semantic_version": {"const": "1.0"}
+    "semantic_version": {"const": "2.0"}
   },
   "$defs": {
     "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
@@ -97,20 +96,6 @@
         "paired_delta_upper": {"type": ["number", "null"]},
         "mcnemar_p_value": {"$ref": "#/$defs/nullable_rate"},
         "holm_adjusted_p_value": {"$ref": "#/$defs/nullable_rate"}
-      }
-    },
-    "recovery": {
-      "type": "object", "additionalProperties": false,
-      "required": [
-        "eligible_count", "recovered_count", "unrecovered_fraction",
-        "median_lag_steps", "mean_lag_steps"
-      ],
-      "properties": {
-        "eligible_count": {"type": "integer", "minimum": 0},
-        "recovered_count": {"type": "integer", "minimum": 0},
-        "unrecovered_fraction": {"$ref": "#/$defs/nullable_rate"},
-        "median_lag_steps": {"type": ["number", "null"], "minimum": 0},
-        "mean_lag_steps": {"type": ["number", "null"], "minimum": 0}
       }
     },
     "terminal_count": {

@@ -12,6 +12,7 @@ from robotactile_benchmark.backends.univtac_contracts import (
     BACKEND_ID,
     FIXED_NATIVE_STEP_CONTRACT,
     N0_FIXED_ENDPOINT_ACTION_EXECUTION_CONTRACT,
+    N0_RETRAINED_10HZ_ACTION_EXECUTION_CONTRACT,
     N0_STOCK_EE_ACTION_EXECUTION_CONTRACT,
     N0_STOCK_EE_NATIVE_STEP_CONTRACT,
     N0_TRAINING_60HZ_ACTION_EXECUTION_CONTRACT,
@@ -27,6 +28,10 @@ from robotactile_benchmark.backends.univtac_conversion import (
     convert_raw_observation,
     validate_action_batch,
 )
+from robotactile_benchmark.backends.univtac_reset_witness import (
+    UniVTACResetReference,
+    build_univtac_reset_witness,
+)
 from robotactile_benchmark.backends.univtac_signals import (
     action_result as _action_result,
 )
@@ -38,6 +43,11 @@ from robotactile_benchmark.backends.univtac_signals import (
 )
 from robotactile_benchmark.backends.univtac_signals import (
     strict_bool as _strict_bool,
+)
+from robotactile_benchmark.backends.univtac_success_profiles import (
+    UniVTACSuccessProfile,
+    evaluate_success_profile,
+    success_profile_from_predicate_id,
 )
 from robotactile_benchmark.backends.univtac_task_diagnostics import (
     capture_task_diagnostics,
@@ -77,11 +87,18 @@ def _runtime_action_execution_contract(
     selected_is_fixed = selected in {
         N0_FIXED_ENDPOINT_ACTION_EXECUTION_CONTRACT,
         N0_TRAINING_60HZ_ACTION_EXECUTION_CONTRACT,
+        N0_RETRAINED_10HZ_ACTION_EXECUTION_CONTRACT,
     }
     if fixed_cadence is not selected_is_fixed:
         raise UniVTACContractError(
             "live N0 action execution marker disagrees with installed executor"
         )
+    if selected_is_fixed:
+        expected_steps = (
+            12 if selected == N0_RETRAINED_10HZ_ACTION_EXECUTION_CONTRACT else 2
+        )
+        if config.physics_steps_per_action != expected_steps:
+            raise UniVTACContractError("live N0 cadence differs from backend config")
     return selected
 
 
@@ -105,19 +122,23 @@ def _native_step_contract(action_execution_contract: str) -> str:
 
 
 def _action_execution_source(
+    task: object,
     config: UniVTACBackendConfig,
     *,
     action_execution_contract: str,
 ) -> dict[str, object]:
-    method = (
-        "robotactile_benchmark.backends.univtac_n0_cadence.fixed_take_action"
-        if action_execution_contract
-        in {
-            N0_FIXED_ENDPOINT_ACTION_EXECUTION_CONTRACT,
-            N0_TRAINING_60HZ_ACTION_EXECUTION_CONTRACT,
-        }
-        else "BaseTask.take_action"
-    )
+    if getattr(task, "_robotactile_rest_calibration_executor", False) is True:
+        method = "robotactile_benchmark.backends.univtac_rest_calibration.hold_endpoint"
+    elif action_execution_contract.startswith("robotactile_retrained_"):
+        method = "robotactile_benchmark.backends.univtac_qpos_cadence.take_action"
+    elif action_execution_contract in {
+        N0_FIXED_ENDPOINT_ACTION_EXECUTION_CONTRACT,
+        N0_TRAINING_60HZ_ACTION_EXECUTION_CONTRACT,
+        N0_RETRAINED_10HZ_ACTION_EXECUTION_CONTRACT,
+    }:
+        method = "robotactile_benchmark.backends.univtac_n0_cadence.fixed_take_action"
+    else:
+        method = "BaseTask.take_action"
     return {
         "action_type": config.action_mode,
         "method": method,
@@ -219,6 +240,20 @@ def _validate_task_predicate_diagnostics(
             )
 
 
+def _release_upstream_official_success_latch(task: Any) -> bool:
+    """Allow a strict-profile run to continue beyond upstream official success."""
+
+    value = getattr(task, "eval_success", None)
+    if value is None:
+        return False
+    if type(value) is not bool:
+        raise UniVTACContractError("upstream eval_success latch must be boolean")
+    if value:
+        task.eval_success = False
+        return True
+    return False
+
+
 class UniVTACIsaacBackend:
     """Single-use action-conditioned adapter around one upstream UniVTAC task."""
 
@@ -230,7 +265,10 @@ class UniVTACIsaacBackend:
         runtime: UniVTACTaskRuntime,
         *,
         reset_coordinator: Optional[UniVTACResetCoordinator] = None,
+        reset_reference: Optional[UniVTACResetReference] = None,
+        reset_reference_require_simulator_state_match: bool = True,
         owns_runtime: bool = True,
+        success_predicate_id: Optional[str] = None,
     ) -> None:
         validate_packaged_univtac_config(config)
         config.validate_handshake(runtime.handshake)
@@ -242,10 +280,40 @@ class UniVTACIsaacBackend:
             raise TypeError("reset_coordinator must satisfy its runtime protocol")
         if type(owns_runtime) is not bool:
             raise TypeError("owns_runtime must be bool")
+        if reset_reference is not None and type(reset_reference) is not (
+            UniVTACResetReference
+        ):
+            raise TypeError("reset_reference must be an exact UniVTACResetReference")
+        if type(reset_reference_require_simulator_state_match) is not bool:
+            raise TypeError(
+                "reset_reference_require_simulator_state_match must be bool"
+            )
+        if (
+            reset_reference is None
+            and not reset_reference_require_simulator_state_match
+        ):
+            raise ValueError(
+                "relaxed simulator-state matching requires a reset reference"
+            )
         self._reset_coordinator = reset_coordinator
+        self._reset_reference = reset_reference
+        self._reset_reference_require_simulator_state_match = (
+            reset_reference_require_simulator_state_match
+        )
         self._owns_runtime = owns_runtime
         self.action_spec = config.action_spec
-        self.success_predicate_id = config.task.success_predicate_id
+        self.success_predicate_id = (
+            config.task.success_predicate_id
+            if success_predicate_id is None
+            else success_predicate_id
+        )
+        self._success_profile = success_profile_from_predicate_id(
+            task_id=config.task.task_id,
+            official_predicate_id=config.task.success_predicate_id,
+            selected_predicate_id=self.success_predicate_id,
+        )
+        self._strict_hold_steps = 0
+        self._official_ever_success = False
         self._context: Optional[PolicyEpisodeContext] = None
         self._cached_initial: Optional[EvaluationRecord] = None
         self._initial_delivered = False
@@ -372,15 +440,48 @@ class UniVTACIsaacBackend:
             if self._config.task.early_stop_capable
             else False
         )
-        task_diagnostics = capture_task_diagnostics(
-            self._runtime.task, self._config.task.task_id
+        task_diagnostics = dict(
+            capture_task_diagnostics(self._runtime.task, self._config.task.task_id)
         )
+        reset_witness = build_univtac_reset_witness(
+            context,
+            converted,
+            reference=self._reset_reference,
+            require_simulator_state_match=(
+                self._reset_reference_require_simulator_state_match
+            ),
+        )
+        task_diagnostics["reset_witness"] = reset_witness
+        reset_viable = reset_witness.get("reset_viable")
+        if reset_viable is not None:
+            if type(reset_viable) is not bool:
+                raise UniVTACContractError("reset witness viability must be bool")
+            task_diagnostics["reset_viable"] = reset_viable
         _validate_task_predicate_diagnostics(
             task_diagnostics,
             success_check=success_check,
             early_stop=early_stop,
             stage="initial",
         )
+        success_evaluation = evaluate_success_profile(
+            task_id=self._config.task.task_id,
+            profile=self._success_profile,
+            official_predicate_id=self._config.task.success_predicate_id,
+            official_success=success_check,
+            task_diagnostics=task_diagnostics,
+            previous_strict_steps=0,
+            physics_step_delta=None,
+        )
+        self._strict_hold_steps = success_evaluation.strict_consecutive_steps
+        self._official_ever_success = success_check
+        reset_official_latch_released = False
+        if (
+            self._success_profile is UniVTACSuccessProfile.INSERT_HOLE_STRICT_V1
+            and not success_evaluation.selected_success
+        ):
+            reset_official_latch_released = _release_upstream_official_success_latch(
+                self._runtime.task
+            )
         reset_diagnostics = getattr(
             self._runtime.task, "_robotactile_n0_last_reset", None
         )
@@ -414,6 +515,7 @@ class UniVTACIsaacBackend:
             diagnostics={
                 "action_execution_contract": action_execution_contract,
                 "action_execution_source": _action_execution_source(
+                    self._runtime.task,
                     self._config,
                     action_execution_contract=action_execution_contract,
                 ),
@@ -428,7 +530,10 @@ class UniVTACIsaacBackend:
                 "native_step_id": converted.native_step_id,
                 "physics_steps_per_action": fixed_physics_steps,
                 "sim_hz": self._config.sim_hz,
-                "success_check": success_check,
+                "success_check": success_evaluation.selected_success,
+                "official_success_check": success_check,
+                "official_success_latch_released": reset_official_latch_released,
+                "success_evaluation": success_evaluation.to_dict(),
                 "plan_success": plan_success,
                 "early_stop": early_stop,
                 "n0_reset": (
@@ -525,11 +630,22 @@ class UniVTACIsaacBackend:
             fixed_cadence_diagnostics = getattr(
                 self._runtime.task, "_robotactile_n0_last_plan", None
             )
+            rest_calibration_hold = getattr(
+                self._runtime.task,
+                "_robotactile_rest_calibration_last_hold",
+                None,
+            )
             if fixed_cadence_diagnostics is not None and not isinstance(
                 fixed_cadence_diagnostics, Mapping
             ):
                 raise UniVTACContractError(
                     "N0 fixed-cadence diagnostics must be a mapping"
+                )
+            if rest_calibration_hold is not None and not isinstance(
+                rest_calibration_hold, Mapping
+            ):
+                raise UniVTACContractError(
+                    "rest-calibration hold diagnostics must be a mapping"
                 )
             _validate_task_predicate_diagnostics(
                 task_diagnostics,
@@ -537,8 +653,31 @@ class UniVTACIsaacBackend:
                 early_stop=early_stop,
                 stage="transition",
             )
+            official_transition_success = returned_success or success_check
+            self._official_ever_success = (
+                self._official_ever_success or official_transition_success
+            )
+            success_evaluation = evaluate_success_profile(
+                task_id=self._config.task.task_id,
+                profile=self._success_profile,
+                official_predicate_id=self._config.task.success_predicate_id,
+                official_success=self._official_ever_success,
+                task_diagnostics=task_diagnostics,
+                previous_strict_steps=self._strict_hold_steps,
+                physics_step_delta=physics_step_delta,
+            )
+            self._strict_hold_steps = success_evaluation.strict_consecutive_steps
+            official_latch_released = False
+            if (
+                self._success_profile is UniVTACSuccessProfile.INSERT_HOLE_STRICT_V1
+                and official_transition_success
+                and not success_evaluation.selected_success
+            ):
+                official_latch_released = _release_upstream_official_success_latch(
+                    self._runtime.task
+                )
             signal = resolve_backend_signal(
-                success=returned_success or success_check,
+                success=success_evaluation.selected_success,
                 execution_success=execution_success,
                 plan_success=plan_success,
                 early_stop=early_stop,
@@ -555,6 +694,7 @@ class UniVTACIsaacBackend:
                     diagnostics={
                         "action_execution_contract": action_execution_contract,
                         "action_execution_source": _action_execution_source(
+                            self._runtime.task,
                             self._config,
                             action_execution_contract=action_execution_contract,
                         ),
@@ -569,12 +709,22 @@ class UniVTACIsaacBackend:
                         ),
                         "execution_success": execution_success,
                         "returned_success": returned_success,
-                        "success_check": success_check,
+                        "success_check": success_evaluation.selected_success,
+                        "official_success_check": success_check,
+                        "official_transition_success": official_transition_success,
+                        "official_ever_success": self._official_ever_success,
+                        "official_success_latch_released": (official_latch_released),
+                        "success_evaluation": success_evaluation.to_dict(),
                         "plan_success": plan_success,
                         "n0_fixed_cadence": (
                             None
                             if fixed_cadence_diagnostics is None
                             else dict(fixed_cadence_diagnostics)
+                        ),
+                        "rest_calibration_hold": (
+                            None
+                            if rest_calibration_hold is None
+                            else dict(rest_calibration_hold)
                         ),
                         "early_stop": early_stop,
                         "action_horizon": self._config.task.action_horizon,

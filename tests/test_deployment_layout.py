@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from robotactile_benchmark.cli import _parser, main
+from robotactile_benchmark.contracts import canonical_hash
 from robotactile_benchmark.deployment import (
     DEPLOYMENT_LAYOUT_EVIDENCE_LEVEL,
     DeploymentLayout,
@@ -18,6 +19,8 @@ from robotactile_benchmark.deployment import (
     load_deployment_layout_receipt,
     resolve_deployment_root,
 )
+from robotactile_benchmark.deployment.contracts import DeploymentLayoutReceipt
+from robotactile_benchmark.deployment.layout import write_deployment_layout_receipt
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -76,6 +79,158 @@ def test_initialization_is_idempotent_strict_and_reloadable(tmp_path: Path) -> N
     assert all(path.is_dir() for path in layout.directory_paths())
     assert layout.path("sources") == layout.root / "sources"
     assert layout.path("artifacts/models/act") == (layout.root / "artifacts/models/act")
+    assert layout.path("artifacts/models/dream_tac") == (
+        layout.root / "artifacts/models/dream_tac"
+    )
+    assert layout.path("artifacts/models/n0_vtla") == (
+        layout.root / "artifacts/models/n0_vtla"
+    )
+    assert layout.path("requests/three-condition") == (
+        layout.root / "requests/three-condition"
+    )
+
+
+def test_initialization_accepts_frozen_four_condition_layout_additively(
+    tmp_path: Path,
+) -> None:
+    layout = DeploymentLayout(tmp_path / "deployment")
+    legacy_relative = tuple(
+        "requests/four-condition"
+        if relative == "requests/three-condition"
+        else relative
+        for relative in (
+            path.relative_to(layout.root).as_posix()
+            for path in layout.directory_paths()
+        )
+    )
+    layout.root.mkdir(parents=True)
+    for relative in legacy_relative:
+        (layout.root / relative).mkdir(parents=True, exist_ok=True)
+    legacy = DeploymentLayoutReceipt(
+        root_path_sha256=canonical_hash(str(layout.root)),
+        directories=legacy_relative,
+    )
+    write_deployment_layout_receipt(layout.receipt_path, legacy)
+    original = layout.receipt_path.read_bytes()
+
+    loaded = initialize_deployment_layout(layout)
+
+    assert loaded == legacy
+    assert layout.receipt_path.read_bytes() == original
+    assert (layout.root / "requests/three-condition").is_dir()
+    assert (layout.root / "requests/four-condition").is_dir()
+
+
+def test_initialization_accepts_pre_n0_vtla_layout_additively(
+    tmp_path: Path,
+) -> None:
+    layout = DeploymentLayout(tmp_path / "deployment")
+    legacy_relative = tuple(
+        "requests/four-condition"
+        if relative == "requests/three-condition"
+        else relative
+        for relative in (
+            path.relative_to(layout.root).as_posix()
+            for path in layout.directory_paths()
+        )
+        if relative != "artifacts/models/n0_vtla"
+    )
+    layout.root.mkdir(parents=True)
+    for relative in legacy_relative:
+        (layout.root / relative).mkdir(parents=True, exist_ok=True)
+    legacy = DeploymentLayoutReceipt(
+        root_path_sha256=canonical_hash(str(layout.root)),
+        directories=legacy_relative,
+    )
+    write_deployment_layout_receipt(layout.receipt_path, legacy)
+    original = layout.receipt_path.read_bytes()
+
+    loaded = initialize_deployment_layout(layout)
+
+    assert loaded == legacy
+    assert layout.receipt_path.read_bytes() == original
+    assert (layout.root / "artifacts/models/n0_vtla").is_dir()
+    assert (layout.root / "requests/three-condition").is_dir()
+    assert (layout.root / "requests/four-condition").is_dir()
+
+
+def test_initialization_accepts_pre_dream_tac_layout_additively(
+    tmp_path: Path,
+) -> None:
+    layout = DeploymentLayout(tmp_path / "deployment")
+    legacy_relative = tuple(
+        path.relative_to(layout.root).as_posix()
+        for path in layout.directory_paths()
+        if path.relative_to(layout.root).as_posix() != "artifacts/models/dream_tac"
+    )
+    layout.root.mkdir(parents=True)
+    for relative in legacy_relative:
+        (layout.root / relative).mkdir(parents=True, exist_ok=True)
+    legacy = DeploymentLayoutReceipt(
+        root_path_sha256=canonical_hash(str(layout.root)),
+        directories=legacy_relative,
+    )
+    write_deployment_layout_receipt(layout.receipt_path, legacy)
+    original = layout.receipt_path.read_bytes()
+
+    loaded = initialize_deployment_layout(layout)
+
+    assert loaded == legacy
+    assert layout.receipt_path.read_bytes() == original
+    assert (layout.root / "artifacts/models/dream_tac").is_dir()
+
+
+def test_initialization_accepts_pre_new_model_integrations_layout(
+    tmp_path: Path,
+) -> None:
+    layout = DeploymentLayout(tmp_path / "deployment")
+    omitted = {
+        "artifacts/models/dream_tac",
+        "artifacts/models/ftp1_policy",
+        "artifacts/models/n0_vtla",
+    }
+    legacy_relative = tuple(
+        "requests/four-condition"
+        if relative == "requests/three-condition"
+        else relative
+        for relative in (
+            path.relative_to(layout.root).as_posix()
+            for path in layout.directory_paths()
+        )
+        if relative not in omitted
+    )
+    layout.root.mkdir(parents=True)
+    for relative in legacy_relative:
+        (layout.root / relative).mkdir(parents=True, exist_ok=True)
+    legacy = DeploymentLayoutReceipt(
+        root_path_sha256=canonical_hash(str(layout.root)),
+        directories=legacy_relative,
+    )
+    write_deployment_layout_receipt(layout.receipt_path, legacy)
+    original = layout.receipt_path.read_bytes()
+
+    loaded = initialize_deployment_layout(layout)
+
+    assert loaded == legacy
+    assert layout.receipt_path.read_bytes() == original
+    assert (layout.root / "artifacts/models/dream_tac").is_dir()
+    assert (layout.root / "artifacts/models/ftp1_policy").is_dir()
+    assert (layout.root / "artifacts/models/n0_vtla").is_dir()
+    assert (layout.root / "requests/three-condition").is_dir()
+    assert (layout.root / "requests/four-condition").is_dir()
+
+
+def test_initialization_rejects_other_valid_legacy_inventory(tmp_path: Path) -> None:
+    layout = DeploymentLayout(tmp_path / "deployment")
+    layout.root.mkdir(parents=True)
+    incompatible = DeploymentLayoutReceipt(
+        root_path_sha256=canonical_hash(str(layout.root)),
+        directories=("sources",),
+    )
+    write_deployment_layout_receipt(layout.receipt_path, incompatible)
+
+    with pytest.raises(FileExistsError, match="different layout receipt"):
+        initialize_deployment_layout(layout)
 
 
 def test_initialization_rejects_conflicts_and_symlinks(tmp_path: Path) -> None:

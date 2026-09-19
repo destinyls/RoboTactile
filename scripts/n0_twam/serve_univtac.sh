@@ -12,6 +12,7 @@ PORT=29601
 MASTER_PORT=29988
 GPUS=""
 DEBUG_OFFLOAD=false
+OBSERVED_TACTILE_ABSENCE=false
 SESSION_ID=""
 ATTESTATION=""
 QUALIFICATION=""
@@ -26,6 +27,8 @@ Options:
   --port PORT         websocket port (default: 29601)
   --master-port PORT  torch distributed port (default: 29988)
   --debug-offload     keep VAE/T5 on CPU for a slow functional smoke only
+  --enable-observed-tactile-absence
+                      enable non-paper training-consistent tactile CFG dropout
   --session-id ID     source-bound shard session identity
   --attestation PATH  rank-zero canonical runtime attestation output
   --qualification PATH source-bound qualification v3 artifact
@@ -49,6 +52,7 @@ while [ "$#" -gt 0 ]; do
     --qualification) [ "$#" -ge 2 ] || die "--qualification requires a value"; QUALIFICATION="$2"; shift 2 ;;
     --integration-config) [ "$#" -ge 2 ] || die "--integration-config requires a value"; INTEGRATION_CONFIG="$2"; shift 2 ;;
     --debug-offload) DEBUG_OFFLOAD=true; shift ;;
+    --enable-observed-tactile-absence) OBSERVED_TACTILE_ABSENCE=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
@@ -66,6 +70,8 @@ if [ -n "$SESSION_ID$ATTESTATION$QUALIFICATION$INTEGRATION_CONFIG" ]; then
   [ -n "$SESSION_ID" ] && [ -n "$ATTESTATION" ] && [ -n "$QUALIFICATION" ] && [ -n "$INTEGRATION_CONFIG" ] || \
     die "source-bound server arguments must be supplied together"
   [ "$DEBUG_OFFLOAD" = false ] || die "source-bound paper serving forbids --debug-offload"
+  [ "$OBSERVED_TACTILE_ABSENCE" = false ] || \
+    die "source-bound paper serving forbids the tactile-drop diagnostic overlay"
   [ -f "$QUALIFICATION" ] && [ ! -L "$QUALIFICATION" ] || die "qualification must be a regular file"
   [ -f "$INTEGRATION_CONFIG" ] && [ ! -L "$INTEGRATION_CONFIG" ] || die "integration config must be a regular file"
   [ ! -e "$ATTESTATION" ] && [ ! -L "$ATTESTATION" ] || die "attestation output already exists"
@@ -83,6 +89,13 @@ OUTPUT="$DEPLOY_ROOT/outputs/n0-twam/$TASK"
 [ -d "$SERVE_BUNDLE/transformer" ] || die "prepared N0 serve bundle is absent"
 [ -f "$SERVE_POOL/norm_stat_per_robot.json" ] || die "per-task N0 normalizer is absent"
 mkdir -p "$OUTPUT"
+PACKAGE_PATH="${ROBOTACTILE_PACKAGE_PATH:-$ROBOTACTILE_REPOSITORY_ROOT/src}"
+case "$PACKAGE_PATH" in /*) ;; *) die "ROBOTACTILE_PACKAGE_PATH must be absolute" ;; esac
+case "$PACKAGE_PATH" in *$'\n'*) die "ROBOTACTILE_PACKAGE_PATH contains a newline" ;; esac
+[ ! -L "$PACKAGE_PATH" ] || die "ROBOTACTILE_PACKAGE_PATH cannot be a symlink"
+[ -d "$PACKAGE_PATH" ] || [ -f "$PACKAGE_PATH" ] || \
+  die "ROBOTACTILE_PACKAGE_PATH is unavailable: $PACKAGE_PATH"
+export PYTHONPATH="$PACKAGE_PATH:$SOURCE_ROOT:$SOURCE_ROOT/n0_twam"
 SERVE_TASK="$("$RUNTIME_ROOT/bin/python" -c \
   'from robotactile_benchmark.integrations.n0_twam.artifacts import serve_task_id; import sys; print(serve_task_id(sys.argv[1]))' \
   "$TASK")" || die "task is not supported by the official N0 artifact contract"
@@ -103,7 +116,6 @@ for GPU_INDEX in "$@"; do
 done
 
 export CUDA_VISIBLE_DEVICES="$GPUS"
-export PYTHONPATH="$SOURCE_ROOT:$SOURCE_ROOT/n0_twam"
 export TWAM_SERVE_POOL="$SERVE_POOL"
 export TWAM_SERVE_TASK="$SERVE_TASK"
 export TWAM_SERVE_ACTION_MODE="delta"
@@ -112,10 +124,13 @@ export TWAM_SERVE_OUT="$OUTPUT"
 export MASTER_ADDR="127.0.0.1"
 export MASTER_PORT
 
-info "starting official N0-TWAM task=$TASK on GPUs=$GPUS websocket_port=$PORT debug_offload=$DEBUG_OFFLOAD"
+info "starting official N0-TWAM task=$TASK on GPUs=$GPUS websocket_port=$PORT debug_offload=$DEBUG_OFFLOAD tactile_absence_overlay=$OBSERVED_TACTILE_ABSENCE"
 OFFLOAD_ARGUMENTS=()
 if [ "$DEBUG_OFFLOAD" = true ]; then
   OFFLOAD_ARGUMENTS+=(--debug-offload)
+fi
+if [ "$OBSERVED_TACTILE_ABSENCE" = true ]; then
+  OFFLOAD_ARGUMENTS+=(--enable-observed-tactile-absence)
 fi
 SOURCE_BOUND_ARGUMENTS=()
 if [ "$SOURCE_BOUND" = true ]; then

@@ -10,7 +10,6 @@ from robotactile_benchmark.fixtures import make_synthetic_rest_references
 from robotactile_benchmark.manifests import FaultManifest, Observability
 from robotactile_benchmark.metrics import (
     psnr,
-    recovery_lag,
     tactile_gain_retention,
 )
 from robotactile_benchmark.replay import (
@@ -30,32 +29,12 @@ class MetricTests(unittest.TestCase):
         self.assertEqual(psnr(zeros, zeros), float("inf"))
         self.assertAlmostEqual(psnr(zeros, ones), 0.0)
 
-    def test_tgr_and_recovery_follow_paper_contract(self) -> None:
+    def test_tgr_follows_paper_contract(self) -> None:
         self.assertAlmostEqual(
             tactile_gain_retention(clean=0.8, no_touch=0.5, fault=0.65), 0.5
         )
         with self.assertRaisesRegex(ValueError, "clean tactile gain"):
             tactile_gain_retention(clean=0.5, no_touch=0.5, fault=0.4)
-        self.assertEqual(
-            recovery_lag(
-                quality=(0.1, 0.2, 0.3, 0.7, 0.9, 1.0),
-                clean_envelope=(1.0,) * 6,
-                fault_stop_index=2,
-                tolerance=0.15,
-                consecutive_steps=2,
-            ),
-            2,
-        )
-        self.assertEqual(
-            recovery_lag(
-                quality=(0.1, 1.0, 1.0),
-                clean_envelope=(1.0, 1.0, 1.0),
-                fault_stop_index=1,
-                tolerance=0.0,
-                consecutive_steps=2,
-            ),
-            0,
-        )
 
     def test_metrics_reject_nonfinite_coercive_and_negative_controls(self) -> None:
         for value in (float("nan"), float("inf"), float("-inf")):
@@ -64,17 +43,8 @@ class MetricTests(unittest.TestCase):
                 self.assertRaisesRegex(ValueError, "finite"),
             ):
                 tactile_gain_retention(value, 0.2, 0.3)
-            with (
-                self.subTest(value=value),
-                self.assertRaisesRegex(ValueError, "finite"),
-            ):
-                recovery_lag((0.1, value), (0.1, 0.2), 0, 0.1, 1)
         with self.assertRaisesRegex(ValueError, "positive"):
             tactile_gain_retention(0.8, 0.5, 0.6, minimum_gain=-1.0)
-        with self.assertRaisesRegex(ValueError, "non-negative"):
-            recovery_lag((0.1,), (0.1,), 0, -0.1, 1)
-        with self.assertRaises(TypeError):
-            recovery_lag((0.1,), (0.1,), True, 0.1, 1)
 
 
 class OfflineReplayTests(unittest.TestCase):

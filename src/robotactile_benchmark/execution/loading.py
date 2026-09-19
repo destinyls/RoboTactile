@@ -10,8 +10,13 @@ from typing import Any, Optional, Tuple, cast
 
 from robotactile_benchmark.action_specs import EE8_ACTION_SPEC, QPOS8_ACTION_SPEC
 from robotactile_benchmark.backends.univtac_contracts import (
+    N0_RETRAINED_10HZ_ACTION_EXECUTION_CONTRACT,
     UniVTACBackendConfig,
     build_univtac_backend_config,
+)
+from robotactile_benchmark.backends.univtac_success_profiles import (
+    UniVTACSuccessProfile,
+    selected_success_predicate_id,
 )
 from robotactile_benchmark.closed_loop.contracts import (
     ClosedLoopRunSpec,
@@ -19,13 +24,20 @@ from robotactile_benchmark.closed_loop.contracts import (
     PolicyIdentity,
     WallTimeoutRole,
 )
-from robotactile_benchmark.constants import REST_REFERENCE_OPERATOR_IDS, SENSOR_SLOTS
+from robotactile_benchmark.constants import (
+    SENSOR_SLOTS,
+    operator_requires_rest_reference,
+)
 from robotactile_benchmark.contracts import Array, canonical_hash
 from robotactile_benchmark.execution.contracts import (
+    LivePolicyKind,
     LiveUniVTACRunRequest,
+    N0ObservedTactileMode,
+    effective_univtac_control_hz,
 )
 from robotactile_benchmark.manifests import FaultManifest
 from robotactile_benchmark.policies.act_loading import ArtifactUnavailableError
+from robotactile_benchmark.policies.tactile_availability import TactileAvailabilityMode
 from robotactile_benchmark.rest_references import (
     FrozenPayload,
     ReferenceSplit,
@@ -58,8 +70,6 @@ _REQUEST_FIELDS = frozenset(
         "output_dir",
         "fault_manifest_path",
         "rest_references_path",
-        "restoration_index",
-        "restoration_mode",
         "matched_no_touch_system_id",
         "matched_no_touch_artifact_path",
         "act_device_name",
@@ -72,10 +82,21 @@ _REQUEST_FIELDS = frozenset(
         "semantic_version",
     }
 )
-_ROBUST_REQUEST_FIELDS = _REQUEST_FIELDS | frozenset({"initial_state_policy"})
-_WATCHDOG_REQUEST_FIELDS = _REQUEST_FIELDS | frozenset({"wall_timeout_role"})
-_ROBUST_WATCHDOG_REQUEST_FIELDS = _ROBUST_REQUEST_FIELDS | frozenset(
-    {"wall_timeout_role"}
+_OPTIONAL_REQUEST_FIELDS = frozenset(
+    {
+        "initial_state_policy",
+        "wall_timeout_role",
+        "n0_observed_tactile_mode",
+        "success_profile_id",
+        "n0_action_per_frame",
+        "n0_prompt_override",
+        "retrained_prompt",
+        "retrained_control_hz",
+        "retrained_tactile_payload",
+        "tactile_availability_mode",
+        "tactile_zero_shape",
+        "n0_vtla_execution_profile",
+    }
 )
 _REST_FIELDS = frozenset(
     {
@@ -131,14 +152,11 @@ def load_live_univtac_request(path: Path) -> LiveUniVTACRunRequest:
     request_path = path.absolute()
     document = _read_object(request_path, "live UniVTAC request")
     fields = set(document)
-    if fields not in {
-        _REQUEST_FIELDS,
-        _ROBUST_REQUEST_FIELDS,
-        _WATCHDOG_REQUEST_FIELDS,
-        _ROBUST_WATCHDOG_REQUEST_FIELDS,
-    }:
+    if not fields >= _REQUEST_FIELDS or not fields <= (
+        _REQUEST_FIELDS | _OPTIONAL_REQUEST_FIELDS
+    ):
         missing = sorted(_REQUEST_FIELDS - fields)
-        extra = sorted(fields - _ROBUST_WATCHDOG_REQUEST_FIELDS)
+        extra = sorted(fields - _REQUEST_FIELDS - _OPTIONAL_REQUEST_FIELDS)
         raise ValueError(
             f"live request fields mismatch: missing={missing}, extra={extra}"
         )
@@ -164,6 +182,11 @@ def load_live_univtac_request(path: Path) -> LiveUniVTACRunRequest:
             "explicit wall_timeout_role must select infrastructure watchdog"
         )
     base = request_path.parent
+    if (
+        "n0_vtla_execution_profile" in document
+        and document["n0_vtla_execution_profile"] is None
+    ):
+        raise ValueError("explicit N0-VTLA execution profile cannot be null")
     launcher_args = document["launcher_args"]
     if not isinstance(launcher_args, Mapping):
         raise TypeError("launcher_args must be a JSON object")
@@ -195,8 +218,6 @@ def load_live_univtac_request(path: Path) -> LiveUniVTACRunRequest:
         rest_references_path=_request_path(
             document["rest_references_path"], "rest_references_path", base
         ),
-        restoration_index=document["restoration_index"],
-        restoration_mode=document["restoration_mode"],
         matched_no_touch_system_id=document["matched_no_touch_system_id"],
         matched_no_touch_artifact_path=_request_path(
             document["matched_no_touch_artifact_path"],
@@ -210,6 +231,21 @@ def load_live_univtac_request(path: Path) -> LiveUniVTACRunRequest:
         n0_normalizer_sha256=document["n0_normalizer_sha256"],
         n0_serve_bundle_sha256=document["n0_serve_bundle_sha256"],
         n0_prompt_manifest_sha256=document["n0_prompt_manifest_sha256"],
+        n0_action_per_frame=document.get("n0_action_per_frame", 12),
+        n0_prompt_override=document.get("n0_prompt_override"),
+        retrained_prompt=document.get("retrained_prompt"),
+        retrained_control_hz=document.get("retrained_control_hz"),
+        retrained_tactile_payload=document.get("retrained_tactile_payload"),
+        tactile_availability_mode=document.get("tactile_availability_mode", "required"),
+        tactile_zero_shape=document.get("tactile_zero_shape"),
+        n0_vtla_execution_profile=document.get("n0_vtla_execution_profile"),
+        n0_observed_tactile_mode=document.get(
+            "n0_observed_tactile_mode",
+            N0ObservedTactileMode.REQUIRED.value,
+        ),
+        success_profile_id=document.get(
+            "success_profile_id", UniVTACSuccessProfile.OFFICIAL_V1.value
+        ),
         initial_state_policy=initial_state_policy,
         wall_timeout_role=wall_timeout_role,
         semantic_version=document["semantic_version"],
@@ -319,6 +355,23 @@ class LoadedLiveUniVTACRun:
             )
         if self.request.wall_timeout_role is not WallTimeoutRole.SCORING_BOUNDARY_V1:
             content_identity["wall_timeout_role"] = self.request.wall_timeout_role.value
+        if self.request.n0_observed_tactile_mode is not N0ObservedTactileMode.REQUIRED:
+            content_identity["n0_observed_tactile_mode"] = (
+                self.request.n0_observed_tactile_mode.value
+            )
+        if (
+            self.request.tactile_availability_mode
+            is not TactileAvailabilityMode.REQUIRED
+        ):
+            content_identity["tactile_availability_mode"] = (
+                self.request.tactile_availability_mode.value
+            )
+        if self.request.tactile_zero_shape is not None:
+            content_identity["tactile_zero_shape"] = self.request.tactile_zero_shape
+        if self.request.n0_vtla_execution_profile is not None:
+            content_identity["n0_vtla_execution_profile"] = (
+                self.request.n0_vtla_execution_profile
+            )
         object.__setattr__(
             self,
             "content_sha256",
@@ -339,9 +392,25 @@ def load_live_univtac_run(request: LiveUniVTACRunRequest) -> LoadedLiveUniVTACRu
             "artifact_unavailable: matched no-touch identity/artifact is missing"
         )
     action_spec = (
-        EE8_ACTION_SPEC if request.policy_kind.value == "n0" else QPOS8_ACTION_SPEC
+        EE8_ACTION_SPEC
+        if request.policy_kind in {LivePolicyKind.N0, LivePolicyKind.DREAM_TAC}
+        else QPOS8_ACTION_SPEC
     )
-    config = build_univtac_backend_config(request.task_id, action_spec=action_spec)
+    config = build_univtac_backend_config(
+        request.task_id,
+        action_spec=action_spec,
+        n0_action_execution_contract=(
+            N0_RETRAINED_10HZ_ACTION_EXECUTION_CONTRACT
+            if request.n0_action_per_frame == 4
+            or request.policy_kind is LivePolicyKind.DREAM_TAC
+            else None
+        ),
+        control_hz=effective_univtac_control_hz(
+            request.policy_kind,
+            request.retrained_control_hz,
+        ),
+        tactile_payload=request.retrained_tactile_payload,
+    )
     if request.max_observation_steps > config.task.action_horizon + 1:
         raise ValueError("max_observation_steps exceeds the frozen task horizon")
     fault = _load_fault(request.fault_manifest_path)
@@ -362,7 +431,11 @@ def load_live_univtac_run(request: LiveUniVTACRunRequest) -> LoadedLiveUniVTACRu
         config_sha256=request.config_sha256,
         action_spec=action_spec,
         consumes_tactile=request.condition is not Condition.NO_TOUCH,
-        supports_structural_absence=request.condition is Condition.NO_TOUCH,
+        supports_structural_absence=(
+            request.condition is Condition.NO_TOUCH
+            or request.n0_observed_tactile_mode is N0ObservedTactileMode.ABSENT
+            or request.tactile_availability_mode is not TactileAvailabilityMode.REQUIRED
+        ),
     )
     expected_base = system_manifest_hash(
         request.base_system_id,
@@ -391,17 +464,29 @@ def load_live_univtac_run(request: LiveUniVTACRunRequest) -> LoadedLiveUniVTACRu
             if request.condition is Condition.NO_TOUCH
             else None
         ),
-        restoration_index=request.restoration_index,
-        restoration_mode=request.restoration_mode,
     )
     prompt = config.task.prompt
-    if request.policy_kind.value == "n0":
+    if request.retrained_prompt is not None:
+        prompt = request.retrained_prompt
+    elif request.policy_kind is LivePolicyKind.N0:
         from robotactile_benchmark.policies.n0_official import n0_training_prompt
 
-        prompt = n0_training_prompt(request.task_id)
+        prompt = request.n0_prompt_override or n0_training_prompt(request.task_id)
+    elif request.policy_kind is LivePolicyKind.N0_VTLA:
+        from robotactile_benchmark.policies.n0_vtla import n0_vtla_training_prompt
+
+        prompt = n0_vtla_training_prompt(request.task_id)
+    elif request.policy_kind is LivePolicyKind.FTP1_POLICY:
+        from robotactile_benchmark.policies.ftp1_policy import ftp1_training_prompt
+
+        prompt = ftp1_training_prompt(request.task_id)
     run_spec = ClosedLoopRunSpec(
         prompt=prompt,
-        success_predicate_id=config.task.success_predicate_id,
+        success_predicate_id=selected_success_predicate_id(
+            task_id=config.task.task_id,
+            official_predicate_id=config.task.success_predicate_id,
+            profile=request.success_profile_id,
+        ),
         max_control_cycles=request.max_control_cycles,
         max_observation_steps=request.max_observation_steps,
         execute_action_steps=request.execute_action_steps,
@@ -424,14 +509,17 @@ def _validate_fault_links(
     fault: Optional[FaultManifest],
     references: Optional[RestReferenceBundle],
 ) -> None:
-    faulted = request.condition in {Condition.FAULTED, Condition.RESTORED}
+    faulted = request.condition is Condition.FAULTED
     if faulted != (fault is not None):
         raise ValueError("condition and loaded fault manifest disagree")
     if fault is None:
         if references is not None:
             raise ValueError("rest references require a loaded fault manifest")
         return
-    requires_reference = fault.operator_id in REST_REFERENCE_OPERATOR_IDS
+    requires_reference = operator_requires_rest_reference(
+        fault.operator_id,
+        severity_registry=fault.severity_registry,
+    )
     if requires_reference != (references is not None):
         raise ValueError("fault rest-reference requirement mismatch")
     if (
@@ -441,7 +529,23 @@ def _validate_fault_links(
         raise ValueError("fault and rest-reference content identities disagree")
     if fault.start_index >= request.max_observation_steps:
         raise ValueError("fault window is outside the requested observation budget")
-    if request.condition is Condition.RESTORED and (
-        request.restoration_index != fault.stop_index
+    if request.n0_observed_tactile_mode is N0ObservedTactileMode.ABSENT:
+        _validate_observed_tactile_absence(request, fault)
+
+
+def _validate_observed_tactile_absence(
+    request: LiveUniVTACRunRequest,
+    fault: FaultManifest,
+) -> None:
+    """Bind the inference mode to one full-horizon, two-stream A1 fault."""
+
+    expected_offsets = tuple(range(request.max_observation_steps))
+    offsets = tuple(fault.parameters.get("affected_offsets", ()))
+    if (
+        fault.operator_id != "A1_stream_absence"
+        or fault.start_index != 0
+        or fault.stop_index != request.max_observation_steps
+        or tuple(fault.sensor_slots) != SENSOR_SLOTS
+        or offsets != expected_offsets
     ):
-        raise ValueError("restoration index must equal the fault stop index")
+        raise ValueError("observed tactile absence requires full-horizon two-stream A1")

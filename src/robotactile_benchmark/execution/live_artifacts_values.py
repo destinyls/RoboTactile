@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from robotactile_benchmark.backends.univtac_contracts import (
+    N0_RETRAINED_10HZ_ACTION_EXECUTION_CONTRACT,
     build_univtac_backend_config,
 )
 from robotactile_benchmark.closed_loop.contracts import (
@@ -16,8 +17,14 @@ from robotactile_benchmark.closed_loop.contracts import (
 from robotactile_benchmark.closed_loop.delivery import DeliveryFinalization
 from robotactile_benchmark.constants import SENSOR_SLOTS
 from robotactile_benchmark.contracts import canonical_hash, freeze_value, thaw_value
+from robotactile_benchmark.execution.contracts import (
+    LivePolicyKind,
+    N0ObservedTactileMode,
+    effective_univtac_control_hz,
+)
 from robotactile_benchmark.execution.live_artifacts_contracts import (
     LIVE_ARTIFACT_SEMANTIC_VERSION,
+    LIVE_REQUEST_IDENTITY_SEMANTIC_VERSION,
     LiveArtifactValidationError,
     require_live_sha256,
     require_optional_live_sha256,
@@ -28,6 +35,12 @@ from robotactile_benchmark.execution.live_artifacts_io import (
     load_live_array,
 )
 from robotactile_benchmark.execution.loading import LoadedLiveUniVTACRun
+from robotactile_benchmark.policies.n0_vtla_execution import n0_vtla_execution_steps
+from robotactile_benchmark.policies.tactile_availability import (
+    TactileAvailabilityMode,
+    normalize_zero_shape,
+    validate_availability_config,
+)
 from robotactile_benchmark.rest_references import (
     ReferenceSplit,
     RestReferenceBundle,
@@ -51,8 +64,6 @@ _REQUEST_FIELDS = frozenset(
         "max_observation_steps",
         "execute_action_steps",
         "wall_timeout_s",
-        "restoration_index",
-        "restoration_mode",
         "matched_no_touch_system_id",
         "act_device_name",
         "simulator_device",
@@ -75,6 +86,15 @@ _ROBUST_REQUEST_FIELDS = _REQUEST_FIELDS | frozenset({"initial_state_policy"})
 _WATCHDOG_REQUEST_FIELDS = _REQUEST_FIELDS | frozenset({"wall_timeout_role"})
 _ROBUST_WATCHDOG_REQUEST_FIELDS = _ROBUST_REQUEST_FIELDS | frozenset(
     {"wall_timeout_role"}
+)
+_TACTILE_MODE_REQUEST_FIELDS = tuple(
+    fields | frozenset({"n0_observed_tactile_mode"})
+    for fields in (
+        _REQUEST_FIELDS,
+        _ROBUST_REQUEST_FIELDS,
+        _WATCHDOG_REQUEST_FIELDS,
+        _ROBUST_WATCHDOG_REQUEST_FIELDS,
+    )
 )
 _SOURCE_FIELDS = frozenset(
     {"upstream_commit", "registry_resource_sha256", "task_source_sha256"}
@@ -125,10 +145,6 @@ def live_request_identity(loaded: LoadedLiveUniVTACRun) -> dict[str, object]:
         "max_observation_steps": request.max_observation_steps,
         "execute_action_steps": request.execute_action_steps,
         "wall_timeout_s": request.wall_timeout_s,
-        "restoration_index": request.restoration_index,
-        "restoration_mode": (
-            None if request.restoration_mode is None else request.restoration_mode.value
-        ),
         "matched_no_touch_system_id": request.matched_no_touch_system_id,
         "act_device_name": request.act_device_name,
         "simulator_device": request.simulator_device,
@@ -152,12 +168,29 @@ def live_request_identity(loaded: LoadedLiveUniVTACRun) -> dict[str, object]:
             "registry_resource_sha256": config.registry_resource_sha256,
             "task_source_sha256": config.task.task_source_sha256,
         },
-        "semantic_version": LIVE_ARTIFACT_SEMANTIC_VERSION,
+        "semantic_version": LIVE_REQUEST_IDENTITY_SEMANTIC_VERSION,
     }
     if request.initial_state_policy is not InitialStatePolicy.OFFICIAL_REPRODUCTION:
         identity["initial_state_policy"] = request.initial_state_policy.value
     if request.wall_timeout_role is not WallTimeoutRole.SCORING_BOUNDARY_V1:
         identity["wall_timeout_role"] = request.wall_timeout_role.value
+    if request.n0_observed_tactile_mode is not N0ObservedTactileMode.REQUIRED:
+        identity["n0_observed_tactile_mode"] = request.n0_observed_tactile_mode.value
+    if request.n0_action_per_frame != 12 or request.n0_prompt_override is not None:
+        identity["n0_action_per_frame"] = request.n0_action_per_frame
+        identity["n0_prompt_override"] = request.n0_prompt_override
+    if request.retrained_prompt is not None:
+        identity.update(
+            retrained_prompt=request.retrained_prompt,
+            retrained_control_hz=request.retrained_control_hz,
+            retrained_tactile_payload=request.retrained_tactile_payload,
+        )
+    if request.tactile_availability_mode is not TactileAvailabilityMode.REQUIRED:
+        identity["tactile_availability_mode"] = request.tactile_availability_mode.value
+    if request.tactile_zero_shape is not None:
+        identity["tactile_zero_shape"] = list(request.tactile_zero_shape)
+    if request.n0_vtla_execution_profile is not None:
+        identity["n0_vtla_execution_profile"] = request.n0_vtla_execution_profile
     return identity
 
 
@@ -170,13 +203,93 @@ def validate_live_request_identity(
 ) -> dict[str, object]:
     """Strictly bind a stored path-free request back to packaged UniVTAC."""
 
-    if not isinstance(value, dict) or set(value) not in {
+    retrained_fields = {"n0_action_per_frame", "n0_prompt_override"}
+    external_fields = {
+        "retrained_prompt",
+        "retrained_control_hz",
+        "retrained_tactile_payload",
+    }
+    availability_fields = {"tactile_availability_mode", "tactile_zero_shape"}
+    if not isinstance(value, dict) or set(
+        value
+    ) - retrained_fields - external_fields - availability_fields - {
+        "n0_vtla_execution_profile"
+    } not in {
         _REQUEST_FIELDS,
         _ROBUST_REQUEST_FIELDS,
         _WATCHDOG_REQUEST_FIELDS,
         _ROBUST_WATCHDOG_REQUEST_FIELDS,
+        *_TACTILE_MODE_REQUEST_FIELDS,
     }:
         raise LiveArtifactValidationError("live request identity fields mismatch")
+    execution_profile = value.get("n0_vtla_execution_profile")
+    if "n0_vtla_execution_profile" in value:
+        try:
+            if (
+                not isinstance(execution_profile, str)
+                or value["policy_kind"] != "n0_vtla"
+                or value.get("retrained_control_hz") != 10
+                or not external_fields <= set(value)
+            ):
+                raise ValueError("invalid N0-VTLA execution profile scope")
+            n0_vtla_execution_steps(execution_profile, value["task_id"])
+        except ValueError as error:
+            raise LiveArtifactValidationError(
+                "live N0-VTLA execution profile is invalid"
+            ) from error
+    try:
+        availability = TactileAvailabilityMode(
+            value.get("tactile_availability_mode", "required")
+        )
+        zero_shape = normalize_zero_shape(value.get("tactile_zero_shape"))
+        validate_availability_config(availability, zero_shape, value["policy_kind"])
+        if availability is not TactileAvailabilityMode.REQUIRED and (
+            trial.condition is Condition.NO_TOUCH or "n0_observed_tactile_mode" in value
+        ):
+            raise ValueError("availability protocols cannot mix with no-touch modes")
+    except (ValueError, TypeError) as error:
+        raise LiveArtifactValidationError(
+            "live tactile availability config is invalid"
+        ) from error
+    if set(value) & external_fields:
+        if not external_fields <= set(value) or value["policy_kind"] not in {
+            "n0_vtla",
+            "ftp1_policy",
+            "dream_tac",
+        }:
+            raise LiveArtifactValidationError("live retrained policy fields mismatch")
+        if (
+            value["retrained_prompt"] != run_spec.prompt
+            or not isinstance(value["retrained_prompt"], str)
+            or not value["retrained_prompt"].strip()
+        ):
+            raise LiveArtifactValidationError("live retrained policy prompt mismatch")
+        if type(value["retrained_control_hz"]) is not int or value[
+            "retrained_control_hz"
+        ] not in (10, 60):
+            raise LiveArtifactValidationError("live retrained policy Hz mismatch")
+        expected_steps = (
+            n0_vtla_execution_steps(execution_profile, value["task_id"])
+            if value["policy_kind"] == "n0_vtla"
+            else {"ftp1_policy": 1, "dream_tac": 20}[value["policy_kind"]]
+        )
+        if value["execute_action_steps"] != expected_steps:
+            raise LiveArtifactValidationError("live retrained action horizon mismatch")
+    action_per_frame = value.get("n0_action_per_frame", 12)
+    if type(action_per_frame) is not int or action_per_frame not in (4, 12):
+        raise LiveArtifactValidationError("live N0 action_per_frame is invalid")
+    if set(value) & retrained_fields:
+        if not retrained_fields <= set(value) or value["policy_kind"] != "n0":
+            raise LiveArtifactValidationError("live retrained N0 fields mismatch")
+        prompt = value["n0_prompt_override"]
+        if (
+            not isinstance(prompt, str)
+            or not prompt.strip()
+            or prompt != run_spec.prompt
+        ):
+            raise LiveArtifactValidationError("live retrained N0 prompt mismatch")
+        if value["execute_action_steps"] != 2 * action_per_frame:
+            raise LiveArtifactValidationError("live retrained N0 action chunk mismatch")
     stored_initial_state_policy = value.get(
         "initial_state_policy", InitialStatePolicy.OFFICIAL_REPRODUCTION.value
     )
@@ -196,7 +309,25 @@ def validate_live_request_identity(
         WallTimeoutRole.INFRASTRUCTURE_WATCHDOG_V1.value
     ):
         raise LiveArtifactValidationError("live wall-timeout role is invalid")
-    if value["semantic_version"] != LIVE_ARTIFACT_SEMANTIC_VERSION:
+    try:
+        tactile_mode = N0ObservedTactileMode(
+            value.get(
+                "n0_observed_tactile_mode",
+                N0ObservedTactileMode.REQUIRED.value,
+            )
+        )
+    except (TypeError, ValueError) as error:
+        raise LiveArtifactValidationError(
+            "live N0 observed-tactile mode is invalid"
+        ) from error
+    if (
+        tactile_mode is N0ObservedTactileMode.ABSENT
+        and trial.condition is not Condition.FAULTED
+    ):
+        raise LiveArtifactValidationError(
+            "observed tactile absence requires a faulted trial"
+        )
+    if value["semantic_version"] != LIVE_REQUEST_IDENTITY_SEMANTIC_VERSION:
         raise LiveArtifactValidationError("live request identity version mismatch")
     source = value["source_binding"]
     if not isinstance(source, dict) or set(source) != _SOURCE_FIELDS:
@@ -204,6 +335,16 @@ def validate_live_request_identity(
     config = build_univtac_backend_config(
         _string(value["task_id"], "task id"),
         action_spec=trial.action_spec,
+        n0_action_execution_contract=(
+            N0_RETRAINED_10HZ_ACTION_EXECUTION_CONTRACT
+            if action_per_frame == 4 or value["policy_kind"] == "dream_tac"
+            else None
+        ),
+        control_hz=effective_univtac_control_hz(
+            LivePolicyKind(value["policy_kind"]),
+            value.get("retrained_control_hz"),
+        ),
+        tactile_payload=value.get("retrained_tactile_payload"),
     )
     expected_source = {
         "upstream_commit": config.upstream_commit,
@@ -218,7 +359,11 @@ def validate_live_request_identity(
         config_sha256=trial.config_sha256,
         action_spec=trial.action_spec,
         consumes_tactile=trial.condition is not Condition.NO_TOUCH,
-        supports_structural_absence=trial.condition is Condition.NO_TOUCH,
+        supports_structural_absence=(
+            trial.condition is Condition.NO_TOUCH
+            or tactile_mode is N0ObservedTactileMode.ABSENT
+            or availability is not TactileAvailabilityMode.REQUIRED
+        ),
     )
     checks = (
         value["task_id"] == trial.task,
@@ -234,9 +379,6 @@ def validate_live_request_identity(
         value["execute_action_steps"] == run_spec.execute_action_steps,
         value["wall_timeout_s"] == run_spec.wall_timeout_s,
         stored_wall_timeout_role == run_spec.wall_timeout_role.value,
-        value["restoration_index"] == trial.restoration_index,
-        value["restoration_mode"]
-        == (None if trial.restoration_mode is None else trial.restoration_mode.value),
         value["matched_no_touch_system_id"] == trial.matched_no_touch_system_id,
         value["trial_manifest_sha256"] == trial.sha256,
         value["run_spec_sha256"] == run_spec.sha256,
@@ -276,6 +418,15 @@ def run_content_sha256_from_identity(value: Mapping[str, object]) -> str:
         content_identity["initial_state_policy"] = value["initial_state_policy"]
     if "wall_timeout_role" in value:
         content_identity["wall_timeout_role"] = value["wall_timeout_role"]
+    if "n0_observed_tactile_mode" in value:
+        content_identity["n0_observed_tactile_mode"] = value["n0_observed_tactile_mode"]
+    for field in (
+        "tactile_availability_mode",
+        "tactile_zero_shape",
+        "n0_vtla_execution_profile",
+    ):
+        if field in value:
+            content_identity[field] = value[field]
     return canonical_hash(content_identity)
 
 

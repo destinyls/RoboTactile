@@ -7,10 +7,13 @@ import json
 import os
 import stat
 import subprocess
+import sys
 import tempfile
 import zipfile
 from pathlib import Path
 from typing import cast
+
+import pytest
 
 SCRIPTS = Path(__file__).parents[1] / "scripts" / "live_univtac"
 ISAACLAB_COMMIT = "90b79bb2d44feb8d833f260f2bf37da3487180ba"
@@ -998,8 +1001,110 @@ def test_robotactile_isaac_installer_is_manifest_bound_and_isolated() -> None:
         '"$ISAAC_SIM_PATH/python.sh"',
         "-u CONDA_PREFIX",
         "robotactile_isaac_install-${SOURCE_MANIFEST_SHA256:0:16}.json",
+        'WHEEL_MANIFEST_MEMBER="robotactile_benchmark/source_manifest.sha256"',
+        "wheel_source_manifest_sha256",
+        "zipfile.ZipFile",
     )
+    wheel_branch = installer.index('if [ -n "$WHEEL_INPUT" ]; then')
+    source_check = installer.index("update_source_manifest.py")
+    assert wheel_branch < source_check
     assert "\nsudo " not in installer
+
+
+@pytest.mark.parametrize("runtime_matches", (True, False))
+def test_robotactile_isaac_installer_uses_explicit_wheel_manifest(
+    tmp_path: Path,
+    runtime_matches: bool,
+) -> None:
+    deploy_root = tmp_path / "deploy"
+    env, _ = _isolated_env(tmp_path)
+    manifest_payload = b"wheel-owned source manifest\n"
+    manifest_sha256 = hashlib.sha256(manifest_payload).hexdigest()
+    wheel_path = tmp_path / "robotactile_benchmark-0.6.0-py3-none-any.whl"
+    with zipfile.ZipFile(wheel_path, "w") as archive:
+        archive.writestr(
+            "robotactile_benchmark/source_manifest.sha256",
+            manifest_payload,
+        )
+
+    isaac_python = deploy_root / "runtime/isaac-sim-4.5.0/python.sh"
+    isaac_python.parent.mkdir(parents=True)
+    isaac_python.write_text(
+        """#!/usr/bin/env bash
+set -eu
+case "$*" in
+  *"-m pip install"*) printf '%s\n' "$*" > "$FAKE_ISAAC_INSTALL_LOG" ;;
+  *load_source_manifest*)
+    printf '0.6.0|%s|1.26.0\n' "$FAKE_WHEEL_MANIFEST_SHA256"
+    ;;
+  *) exit 92 ;;
+esac
+""",
+        encoding="utf-8",
+    )
+    isaac_python.chmod(0o755)
+    _write_json_fixture(
+        deploy_root / "artifacts/deployment/isaaclab_install.json",
+        {
+            "component": "isaaclab",
+            "version": "v2.1.1",
+            "status": "installed",
+        },
+    )
+
+    system_python_log = tmp_path / "system-python.log"
+    system_python = tmp_path / "system-python"
+    system_python.write_text(
+        f"""#!/usr/bin/env bash
+set -eu
+printf '%s\n' "$*" >> "$FAKE_SYSTEM_PYTHON_LOG"
+case "$*" in *update_source_manifest.py*) exit 73 ;; esac
+exec {sys.executable} "$@"
+""",
+        encoding="utf-8",
+    )
+    system_python.chmod(0o755)
+    isaac_install_log = tmp_path / "isaac-install.log"
+    env.update(
+        {
+            "FAKE_ISAAC_INSTALL_LOG": str(isaac_install_log),
+            "FAKE_SYSTEM_PYTHON_LOG": str(system_python_log),
+            "FAKE_WHEEL_MANIFEST_SHA256": (
+                manifest_sha256 if runtime_matches else "0" * 64
+            ),
+            "ROBOTACTILE_SYSTEM_PYTHON": str(system_python),
+        }
+    )
+
+    result = _run(
+        "install_robotactile_isaac.sh",
+        "--root",
+        str(deploy_root),
+        "--wheel",
+        str(wheel_path),
+        env=env,
+    )
+
+    assert result.returncode == (0 if runtime_matches else 2), result.stderr
+    assert "update_source_manifest.py" not in system_python_log.read_text(
+        encoding="utf-8"
+    )
+    assert str(wheel_path) in isaac_install_log.read_text(encoding="utf-8")
+    receipt_path = (
+        deploy_root
+        / "artifacts/deployment"
+        / f"robotactile_isaac_install-{manifest_sha256[:16]}.json"
+    )
+    if not runtime_matches:
+        assert "runtime identity is incompatible" in result.stderr
+        assert not receipt_path.exists()
+        return
+    receipt = _read_json(receipt_path)
+    assert receipt["source_manifest_sha256"] == manifest_sha256
+    assert (
+        receipt["wheel_sha256"] == hashlib.sha256(wheel_path.read_bytes()).hexdigest()
+    )
+    assert receipt["runtime_identity"] == f"0.6.0|{manifest_sha256}|1.26.0"
 
 
 def test_univtac_pairing_qualifier_is_live_bounded_and_fail_closed() -> None:

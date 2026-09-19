@@ -6,7 +6,8 @@ import re
 from dataclasses import dataclass
 from typing import Optional, Sequence, Tuple
 
-from robotactile_benchmark.constants import REST_REFERENCE_OPERATOR_IDS
+from robotactile_benchmark.closed_loop.validation import validate_online_delivery
+from robotactile_benchmark.constants import operator_requires_rest_reference
 from robotactile_benchmark.contracts import (
     EvaluationRecord,
     canonical_hash,
@@ -17,7 +18,7 @@ from robotactile_benchmark.manifests import FaultManifest
 from robotactile_benchmark.rest_references import RestReferenceBundle
 from robotactile_benchmark.runtime import trace_hash
 from robotactile_benchmark.streaming import StreamingFaultSession
-from robotactile_benchmark.validators import ValidationReport, validate_delivery
+from robotactile_benchmark.validators import ValidationReport
 
 _SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 _CLEAN_TRACE_NAMESPACE = "robotactile_benchmark.closed_loop.clean_trace.v1"
@@ -241,7 +242,10 @@ class OnlineFaultSession(_DeliverySession):
         self._rest_references = rest_references
         self._manifest_sha256 = manifest.sha256
         self._manifest_dict = manifest.to_dict()
-        if manifest.operator_id in REST_REFERENCE_OPERATOR_IDS:
+        if operator_requires_rest_reference(
+            manifest.operator_id,
+            severity_registry=manifest.severity_registry,
+        ):
             if rest_references is None:
                 raise ValueError(
                     "this operator requires a frozen rest-reference bundle"
@@ -279,7 +283,10 @@ class OnlineFaultSession(_DeliverySession):
 
     def _validate_rest_calibration(self, clean_record: EvaluationRecord) -> None:
         if (
-            self._manifest.operator_id not in REST_REFERENCE_OPERATOR_IDS
+            not operator_requires_rest_reference(
+                self._manifest.operator_id,
+                severity_registry=self._manifest.severity_registry,
+            )
             or self._rest_references is None
         ):
             return
@@ -307,13 +314,12 @@ class OnlineFaultSession(_DeliverySession):
         self._require_manifest_unchanged()
         clean_records = self._require_records()
         delivered_records = tuple(self._delivered_records)
-        validation = validate_delivery(
+        validation = validate_online_delivery(
             clean_records,
             delivered_records,
             self._manifest,
             rest_references=self._rest_references,
         )
-        validation = self._with_a2_resume_failure(validation, clean_records)
         finalization = DeliveryFinalization(
             clean_records=clean_records,
             delivered_records=delivered_records,
@@ -324,26 +330,3 @@ class OnlineFaultSession(_DeliverySession):
         )
         self._finalized = True
         return finalization
-
-    def _with_a2_resume_failure(
-        self,
-        validation: ValidationReport,
-        clean_records: Tuple[EvaluationRecord, ...],
-    ) -> ValidationReport:
-        if self._manifest.operator_id != "A2_frame_erasure":
-            return validation
-        last_erasure = self._manifest.start_index + int(
-            self._manifest.parameters["erased_offsets"][-1]
-        )
-        if last_erasure < len(clean_records) - 1:
-            return validation
-        code = "A2_RESUME_MISSING"
-        if code in validation.failure_codes:
-            return validation
-        return ValidationReport(
-            passed=False,
-            failure_codes=validation.failure_codes + (code,),
-            failures=validation.failures
-            + ("A2 requires a later clean payload to resume after its last erasure",),
-            metrics=validation.metrics,
-        )

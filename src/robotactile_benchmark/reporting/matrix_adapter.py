@@ -34,10 +34,6 @@ from robotactile_benchmark.matrix.states import MatrixCellState
 from robotactile_benchmark.reporting.aggregation import aggregate_benchmark
 from robotactile_benchmark.reporting.bundle import ReportReceipt, write_report_bundle
 from robotactile_benchmark.reporting.contracts import OutcomeRecord, ReportingSpec
-from robotactile_benchmark.reporting.recovery_evidence_matrix import (
-    clean_artifact_root,
-    recovery_outcome_fields,
-)
 from robotactile_benchmark.reporting.summary_contracts import BenchmarkSummary
 from robotactile_benchmark.trials import TerminalStatus, TrialManifest
 
@@ -152,22 +148,16 @@ def _load_outcomes_for_manifest(
 ) -> Tuple[OutcomeRecord, ...]:
     summary = load_matrix_summary(Path(matrix_output), manifest)
     if manifest.kind is not MatrixGridKind.PRIMARY:
-        raise ValueError(
-            "focused matrix reporting requires registered comparison "
-            "identity/recovery signal"
-        )
+        raise ValueError("focused matrix reporting is not registered")
     if any(cell.trial.base_system_id != spec.system_id for cell in manifest.cells):
         raise ValueError("matrix base system does not match reporting spec")
     resolver = artifact_resolver or content_addressed_artifact_resolver(matrix_output)
-    clean_root_sha256 = clean_artifact_root(manifest.cells, summary.cells)
     outcomes = tuple(
         _outcome_from_cell(
             cell,
             state,
             spec,
             resolver,
-            matrix_output=Path(matrix_output),
-            clean_root_sha256=clean_root_sha256,
         )
         for cell, state in zip(manifest.cells, summary.cells)
     )
@@ -209,9 +199,6 @@ def _outcome_from_cell(
     state: MatrixCellState,
     spec: ReportingSpec,
     resolver: ArtifactResolver,
-    *,
-    matrix_output: Path,
-    clean_root_sha256: Optional[str],
 ) -> OutcomeRecord:
     if (
         state.cell_sha256 != cell.sha256
@@ -224,12 +211,6 @@ def _outcome_from_cell(
     verified = _load_verified_artifact(artifact_path, state.artifact)
     _validate_artifact_crosslinks(cell, state, verified)
     result = verified.result
-    recovery_eligible, recovery_lag_steps, source_root_sha256 = recovery_outcome_fields(
-        Path(matrix_output),
-        cell,
-        clean_root_sha256,
-        verified.root_receipt_sha256,
-    )
     return OutcomeRecord(
         system_id=spec.system_id,
         task=cell.task,
@@ -238,11 +219,9 @@ def _outcome_from_cell(
         terminal_status=result.terminal_status,
         score_eligible=result.score_eligible,
         score_success=result.score_success,
-        source_root_sha256=source_root_sha256,
+        source_root_sha256=verified.root_receipt_sha256,
         operator_id=cell.operator_id,
         severity_level=cell.severity_level,
-        recovery_eligible=recovery_eligible,
-        recovery_lag_steps=recovery_lag_steps,
     )
 
 

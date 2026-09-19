@@ -1,0 +1,54 @@
+{
+  "schema_version": "robotactile-dream-tac-hcu-optimizer-step-request-v1",
+  "accelerator_contract": "hygon_hcu_hip_single_device_v1",
+  "dream_tac_commit": "14bab51d6862fd07124745c55cd395ea5caa9fd3",
+  "donor_experiment": "cosmos_predict2_2b_480p_franka_cut_banana_20260321",
+  "phase": "p2_hcu_optimizer_step",
+  "run_name": "dream-tac-hcu-one-step-v1",
+  "dream_tac_root": "/workspace/Dream-Tac-HCU-port",
+  "python_executable": "/opt/psi-policy-venvs/.venv_worldarena/bin/python",
+  "hcu_environment_script": {
+    "path": "/opt/hyhal/env.sh",
+    "sha256": "9999999999999999999999999999999999999999999999999999999999999999"
+  },
+  "runtime_pythonpath_roots": [
+    "/probe/site",
+    "/probe/site_cosmos",
+    "/probe/site_natten",
+    "/probe/site_xformers"
+  ],
+  "materialization_root": "/data/dream_tac_univtac_train759_v1",
+  "output_root": "/probe/output/hcu-training",
+  "source_manifest_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "materialization_receipt_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "t5_cache_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+  "base_checkpoint": {
+    "path": "/artifacts/Cosmos-Predict2-2B-Video2World/model-480p-16fps.pt",
+    "sha256": "4444444444444444444444444444444444444444444444444444444444444444"
+  },
+  "base_dcp_root": "/artifacts/Cosmos-Predict2-2B-Video2World-dcp/iter_000000000",
+  "base_dcp_receipt": {
+    "path": "/artifacts/Cosmos-Predict2-2B-Video2World-dcp/converter_receipt.json",
+    "sha256": "5555555555555555555555555555555555555555555555555555555555555555"
+  },
+  "tokenizer_checkpoint": {
+    "path": "/artifacts/Cosmos-Predict2-2B-Video2World/tokenizer/tokenizer.pth",
+    "sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+  },
+  "overlay_receipt": {
+    "path": "/probe/receipts/source_overlay_repro_v2.json",
+    "sha256": "7777777777777777777777777777777777777777777777777777777777777777"
+  },
+  "casa_receipt": {
+    "path": "/probe/receipts/casa_bf16_forward_backward_repro_v2.json",
+    "sha256": "8888888888888888888888888888888888888888888888888888888888888888"
+  },
+  "hcu_device": 0,
+  "nproc_per_node": 1,
+  "master_port": 12341,
+  "max_iter": 1,
+  "save_iter": 1,
+  "batch_size": 1,
+  "num_workers": 0,
+  "resume_checkpoint": null
+}

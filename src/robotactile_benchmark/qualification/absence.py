@@ -47,8 +47,6 @@ def _trial(identity: PolicyIdentity, fault: FaultManifest) -> TrialManifest:
         action_spec=ACTION_SPEC,
         fault_manifest_sha256=fault.sha256,
         matched_no_touch_system_id=None,
-        restoration_index=None,
-        restoration_mode=None,
     )
 
 

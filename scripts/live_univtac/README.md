@@ -36,7 +36,7 @@ CUDA_RUNFILE="$ROOT/runtime/installers/cuda_12.8.1_570.124.06_linux.run"
 CUDA_SHA256='<verified-sha256>'
 ISAAC_ARCHIVE="$PWD/deployment/runtime/isaac-sim-standalone-4.5.0-linux-x86_64.zip"
 ISAAC_SHA256='<verified-sha256>'
-WHEEL="$PWD/dist/robotactile_benchmark-0.4.0-py3-none-any.whl"
+WHEEL="$PWD/dist/robotactile_benchmark-0.6.0-py3-none-any.whl"
 
 bash scripts/live_univtac/bootstrap_blackwell_sm120.sh \
   --root "$ROOT" \
@@ -262,7 +262,7 @@ opt-in `replace_initial_terminal_v1` policy is a separate robustness diagnostic
 and is not directly comparable with the public 84.5% reference. These commands
 describe the implemented gate; they do not claim a newly executed GPU result.
 
-## 4. Freeze the first pull-out-key four-condition matrix
+## 4. Freeze the first pull-out-key three-condition matrix
 
 Run the generator from the benchmark repository with the hashes recorded when
 the official `policy_last.ckpt`, `dataset_stats.pkl`, and `encoder.pth` files
@@ -285,9 +285,8 @@ python scripts/live_univtac/generate_pull_out_key_matrix.py \
 
 The default operator is `T1_fixed_source_delay` at S3 (four frames), active
 from observation 16. The persistent request keeps it active through the
-301-observation budget; the restored request resumes valid delivery at
-observation 180. Override these with `--operator`, `--severity`,
-`--fault-start`, and `--restoration-index`. Operators that require a measured
+301-observation budget. Override it with `--operator`, `--severity`, and
+`--fault-start`. Operators that require a measured
 rest-reference bundle fail closed unless `--rest-reference-artifact` points to
 the strict three-file artifact created by:
 
@@ -309,16 +308,16 @@ The atomically published directory contains:
 
 ```text
 trial_set_manifest.json
-fault_manifests/{persistent,restored}.json
+fault_manifests/persistent.json
 policy_artifacts/{univtac,vision_only}.json
-requests/{clean,faulted,no_touch,restored}.json
+requests/{clean,faulted,no_touch}.json
 matrix_receipt.json
 ```
 
 For a rest-reference operator, the directory also contains the copied and
 hash-bound `rest_references/{rest_reference.json,no_contact_validation.json,root_receipt.json}`.
 
-All four requests share the tactile ACT `base_system_manifest_sha256` and one
+All three requests share the tactile ACT `base_system_manifest_sha256` and one
 `pair_key`. Only `no_touch` executes the matched vision-only checkpoint and
 config. Each condition has a separate artifact output directory, while
 `live-univtac-paired-run` executes all conditions in one shared runtime from a

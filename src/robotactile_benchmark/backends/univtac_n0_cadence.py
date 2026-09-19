@@ -9,6 +9,7 @@ from typing import Any, cast
 from robotactile_benchmark.action_specs import EE8_ACTION_SPEC
 from robotactile_benchmark.backends.univtac_contracts import (
     N0_FIXED_ENDPOINT_ACTION_EXECUTION_CONTRACT,
+    N0_RETRAINED_10HZ_ACTION_EXECUTION_CONTRACT,
     N0_STOCK_EE_ACTION_EXECUTION_CONTRACT,
     N0_TRAINING_60HZ_ACTION_EXECUTION_CONTRACT,
     UniVTACBackendConfig,
@@ -146,7 +147,11 @@ def install_n0_fixed_cadence(
             "N0 fixed cadence is restricted to training-endpoint diagnostics"
         )
     if not legacy_diagnostic and (
-        selected != N0_TRAINING_60HZ_ACTION_EXECUTION_CONTRACT
+        selected
+        not in {
+            N0_TRAINING_60HZ_ACTION_EXECUTION_CONTRACT,
+            N0_RETRAINED_10HZ_ACTION_EXECUTION_CONTRACT,
+        }
         or diagnostic_only is not False
     ):
         raise UniVTACContractError("N0 training cadence contract scope mismatch")
@@ -155,6 +160,11 @@ def install_n0_fixed_cadence(
     native_steps_per_action, remainder = divmod(
         config.physics_steps_per_action, config.decimation
     )
+    expected_steps = (
+        12 if selected == N0_RETRAINED_10HZ_ACTION_EXECUTION_CONTRACT else 2
+    )
+    if config.physics_steps_per_action != expected_steps:
+        raise UniVTACContractError("N0 executor cadence does not match backend config")
     if remainder or native_steps_per_action < 1:
         raise UniVTACContractError(
             "N0 cadence requires an integral number of native control ticks"

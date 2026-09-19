@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
+from robotactile_benchmark.constants import DIAGNOSTIC_TACTILE_NULL_REGISTRY_ID
 from robotactile_benchmark.contracts import (
     EvaluationRecord,
     array_sha256,
@@ -96,14 +97,33 @@ def validate_delivery(
     failures: List[str] = []
     metrics: Dict[str, Any] = {
         "operator_id": manifest.operator_id,
-        "native_dose": severity_value(manifest.operator_id, manifest.severity_level),
+        "native_dose": severity_value(
+            manifest.operator_id,
+            manifest.severity_level,
+            registry_id=manifest.severity_registry,
+        ),
         "affected_records": 0,
     }
+    if manifest.severity_registry == DIAGNOSTIC_TACTILE_NULL_REGISTRY_ID:
+        metrics.update(
+            diagnostic_ablation="tactile_null_black_frame_v1",
+            paper_s1_s5_claim=False,
+        )
     if len(clean_records) != len(delivered_records):
         _failure(
             "LENGTH_MISMATCH", "clean and delivered lengths differ", codes, failures
         )
         return ValidationReport(False, tuple(codes), tuple(failures), metrics)
+    if (
+        manifest.severity_registry == DIAGNOSTIC_TACTILE_NULL_REGISTRY_ID
+        and manifest.stop_index < len(clean_records)
+    ):
+        _failure(
+            "TACTILE_NULL_WINDOW_NOT_FULL_TRACE",
+            "tactile-null delivery stopped before the observed trace ended",
+            codes,
+            failures,
+        )
 
     availability_indices = set()
     if manifest.operator_id in {"A1_stream_absence", "A2_frame_erasure"}:

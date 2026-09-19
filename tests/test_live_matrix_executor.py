@@ -42,7 +42,6 @@ from robotactile_benchmark.matrix import (
 )
 from robotactile_benchmark.trials import (
     Condition,
-    RestorationMode,
     TrialManifest,
     system_manifest_hash,
 )
@@ -65,8 +64,6 @@ def _matrix_cells() -> tuple[MatrixCellSpec, ...]:
         action_spec="qpos8_next_step",
         fault_manifest_sha256=None,
         matched_no_touch_system_id=None,
-        restoration_index=None,
-        restoration_mode=None,
     )
     fault = FaultManifest(
         operator_id="A1_stream_absence",
@@ -79,10 +76,9 @@ def _matrix_cells() -> tuple[MatrixCellSpec, ...]:
         parameters={},
     )
     manifest = build_focused_phase_manifest(
-        matrix_id="live-executor-four-condition-v1",
+        matrix_id="live-executor-three-condition-v1",
         clean=clean,
-        grid_points=(MatrixGridPoint("contact-window", fault, 3),),
-        restoration_mode=RestorationMode.VALID_STREAM_RESUME,
+        grid_points=(MatrixGridPoint("contact-window", fault),),
         no_touch_system_id="univtac-act-vision-only",
         no_touch_checkpoint_sha256="e" * 64,
         no_touch_config_sha256="f" * 64,
@@ -103,13 +99,10 @@ class _Resolver:
         self.calls: list[Condition] = []
         by_condition = {cell.trial.condition: cell for cell in cells}
         persistent = by_condition[Condition.FAULTED].fault_manifest
-        restored = by_condition[Condition.RESTORED].fault_manifest
-        assert persistent is not None and restored is not None
+        assert persistent is not None
         self.persistent = root / "persistent.json"
-        self.restored = root / "restored.json"
         self.no_touch = root / "vision_only" / "policy_last.ckpt"
         _write_fault(self.persistent, persistent)
-        _write_fault(self.restored, restored)
 
     def __call__(self, cell: MatrixCellSpec) -> LiveMatrixCellResources:
         condition = cell.trial.condition
@@ -120,12 +113,7 @@ class _Resolver:
                 rest_references_path=None,
                 matched_no_touch_artifact_path=self.no_touch,
             )
-        if condition is Condition.FAULTED:
-            fault_path = self.persistent
-        elif condition is Condition.RESTORED:
-            fault_path = self.restored
-        else:
-            fault_path = None
+        fault_path = self.persistent if condition is Condition.FAULTED else None
         return LiveMatrixCellResources(
             fault_manifest_path=fault_path,
             rest_references_path=None,
@@ -182,7 +170,7 @@ def _tree_bytes(root: Path) -> dict[str, bytes]:
     }
 
 
-def test_frozen_template_materializes_exact_four_condition_requests(
+def test_frozen_template_materializes_exact_three_condition_requests(
     tmp_path: Path,
 ) -> None:
     cells = _matrix_cells()
@@ -203,8 +191,6 @@ def test_frozen_template_materializes_exact_four_condition_requests(
         assert request.runtime_dir == (template.runtime_root / cell.sha256).absolute()
         assert request.checkpoint_sha256 == cell.trial.checkpoint_sha256
         assert request.config_sha256 == cell.trial.config_sha256
-        assert request.restoration_index == cell.trial.restoration_index
-        assert request.restoration_mode == cell.trial.restoration_mode
         if condition is Condition.NO_TOUCH:
             assert (
                 request.matched_no_touch_artifact_path == resolver.no_touch.absolute()
@@ -214,34 +200,11 @@ def test_frozen_template_materializes_exact_four_condition_requests(
             assert request.matched_no_touch_artifact_path is None
             assert request.fault_manifest_path is None
         else:
-            expected = (
-                resolver.restored
-                if condition is Condition.RESTORED
-                else resolver.persistent
-            )
-            assert request.fault_manifest_path == expected.absolute()
+            assert request.fault_manifest_path == resolver.persistent.absolute()
             assert request.matched_no_touch_artifact_path is None
 
 
-def test_materialization_rejects_persistent_manifest_for_restored_cell(
-    tmp_path: Path,
-) -> None:
-    cells = _matrix_cells()
-    resolver = _Resolver(tmp_path, cells)
-    restored = next(
-        cell for cell in cells if cell.trial.condition is Condition.RESTORED
-    )
-    wrong = replace(
-        resolver(restored), fault_manifest_path=resolver.persistent.absolute()
-    )
-
-    with pytest.raises(ValueError, match="matrix cell"):
-        materialize_live_matrix_request(
-            restored, _template(tmp_path), wrong, output_dir=tmp_path / "artifact"
-        )
-
-
-def test_cpu_fake_four_condition_artifacts_are_strict_content_addresses(
+def test_cpu_fake_three_condition_artifacts_are_strict_content_addresses(
     tmp_path: Path,
 ) -> None:
     cells = _matrix_cells()
@@ -344,20 +307,11 @@ def test_repeated_execution_reuses_identical_address_without_clobber(
     ]
 
 
-def test_typed_validator_crash_and_unsupported_results_keep_real_artifacts(
+def test_typed_crash_and_unsupported_results_keep_real_artifacts(
     tmp_path: Path,
 ) -> None:
     cells = _matrix_cells()
     by_condition = {cell.trial.condition: cell for cell in cells}
-
-    validator_resolver = _Resolver(tmp_path / "validator", cells)
-    validator = LiveMatrixCellExecutor(
-        tmp_path / "validator-matrix",
-        _template(tmp_path, max_control_cycles=1, max_observation_steps=2),
-        validator_resolver,
-        backend_factory=_backend,
-        policy_factory=_policy,
-    )(by_condition[Condition.RESTORED])
 
     def crashing_policy(loaded: Any) -> DeterministicFakePolicy:
         return DeterministicFakePolicy.for_trial(loaded.trial, fail_on_infer=True)
@@ -385,9 +339,6 @@ def test_typed_validator_crash_and_unsupported_results_keep_real_artifacts(
         policy_factory=unsupported_policy,
     )(by_condition[Condition.FAULTED])
 
-    assert validator.status is MatrixCellStatus.VALIDATOR_REJECTED
-    assert validator.failure_code == "validator_rejected"
-    assert validator.artifact is not None
     assert crash.status is MatrixCellStatus.CRASH
     assert crash.failure_code == "infer_failed"
     assert crash.artifact is not None
@@ -432,7 +383,10 @@ def test_live_unavailability_is_unsupported_without_fabricated_artifact(
         backend_factory=_backend,
     )(no_touch)
     assert missing.status is MatrixCellStatus.UNSUPPORTED
-    assert missing.failure_code == "artifact_unavailable"
+    assert (
+        missing.failure_code
+        == "live_execution_unavailable:official_policy_factory_required"
+    )
     assert missing.artifact is None
 
 

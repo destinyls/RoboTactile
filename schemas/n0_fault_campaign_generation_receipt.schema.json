@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robotactile.invalid/schemas/n0_fault_campaign_generation_receipt.schema.json",
+  "title": "RoboTactile N0 Fault Campaign Generation Receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "campaign_id", "campaign_manifest_sha256", "generation_contract_sha256",
+    "pair_count", "cell_count", "live_request_count",
+    "unsupported_contract_count", "fault_manifest_count", "members",
+    "evidence_level", "simulator_execution_claimed", "task_success_claimed",
+    "semantic_version"
+  ],
+  "properties": {
+    "campaign_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "campaign_manifest_sha256": {"$ref": "#/$defs/sha256"},
+    "generation_contract_sha256": {"$ref": "#/$defs/sha256"},
+    "pair_count": {"type": "integer", "minimum": 1},
+    "cell_count": {"type": "integer", "minimum": 2},
+    "live_request_count": {"type": "integer", "minimum": 1},
+    "unsupported_contract_count": {"type": "integer", "minimum": 0},
+    "fault_manifest_count": {"type": "integer", "minimum": 1},
+    "members": {
+      "type": "object", "minProperties": 1,
+      "propertyNames": {"pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$"},
+      "additionalProperties": {"$ref": "#/$defs/sha256"}
+    },
+    "evidence_level": {"const": "request_generation_only_no_execution_v1"},
+    "simulator_execution_claimed": {"const": false},
+    "task_success_claimed": {"const": false},
+    "semantic_version": {"const": "1.0"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

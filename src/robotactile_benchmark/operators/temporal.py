@@ -92,7 +92,10 @@ class HeldLastFreezeOperator:
             range(manifest.start_index, min(manifest.stop_index, len(clean_records)))
         ):
             source_index = source_map[offset]
-            if source_index == index:
+            if (
+                source_index == index
+                and manifest.parameters.get("temporal_schedule") != "full_episode_v1"
+            ):
                 continue
             for slot_id in manifest.sensor_slots:
                 output[index] = _route_source(

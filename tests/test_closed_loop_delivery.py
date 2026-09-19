@@ -202,7 +202,7 @@ class OnlineFaultDeliveryTests(unittest.TestCase):
             finalization.clean_trace_sha256, finalization.delivered_trace_sha256
         )
 
-    def test_restored_manifest_is_identity_at_its_exclusive_stop_index(self) -> None:
+    def test_fault_window_is_identity_at_its_exclusive_stop_index(self) -> None:
         clean = make_synthetic_episode(length=12)
         manifest = _manifest("A2_frame_erasure")
         session = OnlineFaultSession(manifest, REST_REFERENCES)

@@ -18,23 +18,23 @@
     "generation_contract_sha256": {"$ref": "#/$defs/sha256"},
     "pair_key": {"$ref": "#/$defs/sha256"},
     "task_id": {"type": "string", "minLength": 1},
-    "cell_count": {"const": 142},
+    "cell_count": {"const": 72},
     "comparison_count": {"const": 70},
-    "fault_manifest_count": {"const": 140},
+    "fault_manifest_count": {"const": 70},
     "rest_reference_artifact_root_sha256": {"$ref": "#/$defs/sha256"},
     "rest_reference_sha256": {"$ref": "#/$defs/sha256"},
     "tactile_config_sha256": {"$ref": "#/$defs/sha256"},
     "no_touch_config_sha256": {"$ref": "#/$defs/sha256"},
     "members": {
       "type": "object",
-      "minProperties": 145,
+      "minProperties": 75,
       "propertyNames": {"pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$"},
       "additionalProperties": {"$ref": "#/$defs/sha256"}
     },
     "evidence_level": {"const": "request_generation_only_no_simulator_execution"},
     "simulator_execution_claimed": {"const": false},
     "task_success_claimed": {"const": false},
-    "semantic_version": {"const": "1.0"}
+    "semantic_version": {"const": "2.0"}
   },
   "$defs": {
     "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}

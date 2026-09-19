@@ -10,6 +10,8 @@ from robotactile_benchmark.deployment.layout import (
     DeploymentLayout,
     resolve_deployment_root,
 )
+from robotactile_benchmark.execution.loading import load_live_univtac_request
+from robotactile_benchmark.execution.official_act import official_act_profile
 from robotactile_benchmark.execution.preflight import (
     run_live_preflight,
     write_live_preflight_receipt,
@@ -27,7 +29,11 @@ def add_live_preflight_parser(subparsers: Any) -> None:
     parser.add_argument("--request", type=Path, required=True)
     parser.add_argument("--root", type=Path)
     parser.add_argument("--config", type=Path)
-    parser.add_argument("--act-checkout", type=Path)
+    parser.add_argument(
+        "--act-checkout",
+        type=Path,
+        help="deprecated compatibility option; official ACT source is UniVTAC",
+    )
     parser.add_argument("--official-act-artifact-root", type=Path)
     parser.add_argument("--stats-sha256")
     parser.add_argument("--encoder-sha256")
@@ -48,7 +54,6 @@ def handle_live_preflight_command(
     needs_layout = (
         args.config is not None
         or any(value is None for value in legacy)
-        or args.act_checkout is None
         or args.isaac_python is None
         or args.output is None
     )
@@ -57,10 +62,25 @@ def handle_live_preflight_command(
     )
     if args.config is not None or any(value is None for value in legacy):
         assert layout is not None
-        config_path = args.config or (
-            layout.model_artifacts / "act/integration_config.json"
-        )
+        request = load_live_univtac_request(args.request)
+        config_path = args.config
+        if config_path is None:
+            canonical = (
+                layout.model_artifacts
+                / "act/configs"
+                / request.task_id
+                / official_act_profile(request.condition).value
+                / "integration_config.json"
+            )
+            legacy_config_path = layout.model_artifacts / "act/integration_config.json"
+            config_path = (
+                legacy_config_path
+                if legacy_config_path.is_file() and not canonical.exists()
+                else canonical
+            )
         resolved = resolve_act_runtime_artifacts(config_path)
+        if request.act_device_name != resolved.device:
+            raise ValueError("ACT request device does not match integration config")
         artifact_root = resolved.artifact_root
         stats_sha256 = resolved.stats_sha256
         encoder_sha256 = resolved.encoder_sha256
@@ -68,11 +88,9 @@ def handle_live_preflight_command(
         artifact_root = args.official_act_artifact_root
         stats_sha256 = args.stats_sha256
         encoder_sha256 = args.encoder_sha256
-    act_checkout = args.act_checkout
     isaac_python = args.isaac_python
     output = args.output
     if layout is not None:
-        act_checkout = act_checkout or layout.sources / "WorldArena"
         isaac_python = isaac_python or layout.runtime / "isaac-sim-4.5.0/python.sh"
         output = output or layout.artifacts / "preflight" / (
             f"{Path(args.request).stem}.json"
@@ -80,12 +98,11 @@ def handle_live_preflight_command(
     assert artifact_root is not None
     assert stats_sha256 is not None
     assert encoder_sha256 is not None
-    assert act_checkout is not None
     assert isaac_python is not None
     assert output is not None
     receipt = run_live_preflight(
         args.request,
-        act_checkout=act_checkout,
+        act_checkout=args.act_checkout,
         artifact_root=artifact_root,
         stats_sha256=stats_sha256,
         encoder_sha256=encoder_sha256,

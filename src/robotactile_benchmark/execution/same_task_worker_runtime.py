@@ -1,4 +1,4 @@
-"""Task-local Isaac app reuse for sequential Clean episode execution."""
+"""Task-local Isaac app reuse for sequential episode execution."""
 
 from __future__ import annotations
 
@@ -17,7 +17,13 @@ from robotactile_benchmark.execution.lifecycle_watchdog import LifecycleStageJou
 from robotactile_benchmark.execution.live_artifacts_contracts import (
     LoadedLiveUniVTACArtifact,
 )
-from robotactile_benchmark.execution.live_univtac import LiveBackendFactory
+from robotactile_benchmark.execution.live_univtac import (
+    LiveArtifactExporter,
+    LiveBackendFactory,
+    LivePolicyFactory,
+    LiveUniVTACExecutionResult,
+    execute_live_univtac_run,
+)
 from robotactile_benchmark.execution.loading import (
     LoadedLiveUniVTACRun,
     load_live_univtac_run,
@@ -91,7 +97,11 @@ class SameTaskEpisodeExecutor:
                 stage_observer=lifecycle_journal.observe,
             )
             try:
-                return UniVTACIsaacBackend(selected.backend_config, runtime)
+                return UniVTACIsaacBackend(
+                    selected.backend_config,
+                    runtime,
+                    success_predicate_id=selected.run_spec.success_predicate_id,
+                )
             except BaseException:
                 runtime.close_runtime()
                 raise
@@ -138,4 +148,115 @@ class SameTaskEpisodeExecutor:
             raise ValueError("episode changed the task-local Isaac app contract")
 
 
-__all__ = ["SameTaskEpisodeExecutor"]
+class SameTaskIsaacSession:
+    """Reuse one Isaac application while rebuilding the task for every episode.
+
+    Unlike :class:`SameTaskEpisodeExecutor`, this class is policy-agnostic.  It
+    is used by condition-sharded robustness sweeps where the N0 endpoint is
+    already source-bound by the parent supervisor.  Only the application is
+    reused: every call leases a newly constructed UniVTAC task runtime and the
+    normal closed-loop runner closes that runtime and its policy before return.
+    """
+
+    def __init__(
+        self,
+        *,
+        bootstrap: LoadedLiveUniVTACRun,
+        action_execution_contract: str,
+    ) -> None:
+        if type(bootstrap) is not LoadedLiveUniVTACRun:
+            raise TypeError("bootstrap must be an exact LoadedLiveUniVTACRun")
+        self._bootstrap = bootstrap
+        self._action_execution_contract = action_execution_contract
+        request = bootstrap.request
+        self._host: Optional[UniVTACSimulationAppHost] = launch_univtac_app_host(
+            bootstrap.backend_config,
+            upstream_root=request.upstream_root,
+            initial_seed=bootstrap.trial.initial_seed,
+            launcher_args=request.launcher_args,
+            device=request.simulator_device,
+            n0_action_execution_contract=action_execution_contract,
+        )
+
+    @property
+    def runtime_count(self) -> int:
+        """Return the number of freshly constructed task runtimes."""
+
+        return self._require_host().runtime_count
+
+    def execute(
+        self,
+        request: LiveUniVTACRunRequest,
+        *,
+        policy_factory: LivePolicyFactory,
+        artifact_exporter: LiveArtifactExporter,
+        lifecycle_journal: Optional[LifecycleStageJournal] = None,
+    ) -> LiveUniVTACExecutionResult:
+        """Run one episode with fresh task, policy, and fault-session state."""
+
+        if type(request) is not LiveUniVTACRunRequest:
+            raise TypeError("request must be an exact LiveUniVTACRunRequest")
+        if not callable(policy_factory) or not callable(artifact_exporter):
+            raise TypeError("policy_factory and artifact_exporter must be callable")
+        loaded = load_live_univtac_run(request)
+        self._validate_loaded(loaded)
+        host = self._require_host()
+
+        def backend_factory(selected: LoadedLiveUniVTACRun) -> UniVTACIsaacBackend:
+            self._validate_loaded(selected)
+            runtime = host.create_runtime(
+                runtime_dir=selected.request.runtime_dir,
+                initial_seed=selected.trial.initial_seed,
+                stage_observer=(
+                    None if lifecycle_journal is None else lifecycle_journal.observe
+                ),
+            )
+            try:
+                return UniVTACIsaacBackend(
+                    selected.backend_config,
+                    runtime,
+                    success_predicate_id=selected.run_spec.success_predicate_id,
+                )
+            except BaseException:
+                runtime.close_runtime()
+                raise
+
+        return execute_live_univtac_run(
+            request,
+            backend_factory=cast(LiveBackendFactory, backend_factory),
+            policy_factory=policy_factory,
+            artifact_exporter=artifact_exporter,
+            lifecycle_journal=lifecycle_journal,
+            n0_action_execution_contract=self._action_execution_contract,
+        )
+
+    def close(self) -> None:
+        """Close the last task lease, if any, then the shared application."""
+
+        host = self._host
+        if host is None:
+            return
+        self._host = None
+        host.close()
+
+    def _require_host(self) -> UniVTACSimulationAppHost:
+        host = self._host
+        if host is None or host.closed:
+            raise RuntimeError("same-task Isaac session is closed")
+        return host
+
+    def _validate_loaded(self, loaded: LoadedLiveUniVTACRun) -> None:
+        baseline = self._bootstrap
+        request = loaded.request
+        expected = baseline.request
+        if (
+            request.task_id != expected.task_id
+            or loaded.backend_config != baseline.backend_config
+            or request.upstream_root != expected.upstream_root
+            or request.launcher_args != expected.launcher_args
+            or request.simulator_device != expected.simulator_device
+        ):
+            raise ValueError("episode changed the task-local Isaac app contract")
+
+
+__all__ = ["SameTaskEpisodeExecutor", "SameTaskIsaacSession"]

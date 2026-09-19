@@ -1,0 +1,20 @@
+{
+  "dataset_path": "/mnt/data/task/n0_twam_track31_retrain_official_20260829/data/lerobot/train759",
+  "base_model_path": "/mnt/data/task/n0_twam_track32_franka_xyzw_20260817_v1/models/n0-twam-base-dafcb053902cc7a51310780fdfdb71ff8e79c0be",
+  "released_checkpoint_path": "/mnt/data/task/n0_twam_track32_franka_xyzw_20260817_v1/models/n0-twam-base-dafcb053902cc7a51310780fdfdb71ff8e79c0be",
+  "empty_embedding_path": "/mnt/data/task/n0_twam_track32_franka_xyzw_20260817_v1/models/n0-twam-base-dafcb053902cc7a51310780fdfdb71ff8e79c0be/empty_emb.pt",
+  "norm_stat_path": "/mnt/data/task/n0_twam_track31_retrain_official_20260829/data/lerobot/norm_stat_absee.json",
+  "per_repo_norm_stat_path": "/mnt/data/task/n0_twam_track31_retrain_official_20260829/data/lerobot/norm_stat_absee_per_repo.json",
+  "latent_inventory_path": "/mnt/data/task/n0_twam_track31_retrain_official_20260829/runs/latent/train759-official-latents-2n16-v1/final_inventory.json",
+  "prompt": "manipulate the object using visual and tactile feedback",
+  "max_latent_frames": 5,
+  "num_steps": 10000,
+  "save_interval": 500,
+  "gradient_accumulation_steps": 4,
+  "batch_size": 1,
+  "load_worker": 4,
+  "learning_rate": 0.0001,
+  "warmup_steps": 20,
+  "gc_interval": 50,
+  "seed": 20260829
+}

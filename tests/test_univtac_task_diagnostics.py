@@ -73,6 +73,7 @@ class _GraspTask:
 
 class _InsertionTask:
     def __init__(self, *, prism_z: float) -> None:
+        self.target_pose = _Pose((0.4, 0.0, 0.08))
         self.prism = _Bottle(_Pose((0.4, 0.0, prism_z)))
         self.origin_inhand_pose = _Pose((0.0, 0.0, -0.05))
         self._robot_manager = type(
@@ -80,6 +81,28 @@ class _InsertionTask:
             (),
             {"get_gripper_center_pose": lambda _self: _Pose((0.4, 0.0, 0.08))},
         )()
+
+
+def test_insert_hole_dual_success_metrics_use_frozen_strict_thresholds() -> None:
+    diagnostics = capture_task_diagnostics(_InsertionTask(prism_z=0.024), "insert_hole")
+
+    assert diagnostics["success_metrics_available"] is True
+    assert diagnostics["relative_position_xyz"] == pytest.approx([0.0, 0.0, -0.056])
+    assert diagnostics["xy_error_m"] == pytest.approx(0.0)
+    assert diagnostics["insertion_depth_m"] == pytest.approx(0.056)
+    assert diagnostics["alignment_dot"] == pytest.approx(1.0)
+    assert diagnostics["inhand_z_drift_m"] == pytest.approx(0.006)
+    assert diagnostics["predicate_success"] is True
+    assert diagnostics["strict_instantaneous_success"] is True
+    assert diagnostics["strict_thresholds"] == {
+        "xy_error_m_lt": 0.005,
+        "insertion_depth_m_gt": 0.05,
+        "alignment_dot_gt": 0.999,
+        "inhand_z_drift_m_lt": 0.025,
+        "stable_hold_s_gte": 0.25,
+        "simulator_hz": 120,
+        "stable_hold_steps_gte": 30,
+    }
 
 
 def _placement_witness(
@@ -139,6 +162,24 @@ def test_grasp_classify_diagnostics_persist_initialization_and_predicate() -> No
 
     unavailable = capture_task_diagnostics(object(), "grasp_classify")
     assert unavailable["available"] is False
+
+
+def test_grasp_classify_actor_diagnostics_do_not_require_n0_preload() -> None:
+    task = _GraspTask()
+    del task._robotactile_grasp_initialization
+    del task._robotactile_tactile_attachment
+
+    diagnostics = capture_task_diagnostics(task, "grasp_classify")
+
+    assert diagnostics["available"] is True
+    assert diagnostics["initialization"] is None
+    assert diagnostics["tactile_attachment"] is None
+    assert diagnostics["prism_pose"]["position_xyz"] == pytest.approx(
+        [0.41, -0.075, 0.03]
+    )
+    assert diagnostics["gripper_center_pose"]["position_xyz"] == pytest.approx(
+        [0.41, -0.075, 0.08]
+    )
 
 
 def test_insertion_diagnostics_reproduce_official_inhand_early_stop() -> None:

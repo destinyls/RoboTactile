@@ -6,9 +6,18 @@ from __future__ import annotations
 import argparse
 import json
 import socket
+import sys
 from pathlib import Path
 
-from robotactile_benchmark.transport.n0_official import load_official_n0_rpc
+# The N0 runtime intentionally clears its inherited PYTHONPATH. Bind this
+# probe to the repository before importing the benchmark package so an older
+# wheel in the N0 environment cannot shadow the current campaign code.
+_REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+sys.path[:0] = [str(_REPOSITORY_ROOT / "src"), str(_REPOSITORY_ROOT)]
+
+from robotactile_benchmark.transport.n0_official import (  # noqa: E402
+    load_official_n0_rpc,
+)
 
 
 def main() -> int:

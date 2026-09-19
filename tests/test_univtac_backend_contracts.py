@@ -22,6 +22,7 @@ from robotactile_benchmark.backends.univtac_contracts import (
     UniVTACContractError,
     build_univtac_backend_config,
     load_univtac_task_registry,
+    resolve_univtac_full_horizon_budget,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -78,6 +79,42 @@ print(json.dumps(blocked))
                     task.success_predicate_id,
                     f"univtac-upstream-05bcd3ed.{task.task_id}.check_success.v1",
                 )
+
+    def test_full_horizon_budget_is_task_specific(self) -> None:
+        self.assertEqual(
+            resolve_univtac_full_horizon_budget("lift_bottle"),
+            (500, 501),
+        )
+        self.assertEqual(
+            resolve_univtac_full_horizon_budget("insert_HDMI"),
+            (600, 601),
+        )
+        self.assertEqual(
+            resolve_univtac_full_horizon_budget(
+                "lift_bottle",
+                max_control_cycles=2,
+            ),
+            (2, 3),
+        )
+
+    def test_full_horizon_budget_rejects_inconsistent_limits(self) -> None:
+        with self.assertRaisesRegex(
+            UniVTACContractError,
+            "exceeds the frozen task action horizon",
+        ):
+            resolve_univtac_full_horizon_budget(
+                "lift_bottle",
+                max_control_cycles=501,
+            )
+        with self.assertRaisesRegex(
+            UniVTACContractError,
+            r"max_control_cycles \+ 1",
+        ):
+            resolve_univtac_full_horizon_budget(
+                "lift_bottle",
+                max_control_cycles=500,
+                max_observation_steps=301,
+            )
 
     def test_backend_config_freezes_runtime_and_live_joint_contract(self) -> None:
         config = build_univtac_backend_config("pull_out_key")

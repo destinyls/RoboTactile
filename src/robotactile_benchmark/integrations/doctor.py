@@ -14,9 +14,21 @@ from robotactile_benchmark.deployment.layout import (
 from robotactile_benchmark.integrations.act.artifacts import (
     load_act_artifact_manifest,
 )
+from robotactile_benchmark.integrations.dream_tac.artifacts import (
+    load_dream_tac_artifact_manifest,
+    validate_dream_tac_artifact,
+)
+from robotactile_benchmark.integrations.ftp1_policy.artifacts import (
+    load_ftp1_policy_artifact_manifest,
+    validate_ftp1_policy_artifact,
+)
 from robotactile_benchmark.integrations.n0_twam.artifacts import (
     load_n0_twam_artifact_manifest,
     validate_n0_twam_artifact,
+)
+from robotactile_benchmark.integrations.n0_vtla.artifacts import (
+    load_n0_vtla_artifact_manifest,
+    validate_n0_vtla_artifact,
 )
 from robotactile_benchmark.integrations.provenance import (
     load_integration_lock,
@@ -84,20 +96,26 @@ def diagnose_model_integration(
     layout: DeploymentLayout,
     config_path: Optional[Path] = None,
     task_id: str = "pull_out_key",
+    profile_id: str = "univtac",
 ) -> IntegrationDoctorResult:
-    """Verify source pins and artifacts without starting either model."""
+    """Verify source pins and artifacts without starting a model."""
 
-    model_dir = "act" if integration_id == "act" else "n0_twam"
-    selected_config = (
-        layout.root
-        / (
-            f"artifacts/models/{model_dir}/integration_config.json"
+    model_dir = integration_id
+    if config_path is None:
+        selected_config = layout.root / (
+            f"artifacts/models/{model_dir}/configs/{task_id}/{profile_id}/integration_config.json"
             if integration_id == "act"
             else f"artifacts/models/{model_dir}/configs/{task_id}/integration_config.json"
         )
-        if config_path is None
-        else Path(config_path)
-    )
+        legacy = layout.root / "artifacts/models/act/integration_config.json"
+        if (
+            integration_id == "act"
+            and legacy.is_file()
+            and not selected_config.exists()
+        ):
+            selected_config = legacy
+    else:
+        selected_config = Path(config_path)
     checks: list[IntegrationDoctorCheck] = []
     loaded_config = None
     try:
@@ -108,11 +126,13 @@ def diagnose_model_integration(
         checks.append(IntegrationDoctorCheck("integration_config", True, "verified"))
 
     lock = load_integration_lock()
-    source_ids = (
-        ("act_runtime", "univtac")
-        if integration_id == "act"
-        else ("n0_twam", "univtac")
-    )
+    source_ids = {
+        "act": ("univtac",),
+        "dream_tac": ("dream_tac", "univtac"),
+        "ftp1_policy": ("ftp1_policy", "univtac"),
+        "n0_twam": ("n0_twam", "univtac"),
+        "n0_vtla": ("n0_vtla", "univtac"),
+    }[integration_id]
     unreleased = tuple(
         source_id for source_id in source_ids if not lock.by_id(source_id).release_ready
     )
@@ -146,7 +166,25 @@ def diagnose_model_integration(
                     ),
                 )
             )
-        else:
+        elif integration_id == "dream_tac":
+            checks.append(
+                _attempt(
+                    "artifact_manifest",
+                    lambda: validate_dream_tac_artifact(
+                        load_dream_tac_artifact_manifest(manifest_path)
+                    ),
+                )
+            )
+        elif integration_id == "ftp1_policy":
+            checks.append(
+                _attempt(
+                    "artifact_manifest",
+                    lambda: validate_ftp1_policy_artifact(
+                        load_ftp1_policy_artifact_manifest(manifest_path)
+                    ),
+                )
+            )
+        elif integration_id == "n0_twam":
             checks.append(
                 _attempt(
                     "artifact_manifest",
@@ -155,17 +193,64 @@ def diagnose_model_integration(
                     ),
                 )
             )
+        else:
+            checks.append(
+                _attempt(
+                    "artifact_manifest",
+                    lambda: validate_n0_vtla_artifact(
+                        load_n0_vtla_artifact_manifest(manifest_path)
+                    ),
+                )
+            )
     checks.append(
         IntegrationDoctorCheck(
             "transport",
             True,
             (
-                "in_process"
-                if integration_id == "act"
-                else "official_websocket_contract_registered_endpoint_not_probed"
+                {
+                    "act": "in_process",
+                    "dream_tac": (
+                        "official_http_contract_registered_endpoint_not_probed"
+                    ),
+                    "ftp1_policy": "official_zmq_contract_registered_endpoint_not_probed",
+                    "n0_twam": (
+                        "official_websocket_contract_registered_endpoint_not_probed"
+                    ),
+                    "n0_vtla": "official_zmq_contract_registered_endpoint_not_probed",
+                }[integration_id]
             ),
         )
     )
+    if integration_id == "dream_tac":
+        checks.extend(
+            (
+                IntegrationDoctorCheck(
+                    "official_checkpoint_release",
+                    False,
+                    (
+                        "the pinned upstream documentation exposes only local "
+                        "checkpoint placeholders; provide and provenance-bind "
+                        "task-aligned weights"
+                    ),
+                ),
+                IntegrationDoctorCheck(
+                    "paper_inference_parity",
+                    False,
+                    (
+                        "the pinned upstream HTTP inference path does not apply "
+                        "the paper CASA contact gate"
+                    ),
+                ),
+                IntegrationDoctorCheck(
+                    "univtac_task_alignment",
+                    False,
+                    (
+                        "no public Dream-Tac checkpoint bound to the UniVTAC "
+                        "task, camera, tactile, and timing contracts was discovered"
+                    ),
+                ),
+            )
+        )
     return IntegrationDoctorResult(integration_id, tuple(checks))
 
 

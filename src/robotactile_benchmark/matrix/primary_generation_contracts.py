@@ -14,7 +14,7 @@ from robotactile_benchmark.contracts import canonical_hash
 from robotactile_benchmark.matrix.live_run_config import LiveMatrixRunConfig
 from robotactile_benchmark.matrix.manifest import MatrixManifest
 
-PRIMARY_GENERATION_SEMANTIC_VERSION = "1.0"
+PRIMARY_GENERATION_SEMANTIC_VERSION = "2.0"
 PRIMARY_GENERATION_EVIDENCE_LEVEL = "request_generation_only_no_simulator_execution"
 PRIMARY_RECEIPT_PATH = "primary_matrix_receipt.json"
 _SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -52,7 +52,6 @@ class PrimaryMatrixGenerationSpec:
     exogenous_seed: int
     operator_seed_base: int
     fault_start_index: int
-    restoration_index: int
     fault_stop_index: int
     max_control_cycles: int
     max_observation_steps: int
@@ -84,7 +83,6 @@ class PrimaryMatrixGenerationSpec:
             "exogenous_seed",
             "operator_seed_base",
             "fault_start_index",
-            "restoration_index",
             "fault_stop_index",
         ):
             value = getattr(self, name)
@@ -96,14 +94,13 @@ class PrimaryMatrixGenerationSpec:
             object.__setattr__(
                 self, name, require_positive_int(getattr(self, name), name)
             )
-        if not (
-            self.fault_start_index
-            < self.restoration_index
+        if (
+            not self.fault_start_index
             < self.fault_stop_index
             <= self.max_observation_steps
         ):
             raise PrimaryMatrixGenerationError(
-                "fault window must satisfy start < restoration < stop <= observations"
+                "fault window must satisfy start < stop <= observations"
             )
         if self.max_observation_steps != self.max_control_cycles + 1:
             raise PrimaryMatrixGenerationError(
@@ -159,7 +156,6 @@ class PrimaryMatrixGenerationSpec:
                 "operator_seed_base": self.operator_seed_base,
                 "fault_window": [
                     self.fault_start_index,
-                    self.restoration_index,
                     self.fault_stop_index,
                 ],
                 "budgets": [
@@ -210,9 +206,9 @@ class PrimaryMatrixGenerationReceipt:
         ):
             object.__setattr__(self, name, require_sha256(getattr(self, name), name))
         expected_counts = {
-            "cell_count": 142,
+            "cell_count": 72,
             "comparison_count": 70,
-            "fault_manifest_count": 140,
+            "fault_manifest_count": 70,
         }
         for name, expected in expected_counts.items():
             if getattr(self, name) != expected:

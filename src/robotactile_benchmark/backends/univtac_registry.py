@@ -25,6 +25,8 @@ from robotactile_benchmark.adapters.univtac import (
 from robotactile_benchmark.backends.univtac_contracts import (
     N0_DECIMATION,
     N0_PHYSICS_STEPS_PER_ACTION,
+    N0_RETRAINED_10HZ_ACTION_EXECUTION_CONTRACT,
+    N0_TRAINING_60HZ_ACTION_EXECUTION_CONTRACT,
     REGISTRY_ID,
     REGISTRY_RESOURCE_SHA256,
     REGISTRY_SEMANTIC_VERSION,
@@ -198,7 +200,12 @@ def load_registry(
 
 
 def build_config(
-    task_id: str, *, action_spec: str = QPOS8_ACTION_SPEC
+    task_id: str,
+    *,
+    action_spec: str = QPOS8_ACTION_SPEC,
+    n0_action_execution_contract: Optional[str] = None,
+    control_hz: Optional[int] = None,
+    tactile_payload: Optional[str] = None,
 ) -> UniVTACBackendConfig:
     """Build one typed backend config from the strict packaged registry."""
 
@@ -206,6 +213,22 @@ def build_config(
     runtime = registry.runtime
     selected_spec = validate_action_spec(action_spec)
     is_n0 = selected_spec == EE8_ACTION_SPEC
+    if n0_action_execution_contract is not None and (
+        not is_n0
+        or n0_action_execution_contract
+        not in {
+            N0_TRAINING_60HZ_ACTION_EXECUTION_CONTRACT,
+            N0_RETRAINED_10HZ_ACTION_EXECUTION_CONTRACT,
+        }
+    ):
+        raise UniVTACContractError(
+            "backend config requires a registered fixed N0 cadence"
+        )
+    n0_steps = (
+        12
+        if n0_action_execution_contract == N0_RETRAINED_10HZ_ACTION_EXECUTION_CONTRACT
+        else N0_PHYSICS_STEPS_PER_ACTION
+    )
     lower_bounds: Tuple[float, ...]
     upper_bounds: Tuple[float, ...]
     if selected_spec == EE8_ACTION_SPEC:
@@ -219,11 +242,21 @@ def build_config(
             runtime["action_upper_bounds"], "action upper bounds", 8
         )
     aliases = dict(registry.aliases)
+    if control_hz is not None and (
+        type(control_hz) is not int or control_hz not in (10, 60)
+    ):
+        raise UniVTACContractError("unsupported retrained control Hz")
     if selected_spec == EE8_ACTION_SPEC:
         # The released N0 UniVTAC checkpoint's bundled exact converter reads
         # the marker-less HDF5 ``rgb`` field.  The legacy qpos benchmark keeps
         # the registry's marker-bearing ``rgb_marker`` payload.
         aliases["tactile_payload"] = "rgb"
+    if tactile_payload is not None:
+        if tactile_payload not in ("rgb", "rgb_marker"):
+            raise UniVTACContractError("unsupported tactile payload")
+        aliases["tactile_payload"] = tactile_payload
+    if is_n0 and control_hz is not None and 120 // n0_steps != control_hz:
+        raise UniVTACContractError("EE cadence conflicts with retrained control Hz")
     return UniVTACBackendConfig(
         task=registry.task(task_id),
         registry_resource_sha256=registry.resource_sha256,
@@ -238,8 +271,10 @@ def build_config(
             else _positive_int(runtime["decimation"], "decimation")
         ),
         physics_steps_per_action=(
-            N0_PHYSICS_STEPS_PER_ACTION
+            n0_steps
             if is_n0
+            else 120 // control_hz
+            if control_hz is not None
             else _positive_int(
                 runtime["physics_steps_per_action"], "physics_steps_per_action"
             )

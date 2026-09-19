@@ -15,7 +15,7 @@ from robotactile_benchmark.closed_loop.interfaces import (
     ClosedLoopPolicy,
     SimulationBackend,
 )
-from robotactile_benchmark.constants import REST_REFERENCE_OPERATOR_IDS
+from robotactile_benchmark.constants import operator_requires_rest_reference
 from robotactile_benchmark.contracts import (
     EvaluationRecord,
     canonical_hash,
@@ -77,9 +77,9 @@ def preflight(
         raise ValueError("backend action spec does not match the trial manifest")
     if backend.success_predicate_id != run_spec.success_predicate_id:
         raise ValueError("backend success predicate does not match the run spec")
-    faulted = trial.condition in {Condition.FAULTED, Condition.RESTORED}
+    faulted = trial.condition is Condition.FAULTED
     if faulted and fault_manifest is None:
-        raise ValueError("faulted/restored trial requires a fault manifest")
+        raise ValueError("faulted trial requires a fault manifest")
     if not faulted and fault_manifest is not None:
         raise ValueError("clean/no-touch trial cannot receive a fault manifest")
     if (
@@ -89,15 +89,12 @@ def preflight(
         raise ValueError("fault manifest does not match the trial manifest")
     if rest_references is not None and (
         fault_manifest is None
-        or fault_manifest.operator_id not in REST_REFERENCE_OPERATOR_IDS
+        or not operator_requires_rest_reference(
+            fault_manifest.operator_id,
+            severity_registry=fault_manifest.severity_registry,
+        )
     ):
         raise ValueError("rest references are only valid for rest-reference operators")
-    if (
-        trial.condition is Condition.RESTORED
-        and fault_manifest is not None
-        and trial.restoration_index != fault_manifest.stop_index
-    ):
-        raise ValueError("restoration index must equal the fault stop index")
     if trial.condition is Condition.NO_TOUCH:
         if identity.consumes_tactile:
             raise ValueError("no-touch trial requires a non-tactile policy")

@@ -15,6 +15,7 @@ from robotactile_benchmark.adapters.univtac import (
     UniVTACRecordBuilder,
 )
 from robotactile_benchmark.backends.univtac_contracts import (
+    N0_RETRAINED_10HZ_ACTION_EXECUTION_CONTRACT,
     UniVTACBackendConfig,
     UniVTACRuntimeHandshake,
 )
@@ -397,10 +398,25 @@ def convert_raw_observation(
         seed=initial_seed,
         step_index=benchmark_step,
     )
-    record = build_evaluation_record(
-        replace(record.observation, proprio=proprio8),
-        record.provenance,
-    )
+    observation = replace(record.observation, proprio=proprio8)
+    provenance = record.provenance
+    if (
+        config.action_execution_contract == N0_RETRAINED_10HZ_ACTION_EXECUTION_CONTRACT
+        or config.action_execution_contract.startswith("robotactile_retrained_")
+    ):
+        # The legacy builder clocks every record at one physics tick (120 Hz).
+        # A retrained observation follows an entire held action: 12 ticks at
+        # 10 Hz. Native tick continuity is independently checked by the backend.
+        time_s = benchmark_step * (config.physics_steps_per_action / config.sim_hz)
+        observation = replace(
+            observation,
+            tactile=tuple(
+                replace(sensor, delivery_time_s=time_s)
+                for sensor in observation.tactile
+            ),
+        )
+        provenance = tuple(replace(item, source_time_s=time_s) for item in provenance)
+    record = build_evaluation_record(observation, provenance)
     joint_witness = canonical_hash(
         {
             "live_joint_names": handshake.live_joint_names,

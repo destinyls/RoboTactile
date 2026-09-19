@@ -113,3 +113,49 @@ def test_n0_live_cli_propagates_preview_capture(
         == {}
     )
     assert captured["capture_profile"].value == "preview_v1"
+
+
+def test_n0_paired_cli_propagates_training_contract_and_preview_capture(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    def execute(*_args: object, **kwargs: object) -> object:
+        captured.update(kwargs)
+        return SimpleNamespace(paired=object(), artifacts=())
+
+    requests = (
+        SimpleNamespace(policy_kind=LivePolicyKind.N0, task_id="insert_tube"),
+        SimpleNamespace(policy_kind=LivePolicyKind.N0, task_id="insert_tube"),
+    )
+    runtime = SimpleNamespace(manifest=object())
+    monkeypatch.setattr(
+        live_cli,
+        "load_live_univtac_request",
+        lambda path: requests[int(Path(path).stem)],
+    )
+    monkeypatch.setattr(
+        live_cli,
+        "_n0_runtime_artifacts",
+        lambda _args, _task: (DeploymentLayout(tmp_path), runtime),
+    )
+    monkeypatch.setattr(live_cli, "execute_official_n0_paired_live_runs", execute)
+    monkeypatch.setattr(live_cli, "_paired_payload", lambda *_args: {})
+    args = Namespace(
+        action_execution_contract=None,
+        capture_profile="preview_v1",
+        command="live-univtac-paired-run",
+        lifecycle_journal=None,
+        n0_host="127.0.0.1",
+        n0_port=29601,
+        n0_source_root=tmp_path / "N0-TWAM",
+        receipt=tmp_path / "receipt.json",
+        requests=(tmp_path / "0", tmp_path / "1"),
+        root=tmp_path,
+    )
+
+    assert live_cli.handle_live_execution_command(args) == {}
+    assert captured["action_execution_contract"] == (
+        "robotactile_n0_training_60hz_ee_v1"
+    )
+    assert captured["capture_profile"].value == "preview_v1"

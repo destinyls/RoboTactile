@@ -13,6 +13,7 @@ from test_clean_campaign_support import (
 
 from robotactile_benchmark.backends.univtac_contracts import (
     FIXED_NATIVE_STEP_CONTRACT,
+    N0_DECIMATION,
     N0_PHYSICS_STEPS_PER_ACTION,
     N0_TRAINING_60HZ_ACTION_EXECUTION_CONTRACT,
     SIM_HZ,
@@ -281,6 +282,7 @@ def test_training_60hz_execution_requires_exact_source_bound_cadence() -> None:
     initial = {
         "action_execution_contract": (N0_TRAINING_60HZ_ACTION_EXECUTION_CONTRACT),
         "camera_delivery_hz": 60.0,
+        "decimation": N0_DECIMATION,
         "native_step_contract": FIXED_NATIVE_STEP_CONTRACT,
         "physics_steps_per_action": N0_PHYSICS_STEPS_PER_ACTION,
         "sim_hz": SIM_HZ,
@@ -298,3 +300,6 @@ def test_training_60hz_execution_requires_exact_source_bound_cadence() -> None:
     missing_camera = dict(initial)
     del missing_camera["camera_delivery_hz"]
     assert _cadence_status(missing_camera, transitions) is GateStatus.UNKNOWN
+
+    wrong_decimation = dict(initial, decimation=2)
+    assert _cadence_status(wrong_decimation, transitions) is GateStatus.FAIL

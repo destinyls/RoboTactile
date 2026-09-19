@@ -17,10 +17,17 @@ from robotactile_benchmark.backends.univtac_isaac import (
     UniVTACIsaacBackend,
     UniVTACTaskRuntime,
 )
+from robotactile_benchmark.backends.univtac_reset_trajectory import (
+    UniVTACPreMoveTrajectory,
+)
+from robotactile_benchmark.backends.univtac_reset_witness import (
+    UniVTACResetReference,
+)
 from robotactile_benchmark.closed_loop.contracts import PolicyEpisodeContext
 from robotactile_benchmark.contracts import build_evaluation_record, canonical_hash
 
 PAIRING_EVIDENCE_LEVEL = "in_process_snapshot_replay_equivalence_v1"
+_ACT_TRAJECTORY_REPLAY_QPOS_ATOL = 1e-5
 
 
 class UniVTACPairingError(UniVTACContractError):
@@ -365,9 +372,36 @@ class UniVTACPairedBackendSession:
         self,
         config: UniVTACBackendConfig,
         runtime: UniVTACTaskRuntime,
+        *,
+        reset_reference: Optional[UniVTACResetReference] = None,
+        reset_trajectory: Optional[UniVTACPreMoveTrajectory] = None,
+        success_predicate_id: Optional[str] = None,
     ) -> None:
         self._config = config
         self._runtime = runtime
+        if reset_reference is not None and type(reset_reference) is not (
+            UniVTACResetReference
+        ):
+            raise TypeError("reset_reference must be an exact UniVTACResetReference")
+        if reset_trajectory is not None and type(reset_trajectory) is not (
+            UniVTACPreMoveTrajectory
+        ):
+            raise TypeError(
+                "reset_trajectory must be an exact UniVTACPreMoveTrajectory"
+            )
+        if reset_trajectory is not None:
+            _validate_trajectory_reset_reference(
+                config,
+                reset_reference,
+                reset_trajectory,
+            )
+        self._reset_reference = reset_reference
+        self._reset_reference_require_simulator_state_match = reset_trajectory is None
+        self._success_predicate_id = (
+            config.task.success_predicate_id
+            if success_predicate_id is None
+            else success_predicate_id
+        )
         self._coordinator = UniVTACPairedResetCoordinator(config, runtime)
         self._closed = False
 
@@ -384,7 +418,12 @@ class UniVTACPairedBackendSession:
             self._config,
             self._runtime,
             reset_coordinator=self._coordinator,
+            reset_reference=self._reset_reference,
+            reset_reference_require_simulator_state_match=(
+                self._reset_reference_require_simulator_state_match
+            ),
             owns_runtime=False,
+            success_predicate_id=self._success_predicate_id,
         )
 
     def close(self) -> None:
@@ -392,3 +431,40 @@ class UniVTACPairedBackendSession:
             return
         self._closed = True
         self._runtime.close_runtime()
+
+
+def _validate_trajectory_reset_reference(
+    config: UniVTACBackendConfig,
+    reference: Optional[UniVTACResetReference],
+    trajectory: UniVTACPreMoveTrajectory,
+) -> None:
+    """Bind the ACT-v3 physical endpoint profile to one exact trajectory."""
+
+    if reference is None:
+        raise ValueError("trajectory reset qualification requires a reset reference")
+    if (
+        trajectory.task_id != config.task.task_id
+        or trajectory.action_spec != config.action_spec
+        or trajectory.upstream_commit != config.upstream_commit
+        or trajectory.task_source_sha256 != config.task.task_source_sha256
+    ):
+        raise ValueError("reset trajectory does not match the backend source")
+    if (
+        reference.task_id != trajectory.task_id
+        or reference.initial_seed != trajectory.initial_seed
+        or reference.exogenous_seed != trajectory.exogenous_seed
+        or reference.pair_key != trajectory.pair_key
+        or reference.dataset_sha256 != trajectory.dataset_sha256
+        or reference.checkpoint_sha256 != trajectory.checkpoint_sha256
+        or reference.config_sha256 != trajectory.config_sha256
+        or reference.source_run_content_sha256 != trajectory.source_run_content_sha256
+    ):
+        raise ValueError("reset trajectory and reference identities differ")
+    if (
+        reference.expected_simulator_state_sha256
+        != trajectory.capture_simulator_state_sha256
+        or reference.expected_native_step != trajectory.capture_native_step
+        or reference.expected_qpos8 != trajectory.capture_qpos8
+        or reference.qpos_atol != _ACT_TRAJECTORY_REPLAY_QPOS_ATOL
+    ):
+        raise ValueError("reset trajectory and reference endpoints differ")

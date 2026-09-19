@@ -21,7 +21,7 @@
     },
     "evidence_level": {"const": "derived_from_verified_closed_loop_results"},
     "simulator_qualification_claimed": {"const": false},
-    "semantic_version": {"const": "1.0"}
+    "semantic_version": {"const": "2.0"}
   },
   "$defs": {
     "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},

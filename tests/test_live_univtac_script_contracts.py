@@ -229,6 +229,15 @@ def test_robotactile_isaac_installer_is_manifest_bound_and_isolated() -> None:
     assert "--wheel" in installer
     assert "py3-none-any.whl" in installer
     assert "robotactile_isaac_install-${SOURCE_MANIFEST_SHA256:0:16}.json" in installer
+    assert (
+        'WHEEL_MANIFEST_MEMBER="robotactile_benchmark/source_manifest.sha256"'
+        in installer
+    )
+    assert "wheel_source_manifest_sha256" in installer
+    assert "zipfile.ZipFile" in installer
+    assert installer.index('if [ -n "$WHEEL_INPUT" ]; then') < installer.index(
+        "update_source_manifest.py"
+    )
     assert '"$ISAAC_SIM_PATH/python.sh"' in installer
     assert "-u CONDA_PREFIX" in installer
     assert "\nsudo " not in installer

@@ -45,11 +45,12 @@ from robotactile_benchmark.closed_loop.artifact_values import (
 from robotactile_benchmark.closed_loop.capture import ClosedLoopExecutionEvidence
 from robotactile_benchmark.closed_loop.contracts import ClosedLoopRunSpec
 from robotactile_benchmark.closed_loop.result_hashes import action_trace_sha256
-from robotactile_benchmark.constants import REST_REFERENCE_OPERATOR_IDS
+from robotactile_benchmark.closed_loop.validation import validate_online_delivery
+from robotactile_benchmark.constants import operator_requires_rest_reference
 from robotactile_benchmark.contracts import canonical_hash, thaw_value
 from robotactile_benchmark.manifests import FaultManifest
 from robotactile_benchmark.trials import Condition, TrialManifest
-from robotactile_benchmark.validators import ValidationReport, validate_delivery
+from robotactile_benchmark.validators import ValidationReport
 
 
 def write_closed_loop_bundle(
@@ -238,7 +239,7 @@ def _validate_write_inputs(
         raise TypeError("writer requires typed fault and execution evidence")
     finalization = evidence.finalization
     if (
-        trial.condition not in {Condition.FAULTED, Condition.RESTORED}
+        trial.condition is not Condition.FAULTED
         or trial.fault_manifest_sha256 != fault_manifest.sha256
         or evidence.result.trial_manifest_sha256 != trial.sha256
         or evidence.result.run_spec_sha256 != run_spec.sha256
@@ -250,7 +251,10 @@ def _validate_write_inputs(
         raise ArtifactValidationError(
             "writer inputs do not form a validated faulted trial"
         )
-    if fault_manifest.operator_id in REST_REFERENCE_OPERATOR_IDS:
+    if operator_requires_rest_reference(
+        fault_manifest.operator_id,
+        severity_registry=fault_manifest.severity_registry,
+    ):
         raise ArtifactValidationError(
             "initial single-trial bundle does not support rest-reference operators"
         )
@@ -295,11 +299,14 @@ def _validate_loaded_cross_links(
         finalization,
         action_entries,
     )
-    if trial.condition not in {Condition.FAULTED, Condition.RESTORED}:
+    if trial.condition is not Condition.FAULTED:
         raise ArtifactValidationError("bounded bundle must contain a faulted trial")
-    if fault.operator_id in REST_REFERENCE_OPERATOR_IDS:
+    if operator_requires_rest_reference(
+        fault.operator_id,
+        severity_registry=fault.severity_registry,
+    ):
         raise ArtifactValidationError("bundle requires unsupported rest-reference data")
-    rerun = validate_delivery(
+    rerun = validate_online_delivery(
         finalization.clean_records,
         finalization.delivered_records,
         fault,

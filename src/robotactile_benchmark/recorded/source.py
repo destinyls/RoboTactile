@@ -37,9 +37,9 @@ _DATASETS = (
     "embodiment/joint",
     "observation/head/rgb",
     "observation/wrist/rgb",
-    "tactile/left_gsmini/rgb",
+    "tactile/left_gsmini/rgb_marker",
     "tactile/left_gsmini/depth",
-    "tactile/right_gsmini/rgb",
+    "tactile/right_gsmini/rgb_marker",
     "tactile/right_gsmini/depth",
 )
 
@@ -102,23 +102,34 @@ def _h5py() -> Any:
 
 
 def _decode_rgb(value: object, name: str) -> Array:
-    try:
-        image_module = importlib.import_module("PIL.Image")
-    except ImportError as error:
-        raise RecordedSourceError(
-            "recorded UniVTAC loading requires Pillow in the selected runtime"
-        ) from error
-    if isinstance(value, np.bytes_):
+    if isinstance(value, np.ndarray) and value.ndim == 3:
+        decoded = np.asarray(value)
+        if decoded.dtype != np.uint8 or decoded.shape[-1] != 3:
+            raise RecordedSourceError(f"{name} raw image must be uint8 HWC RGB")
+        return cast(Array, np.ascontiguousarray(decoded))
+    if isinstance(value, np.ndarray) and value.ndim == 1:
+        if value.dtype != np.uint8:
+            raise RecordedSourceError(f"{name} encoded array must use uint8")
+        raw = value.tobytes()
+    elif isinstance(value, (np.bytes_, bytes, bytearray)):
         raw = bytes(value)
-    elif isinstance(value, bytes):
-        raw = value
     else:
         raise RecordedSourceError(f"{name} must contain encoded image bytes")
     try:
-        with image_module.open(io.BytesIO(raw)) as image:
-            decoded = np.asarray(image.convert("RGB"), dtype=np.uint8)
-    except (OSError, ValueError) as error:
-        raise RecordedSourceError(f"cannot decode {name}") from error
+        cv2 = importlib.import_module("cv2")
+    except ImportError:
+        try:
+            image_module = importlib.import_module("PIL.Image")
+            with image_module.open(io.BytesIO(raw)) as image:
+                decoded = np.asarray(image.convert("RGB"), dtype=np.uint8)[..., ::-1]
+        except (ImportError, OSError, ValueError) as error:
+            raise RecordedSourceError(f"cannot decode {name}") from error
+    else:
+        decoded = cv2.imdecode(np.frombuffer(raw, dtype=np.uint8), cv2.IMREAD_COLOR)
+        if decoded is None:
+            raise RecordedSourceError(f"cannot decode {name}")
+    if decoded.ndim != 3 or decoded.shape[-1] != 3 or decoded.dtype != np.uint8:
+        raise RecordedSourceError(f"decoded {name} must be uint8 HWC")
     return cast(Array, np.ascontiguousarray(decoded))
 
 
@@ -161,10 +172,17 @@ def _validate_schema(root: Any) -> int:
     for name in (
         "observation/head/rgb",
         "observation/wrist/rgb",
-        "tactile/left_gsmini/rgb",
-        "tactile/right_gsmini/rgb",
+        "tactile/left_gsmini/rgb_marker",
+        "tactile/right_gsmini/rgb_marker",
     ):
-        if datasets[name].dtype.kind not in {"O", "S"}:
+        dataset = datasets[name]
+        encoded = dataset.dtype.kind in {"O", "S"}
+        raw_hwc = (
+            dataset.dtype == np.dtype(np.uint8)
+            and len(dataset.shape) == 4
+            and dataset.shape[-1] == 3
+        )
+        if not encoded and not raw_hwc:
             raise RecordedSourceError(f"HDF5 image dataset must contain bytes: {name}")
     return count
 
@@ -181,7 +199,7 @@ def _raw_frame(root: Any, index: int) -> Mapping[str, object]:
         "tactile": {
             "left_tactile": {
                 "rgb": _decode_rgb(
-                    root["tactile/left_gsmini/rgb"][index], "left tactile"
+                    root["tactile/left_gsmini/rgb_marker"][index], "left tactile"
                 ),
                 "depth": np.asarray(
                     root["tactile/left_gsmini/depth"][index], dtype=np.float32
@@ -189,7 +207,7 @@ def _raw_frame(root: Any, index: int) -> Mapping[str, object]:
             },
             "right_tactile": {
                 "rgb": _decode_rgb(
-                    root["tactile/right_gsmini/rgb"][index], "right tactile"
+                    root["tactile/right_gsmini/rgb_marker"][index], "right tactile"
                 ),
                 "depth": np.asarray(
                     root["tactile/right_gsmini/depth"][index], dtype=np.float32

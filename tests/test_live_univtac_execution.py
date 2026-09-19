@@ -38,6 +38,7 @@ from robotactile_benchmark.execution import (
 )
 from robotactile_benchmark.execution.contracts import (
     ISAAC_DISABLE_HANG_DETECTOR_KIT_ARG,
+    LIVE_REQUEST_SEMANTIC_VERSION,
     production_univtac_launcher_args,
 )
 from robotactile_benchmark.execution.lifecycle_watchdog import (
@@ -47,7 +48,7 @@ from robotactile_benchmark.execution.lifecycle_watchdog import (
 from robotactile_benchmark.fixtures import make_synthetic_episode
 from robotactile_benchmark.manifests import FaultManifest, Observability
 from robotactile_benchmark.policies.act_loading import ArtifactUnavailableError
-from robotactile_benchmark.trials import Condition, RestorationMode, TerminalStatus
+from robotactile_benchmark.trials import Condition, TerminalStatus
 
 
 def _fault(root: Path, *, stop_index: int = 3) -> Path:
@@ -94,12 +95,6 @@ def _request(
         output_dir=root / "output" if output else None,
         fault_manifest_path=fault_path,
         rest_references_path=None,
-        restoration_index=3 if condition is Condition.RESTORED else None,
-        restoration_mode=(
-            RestorationMode.VALID_STREAM_RESUME
-            if condition is Condition.RESTORED
-            else None
-        ),
         matched_no_touch_system_id=None,
         matched_no_touch_artifact_path=None,
         act_device_name="cpu" if policy_kind is LivePolicyKind.ACT else None,
@@ -251,7 +246,20 @@ class LiveRequestLoadingTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "fields mismatch"):
                 load_live_univtac_request(request_path)
 
-    def test_condition_and_restoration_mismatches_fail_before_execution(self) -> None:
+    def test_v1_restored_era_request_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            request = _request(root)
+            self.assertEqual(request.semantic_version, LIVE_REQUEST_SEMANTIC_VERSION)
+            document = _document(request, root)
+            document["semantic_version"] = "1.0"
+            request_path = root / "legacy-request.json"
+            request_path.write_text(json.dumps(document), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "semantic version"):
+                load_live_univtac_request(request_path)
+
+    def test_condition_mismatches_fail_before_execution(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             fault_path = _fault(root, stop_index=3)
@@ -261,17 +269,6 @@ class LiveRequestLoadingTests(unittest.TestCase):
                 _request(root, condition=Condition.FAULTED)
             with self.assertRaisesRegex(ValueError, "only valid for no-touch"):
                 replace(_request(root), matched_no_touch_system_id="unexpected-control")
-            restored = replace(
-                _request(
-                    root,
-                    condition=Condition.RESTORED,
-                    fault_path=fault_path,
-                ),
-                restoration_index=2,
-                restoration_mode=RestorationMode.VALID_STREAM_RESUME,
-            )
-            with self.assertRaisesRegex(ValueError, "fault stop index"):
-                load_live_univtac_run(restored)
 
 
 class LiveExecutionE2ETests(unittest.TestCase):
@@ -334,40 +331,28 @@ class LiveExecutionE2ETests(unittest.TestCase):
         self.assertEqual(harness.backends[0].close_count, 1)
         self.assertEqual(harness.policies[0].close_count, 1)
 
-    def test_faulted_and_restored_module_e2e_preserve_delivery_semantics(self) -> None:
-        for condition in (Condition.FAULTED, Condition.RESTORED):
-            with (
-                self.subTest(condition=condition),
-                tempfile.TemporaryDirectory() as tmp,
-            ):
-                root = Path(tmp)
-                request = _request(
-                    root,
-                    condition=condition,
-                    fault_path=_fault(root, stop_index=3),
-                    output=True,
-                )
-                harness = _Harness()
-                result = execute_live_univtac_run(
-                    request,
-                    backend_factory=harness.backend,
-                    policy_factory=harness.policy,
-                )
+    def test_faulted_module_e2e_preserves_delivery_semantics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            request = _request(
+                root,
+                condition=Condition.FAULTED,
+                fault_path=_fault(root, stop_index=3),
+                output=True,
+            )
+            harness = _Harness()
+            result = execute_live_univtac_run(
+                request,
+                backend_factory=harness.backend,
+                policy_factory=harness.policy,
+            )
 
-                self.assertTrue(result.evidence.finalization.validation.passed)
-                self.assertEqual(
-                    result.artifact_export,
-                    ArtifactExportStatus.UNSUPPORTED_CONTRACT,
-                )
-                self.assertFalse(request.output_dir.exists())
-                if condition is Condition.RESTORED:
-                    self.assertIn(
-                        3,
-                        tuple(
-                            record.observation.step_index
-                            for record in result.evidence.finalization.delivered_records
-                        ),
-                    )
+            self.assertTrue(result.evidence.finalization.validation.passed)
+            self.assertEqual(
+                result.artifact_export,
+                ArtifactExportStatus.UNSUPPORTED_CONTRACT,
+            )
+            self.assertFalse(request.output_dir.exists())
 
     def test_live_export_hook_is_typed_and_does_not_reclose_resources(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -603,19 +588,30 @@ class LiveDefaultFactoryTests(unittest.TestCase):
         self.assertEqual(captured.exception.code, "live_univtac_requires_linux")
         launcher.assert_not_called()
 
-    def test_n0_requires_manifest_bound_official_factory_before_backend(
+    def test_models_require_manifest_bound_official_factory_before_backend(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            request = _request(Path(temporary), policy_kind=LivePolicyKind.N0)
-            harness = _Harness()
-            with self.assertRaisesRegex(LiveExecutionUnavailableError, "official"):
-                execute_live_univtac_run(request, backend_factory=harness.backend)
-            self.assertFalse(harness.backends)
+            root = Path(temporary)
+            for policy_kind in (LivePolicyKind.ACT, LivePolicyKind.N0):
+                with self.subTest(policy_kind=policy_kind):
+                    request = _request(
+                        root / policy_kind.value, policy_kind=policy_kind
+                    )
+                    harness = _Harness()
+                    with self.assertRaisesRegex(
+                        LiveExecutionUnavailableError, "official"
+                    ):
+                        execute_live_univtac_run(
+                            request, backend_factory=harness.backend
+                        )
+                    self.assertFalse(harness.backends)
 
-            loaded = load_live_univtac_run(request)
-            with self.assertRaisesRegex(LiveExecutionUnavailableError, "official"):
-                default_live_policy_factory(loaded)
+                    loaded = load_live_univtac_run(request)
+                    with self.assertRaisesRegex(
+                        LiveExecutionUnavailableError, "official"
+                    ):
+                        default_live_policy_factory(loaded)
 
 
 def test_artifact_export_failure_emits_redacted_marker_before_close(

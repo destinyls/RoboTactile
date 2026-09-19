@@ -36,14 +36,54 @@
         "instance_descriptor_sha256"
       ],
       "properties": {
-        "parameterization_version": {"const": "canonical_operator_instance_v2"},
+        "parameterization_version": {"enum": ["canonical_operator_instance_v2", "optical_operator_instance_v1"]},
+        "sample_period_s": {"type": "number", "exclusiveMinimum": 0},
+        "diagnostic_profile": {"enum": ["optical_contact_stress_v2", "sensor_fullframe_stress_v1"]},
+        "stress_parameter_version": {"const": "contact_stress_parameters_v2"},
+        "scar_template_version": {"const": "ranked_band_v1"},
+        "target_contact_coverage": {"enum": [0.3, 0.6, 0.85]},
+        "calibration_status": {"enum": ["uncalibrated_geometric_template", "frozen_clean_response_template"]},
+        "spatial_calibration": {"$ref": "#/$defs/spatial_calibration"},
+        "marker_policy": {"const": "occlude_including_markers_v1"},
+        "fullframe_mask_version": {"const": "ranked_center_square_v1"},
+        "occluded_area_fraction": {"enum": [0.3, 0.6, 0.9]},
+        "fill_rgb": {"const": [0, 0, 0]},
+        "requested_duration_s": {"type": "number", "exclusiveMinimum": 0},
+        "rise_duration_frames": {"type": "integer", "minimum": 1},
+        "reference_action_chunk_steps": {"type": "integer", "minimum": 1},
+        "requested_source_delay_frames": {"type": "integer", "minimum": 1},
+        "temporal_schedule": {"enum": ["full_episode_v1", "window_to_end_v1"]},
+        "startup_policy": {"const": "hold_first"},
+        "steady_state_start_index": {"type": "integer", "minimum": 0},
+        "hold_policy": {"enum": ["until_episode_end", "until_window_end"]},
+        "effective_hold_duration_s": {"type": "number", "exclusiveMinimum": 0},
+        "target_gain_rgb": {"$ref": "#/$defs/triple_number"},
+        "target_offset_rgb": {"$ref": "#/$defs/triple_number"},
+        "core_radius_fraction": {"type": "number", "exclusiveMinimum": 0},
+        "edge_feather_fraction": {"type": "number", "exclusiveMinimum": 0},
+        "displacement_fraction": {"type": "number", "exclusiveMinimum": 0},
+        "recovery_tau_s": {"type": "number", "exclusiveMinimum": 0},
+        "buildup_tau_s": {"type": "number", "exclusiveMinimum": 0},
+        "optical": {
+          "type": "object", "additionalProperties": false,
+          "required": ["marker_max_channel", "marker_guard_px", "inpaint_radius_fraction", "minimum_inpaint_radius_px", "evidence_tier"],
+          "properties": {
+            "marker_max_channel": {"type": "integer", "minimum": 0, "maximum": 255},
+            "marker_guard_px": {"type": "integer", "minimum": 0},
+            "inpaint_radius_fraction": {"type": "number", "exclusiveMinimum": 0},
+            "minimum_inpaint_radius_px": {"type": "integer", "minimum": 1},
+            "evidence_tier": {"const": "G1"}
+          }
+        },
         "template_seed": {"type": "integer", "minimum": 0},
         "instance_descriptor_sha256": {"$ref": "#/$defs/sha256"},
         "rest_reference_sha256": {"$ref": "#/$defs/sha256"},
         "affected_offsets": {"$ref": "#/$defs/offsets"},
         "erased_offsets": {"$ref": "#/$defs/offsets"},
         "target_gain": {"type": "number", "minimum": 0, "maximum": 1},
-        "temporal_path": {"const": "linear_ramp"},
+        "temporal_path": {"enum": ["linear_ramp", "immediate_step", "ramp_then_hold_v1"]},
+        "response_domain": {"const": "absolute_black_frame"},
+        "ablation_id": {"const": "tactile_null_black_frame_v1"},
         "retained_gain": {"type": "number", "minimum": 0, "maximum": 1},
         "center_xy": {"$ref": "#/$defs/pair_number"},
         "sigma_fraction": {"type": "number", "exclusiveMinimum": 0},
@@ -54,7 +94,7 @@
         "rgb_delta": {"$ref": "#/$defs/triple_number"},
         "radius_fraction": {"type": "number", "exclusiveMinimum": 0},
         "minimum_radius_px": {"type": "integer", "minimum": 1},
-        "fill_mode": {"const": "rest_reference"},
+        "fill_mode": {"enum": ["rest_reference", "constant_rgb_diagnostic"]},
         "warp_domain": {"const": "current_rgb"},
         "field": {"const": "compact_quartic_horizontal"},
         "support_radius_fraction": {"type": "number", "exclusiveMinimum": 0},
@@ -68,13 +108,13 @@
         },
         "history_mix": {"type": "number", "minimum": 0, "maximum": 1},
         "memory_beta": {"type": "number", "minimum": 0, "exclusiveMaximum": 1},
-        "synthesis_domain": {"const": "current_rgb_same_frame"},
+        "synthesis_domain": {"enum": ["current_rgb_same_frame", "marker_free_rest_residual"]},
         "anchor_filter": {"const": "uniform_box"},
         "anchor_radius_fraction": {"type": "number", "exclusiveMinimum": 0},
         "minimum_anchor_radius_px": {"type": "integer", "minimum": 1},
         "padding": {"const": "reflect_no_edge_repeat"},
         "accumulation": {"const": "float64"},
-        "response_norm": {"const": "l2_rgb_detail"},
+        "response_norm": {"enum": ["l2_rgb_detail", "l2_rgb_optical_residual"]},
         "response_knee": {"type": "number", "exclusiveMinimum": 0},
         "plateau_width_ratio": {"type": "number", "exclusiveMinimum": 0},
         "transfer": {"const": "identity_then_rational_plateau"},
@@ -110,9 +150,42 @@
     },
     "semantic_version": {"const": "2.0"},
     "implementation_version": {"const": "0.4.0"},
-    "severity_registry": {"const": "provisional_engineering_v2"}
+    "severity_registry": {
+      "enum": [
+        "provisional_engineering_v2",
+        "optical_marker_v1",
+        "optical_marker_stress_v1",
+        "optical_marker_extreme_v1",
+        "optical_decision_stress_v1",
+        "optical_contact_stress_v2",
+        "sensor_fullframe_stress_v1",
+        "diagnostic_stress_max_v1",
+        "diagnostic_tactile_null_black_v1"
+      ]
+    }
   },
   "$defs": {
+    "spatial_calibration": {
+      "type": "object", "additionalProperties": false,
+      "required": ["version", "source_sha256", "slots"],
+      "properties": {
+        "version": {"const": "frozen_contact_scar_v1"},
+        "source_sha256": {"$ref": "#/$defs/sha256"},
+        "slots": {
+          "type": "object", "additionalProperties": false, "required": ["left", "right"],
+          "properties": {"left": {"$ref": "#/$defs/scar_template"}, "right": {"$ref": "#/$defs/scar_template"}}
+        }
+      }
+    },
+    "scar_template": {
+      "type": "object", "additionalProperties": false,
+      "required": ["center_xy", "slope", "area_fractions"],
+      "properties": {
+        "center_xy": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "number", "minimum": 0, "maximum": 1}},
+        "slope": {"type": "number", "minimum": -2, "maximum": 2},
+        "area_fractions": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "number", "exclusiveMinimum": 0, "maximum": 1}}
+      }
+    },
     "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "offsets": {
       "type": "array", "minItems": 1, "uniqueItems": true,
@@ -136,23 +209,81 @@
     }
   },
   "allOf": [
+    {"if": {"properties": {"severity_registry": {"enum": ["optical_contact_stress_v2", "sensor_fullframe_stress_v1"]}}},
+     "then": {"properties": {"severity_level": {"enum": [1, 3, 5]}, "sensor_slots": {"const": ["left", "right"]}, "parameters": {"required": ["diagnostic_profile", "stress_parameter_version"]}}}},
+    {"if": {"properties": {"severity_registry": {"const": "optical_contact_stress_v2"}}},
+     "then": {"properties": {"operator_id": {"enum": ["F1_global_response_drift", "F3_persistent_surface_artifact", "T1_fixed_source_delay", "T3_inter_sensor_skew"]}, "parameters": {"properties": {"diagnostic_profile": {"const": "optical_contact_stress_v2"}}}}}},
+    {"if": {"properties": {"severity_registry": {"const": "sensor_fullframe_stress_v1"}}},
+     "then": {"properties": {"operator_id": {"const": "F4_local_nonresponsive_patch"}, "parameters": {"required": ["marker_policy", "fullframe_mask_version", "occluded_area_fraction", "fill_rgb"], "properties": {"diagnostic_profile": {"const": "sensor_fullframe_stress_v1"}, "fill_mode": {"const": "constant_rgb_diagnostic"}}, "not": {"required": ["rest_reference_sha256"]}}}}},
+    {"if": {"properties": {"severity_registry": {"enum": ["optical_marker_v1", "optical_marker_stress_v1", "optical_marker_extreme_v1", "optical_decision_stress_v1", "optical_contact_stress_v2", "sensor_fullframe_stress_v1"]}}},
+     "then": {"properties": {"parameters": {
+       "required": ["sample_period_s"],
+       "properties": {"parameterization_version": {"const": "optical_operator_instance_v1"}}
+     }}},
+     "else": {"properties": {"parameters": {"properties": {"parameterization_version": {"const": "canonical_operator_instance_v2"}}}}}},
+    {
+      "if": {
+        "properties": {
+          "severity_registry": {
+            "enum": [
+              "diagnostic_stress_max_v1",
+              "optical_marker_stress_v1",
+              "optical_marker_extreme_v1",
+              "optical_decision_stress_v1",
+              "diagnostic_tactile_null_black_v1"
+            ]
+          }
+        }
+      },
+      "then": {"properties": {"severity_level": {"const": 5}}}
+    },
+    {
+      "if": {
+        "properties": {
+          "severity_registry": {"const": "diagnostic_tactile_null_black_v1"}
+        }
+      },
+      "then": {
+        "properties": {
+          "operator_id": {"const": "F1_global_response_drift"},
+          "start_index": {"const": 0},
+          "sensor_slots": {"const": ["left", "right"]},
+          "parameters": {
+            "required": ["response_domain", "ablation_id"],
+            "properties": {
+              "target_gain": {"const": 0.0},
+              "temporal_path": {"const": "immediate_step"}
+            },
+            "not": {"required": ["rest_reference_sha256"]}
+          }
+        }
+      }
+    },
     {"if": {"properties": {"operator_id": {"const": "A1_stream_absence"}}},
      "then": {"properties": {"parameters": {"required": ["affected_offsets"]}}}},
     {"if": {"properties": {"operator_id": {"const": "A2_frame_erasure"}}},
      "then": {"properties": {"parameters": {"required": ["erased_offsets"]}}}},
-    {"if": {"properties": {"operator_id": {"const": "F1_global_response_drift"}}},
+    {"if": {
+       "required": ["operator_id", "severity_registry"],
+       "properties": {
+         "operator_id": {"const": "F1_global_response_drift"},
+         "severity_registry": {
+           "not": {"const": "diagnostic_tactile_null_black_v1"}
+         }
+       }
+     },
      "then": {"properties": {"parameters": {"required": ["rest_reference_sha256", "target_gain", "temporal_path"]}}}},
     {"if": {"properties": {"operator_id": {"const": "F2_spatial_sensitivity_loss"}}},
      "then": {"properties": {"parameters": {"required": ["rest_reference_sha256", "retained_gain", "center_xy", "sigma_fraction", "minimum_sigma_px"]}}}},
     {"if": {"properties": {"operator_id": {"const": "F3_persistent_surface_artifact"}}},
      "then": {"properties": {"parameters": {"required": ["rest_reference_sha256", "scar_slope", "scar_intercept_fraction", "scar_half_width_px", "rgb_delta"]}}}},
-    {"if": {"properties": {"operator_id": {"const": "F4_local_nonresponsive_patch"}}},
+    {"if": {"properties": {"operator_id": {"const": "F4_local_nonresponsive_patch"}, "severity_registry": {"not": {"const": "sensor_fullframe_stress_v1"}}}},
      "then": {"properties": {"parameters": {"required": ["rest_reference_sha256", "center_xy", "radius_fraction", "minimum_radius_px", "fill_mode"]}}}},
     {"if": {"properties": {"operator_id": {"const": "F5_contact_shape_distortion"}}},
-     "then": {"properties": {"parameters": {"required": ["warp_domain", "field", "center_xy", "support_radius_fraction", "displacement_px", "axis", "direction", "interpolation", "boundary", "activation_phases"], "not": {"required": ["rest_reference_sha256"]}}}}},
+     "then": {"properties": {"parameters": {"required": ["warp_domain", "field", "center_xy", "support_radius_fraction", "axis", "direction", "interpolation", "boundary", "activation_phases"], "oneOf": [{"required": ["displacement_px"]}, {"required": ["displacement_fraction"]}], "not": {"required": ["rest_reference_sha256"]}}}}},
     {"if": {"properties": {"operator_id": {"const": "F6_history_residual_imprint"}}},
      "then": {"properties": {"parameters": {"required": ["rest_reference_sha256", "history_mix", "memory_beta"]}}}},
-    {"if": {"properties": {"operator_id": {"const": "F7_high_load_saturation"}}},
+    {"if": {"properties": {"operator_id": {"const": "F7_high_load_saturation"}, "severity_registry": {"not": {"enum": ["optical_marker_v1", "optical_marker_stress_v1", "optical_marker_extreme_v1", "optical_decision_stress_v1"]}}}},
      "then": {"properties": {"parameters": {"required": ["synthesis_domain", "anchor_filter", "anchor_radius_fraction", "minimum_anchor_radius_px", "padding", "accumulation", "response_norm", "response_knee", "plateau_width_ratio", "transfer", "activation_phases"], "not": {"required": ["rest_reference_sha256"]}}}}},
     {"if": {"properties": {"operator_id": {"const": "T1_fixed_source_delay"}}},
      "then": {"properties": {"parameters": {"required": ["lag_frames", "source_index_map"]}}}},

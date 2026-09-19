@@ -1,0 +1,33 @@
+diff --git a/cosmos_policy/_src/imaginaire/utils/fsdp_helper.py b/cosmos_policy/_src/imaginaire/utils/fsdp_helper.py
+--- a/cosmos_policy/_src/imaginaire/utils/fsdp_helper.py
++++ b/cosmos_policy/_src/imaginaire/utils/fsdp_helper.py
+@@ -146,9 +146,14 @@ def hsdp_device_mesh(replica_group_size=None, sharding_group_size=None, device=N
+             f"replica_group_size {replica_group_size}."
+         )
+ 
+-    device_mesh = init_device_mesh(
+-        device, (replica_group_size, sharding_group_size), mesh_dim_names=("replicate", "shard")
+-    )
++    if replica_group_size == 1:
++        device_mesh = init_device_mesh(
++            device, (sharding_group_size,), mesh_dim_names=("shard",)
++        )
++    else:
++        device_mesh = init_device_mesh(
++            device, (replica_group_size, sharding_group_size), mesh_dim_names=("replicate", "shard")
++        )
+     if device_mesh is None:
+         raise RuntimeError("Failed to create a valid device mesh.")
+ 
+diff --git a/cosmos_policy/_src/predict2/utils/dtensor_helper.py b/cosmos_policy/_src/predict2/utils/dtensor_helper.py
+--- a/cosmos_policy/_src/predict2/utils/dtensor_helper.py
++++ b/cosmos_policy/_src/predict2/utils/dtensor_helper.py
+@@ -71,6 +71,8 @@ class DTensorFastEmaModelUpdater:
+ 
+ def broadcast_dtensor_model_states(model: torch.nn.Module, mesh: DeviceMesh):
+     """Broadcast model states from replicate mesh's rank 0."""
++    if mesh.mesh_dim_names is None or "replicate" not in mesh.mesh_dim_names:
++        return
+     replicate_group = mesh.get_group("replicate")
+     all_ranks = dist.get_process_group_ranks(replicate_group)
+     if len(all_ranks) == 1:

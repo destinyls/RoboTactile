@@ -1,0 +1,7 @@
+{
+  "dream_tac_root": "/absolute/Dream-Tac",
+  "output_root": "/absolute/dream-tac-univtac",
+  "raw_root": "/absolute/UniVTAC-HDF5",
+  "source_fps": 10,
+  "source_split": "train759"
+}

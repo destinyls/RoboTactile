@@ -16,7 +16,6 @@ from robotactile_benchmark.matrix.contracts import (
     require_nonempty,
     require_sha256,
 )
-from robotactile_benchmark.operator_parameters import static_parameter_view
 from robotactile_benchmark.trials import Condition
 
 
@@ -104,7 +103,6 @@ class MatrixManifest:
             Condition.CLEAN: row.clean_cell_sha256,
             Condition.FAULTED: row.faulted_cell_sha256,
             Condition.NO_TOUCH: row.no_touch_cell_sha256,
-            Condition.RESTORED: row.restored_cell_sha256,
         }
         for condition, address in references.items():
             cell = lookup.get(address)
@@ -113,59 +111,25 @@ class MatrixManifest:
                     "matrix comparison references the wrong cell condition"
                 )
         faulted = lookup[row.faulted_cell_sha256]
-        restored = lookup[row.restored_cell_sha256]
-        for cell in (faulted, restored):
-            if (
-                cell.operator_id != row.operator_id
-                or cell.severity_level != row.severity_level
-            ):
-                raise ValueError("matrix comparison fault metadata disagrees with cell")
-        MatrixManifest._validate_operator_instance(row, faulted, restored)
+        if (
+            faulted.operator_id != row.operator_id
+            or faulted.severity_level != row.severity_level
+        ):
+            raise ValueError("matrix comparison fault metadata disagrees with cell")
+        MatrixManifest._validate_operator_instance(row, faulted)
         return tuple(references.values())
 
     @staticmethod
     def _validate_operator_instance(
-        row: MatrixComparison, faulted: MatrixCellSpec, restored: MatrixCellSpec
+        row: MatrixComparison, faulted: MatrixCellSpec
     ) -> None:
         fault = faulted.fault_manifest
-        restored_fault = restored.fault_manifest
-        if fault is None or restored_fault is None:
-            raise ValueError("matrix fault cells lost their operator instance")
-        invariant_fields = (
-            "operator_id",
-            "severity_level",
-            "operator_seed",
-            "start_index",
-            "sensor_slots",
-            "observability",
-            "semantic_version",
-            "implementation_version",
-            "severity_registry",
-        )
-        if any(
-            getattr(fault, name) != getattr(restored_fault, name)
-            for name in invariant_fields
-        ):
-            raise ValueError("matrix comparison crossed operator instances")
-        if static_parameter_view(fault.parameters) != static_parameter_view(
-            restored_fault.parameters
-        ):
-            raise ValueError("matrix comparison crossed operator instances")
-        if (
-            restored_fault.stop_index != row.restoration_index
-            or fault.stop_index <= row.restoration_index
-            or restored.trial.restoration_index != row.restoration_index
-        ):
-            raise ValueError("matrix comparison restoration index disagrees with cell")
-        restoration_mode = restored.trial.restoration_mode
-        if restoration_mode is None:
-            raise ValueError("matrix restored cell lost its restoration mode")
+        if fault is None:
+            raise ValueError("matrix fault cell lost its operator instance")
         expected_point = canonical_hash(
             {
                 "focus_id": row.focus_id,
                 "fault_manifest_sha256": fault.sha256,
-                "restoration_index": row.restoration_index,
-                "restoration_mode": restoration_mode.value,
             }
         )
         if row.point_id != expected_point:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 from dataclasses import replace
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 
@@ -26,6 +26,12 @@ from robotactile_benchmark.backends.univtac_isaac import (
     UniVTACIsaacBackend,
     resolve_backend_signal,
 )
+from robotactile_benchmark.backends.univtac_reset_witness import (
+    UniVTACResetReference,
+)
+from robotactile_benchmark.backends.univtac_success_profiles import (
+    INSERT_HOLE_STRICT_PREDICATE_ID,
+)
 from robotactile_benchmark.closed_loop.contracts import (
     ACTION_SPEC,
     BackendSignal,
@@ -39,6 +45,34 @@ def _actions(count: int = 1) -> np.ndarray:
     actions[:, 3] = -1.0
     actions[:, 7] = 0.02
     return actions
+
+
+class _StrictPose:
+    def __init__(self, position: tuple[float, float, float]) -> None:
+        self.p = np.asarray(position, dtype=np.float64)
+        self.q = np.asarray((1.0, 0.0, 0.0, 0.0), dtype=np.float64)
+
+    def rebase(self, target: _StrictPose) -> _StrictPose:
+        return _StrictPose(tuple(float(item) for item in self.p - target.p))
+
+    def to_transformation_matrix(self) -> np.ndarray:
+        return np.eye(4, dtype=np.float64)
+
+
+class _DynamicStrictPrism:
+    def __init__(self, task: Any) -> None:
+        self._task = task
+
+    def get_pose(self) -> _StrictPose:
+        action_count = int(self._task._action_count)
+        depth = -0.03 if action_count == 0 else -0.06
+        return _StrictPose((0.0, 0.0, depth))
+
+
+class _StrictRobotManager:
+    @staticmethod
+    def get_gripper_center_pose() -> _StrictPose:
+        return _StrictPose((0.0, 0.0, 0.0))
 
 
 class UniVTACBackendTests(unittest.TestCase):
@@ -86,6 +120,45 @@ class UniVTACBackendTests(unittest.TestCase):
         self.assertIs(receipt.diagnostics["plan_success"], True)
         self.assertIs(receipt.diagnostics["early_stop"], False)
         self.assertIsNone(receipt.diagnostics["n0_reset"])
+        reset_witness = receipt.diagnostics["task"]["reset_witness"]
+        self.assertEqual(reset_witness["native_step"], 417)
+        self.assertEqual(len(reset_witness["canonical_joint9"]), 9)
+        self.assertEqual(len(reset_witness["qpos8"]), 8)
+        self.assertNotIn("reset_viable", reset_witness)
+
+    def test_reset_reference_emits_pre_policy_viability(self) -> None:
+        baseline, _task = self._backend()
+        baseline_receipt = baseline.reset(self._context())
+        expected_qpos = baseline.initial_model_visible_qpos8
+        self.assertIsNotNone(expected_qpos)
+        reference = UniVTACResetReference(
+            task_id=self.config.task.task_id,
+            initial_seed=11,
+            exogenous_seed=999,
+            pair_key="1" * 64,
+            dataset_sha256="2" * 64,
+            checkpoint_sha256="3" * 64,
+            config_sha256=self.config.sha256,
+            source_artifact_root_sha256="4" * 64,
+            source_result_sha256="5" * 64,
+            source_run_content_sha256="6" * 64,
+            expected_simulator_state_sha256=(baseline_receipt.simulator_state_sha256),
+            expected_native_step=baseline_receipt.diagnostics["native_step_id"],
+            expected_qpos8=tuple(float(item) for item in expected_qpos),
+            qpos_atol=1e-6,
+        )
+        runtime, _task = make_fake_runtime(self.config)
+        backend = UniVTACIsaacBackend(
+            self.config,
+            runtime,
+            reset_reference=reference,
+        )
+
+        receipt = backend.reset(self._context())
+
+        task = receipt.diagnostics["task"]
+        self.assertIs(task["reset_viable"], True)
+        self.assertIs(task["reset_witness"]["reset_viable"], True)
 
     def test_reset_seed_must_match_task_construction_seed(self) -> None:
         backend, task = self._backend()
@@ -180,6 +253,48 @@ class UniVTACBackendTests(unittest.TestCase):
             ),
             BackendSignal.TIMEOUT,
         )
+
+    def test_insert_hole_strict_requires_thirty_120hz_steps(self) -> None:
+        config = build_univtac_backend_config("insert_hole")
+        runtime, task = make_fake_runtime(
+            config,
+            scenario=FakeUpstreamScenario(
+                success_steps=tuple(range(1, 31)),
+                none_when_early_stop_false=True,
+            ),
+        )
+        task.target_pose = _StrictPose((0.0, 0.0, 0.0))
+        task.prism = _DynamicStrictPrism(task)
+        task.origin_inhand_pose = _StrictPose((0.0, 0.0, -0.06))
+        task._robot_manager = _StrictRobotManager()
+        backend = UniVTACIsaacBackend(
+            config,
+            runtime,
+            success_predicate_id=INSERT_HOLE_STRICT_PREDICATE_ID,
+        )
+        context = qualification_context(config)
+
+        receipt = backend.reset(context)
+        backend.observe()
+        batch = backend.execute(np.repeat(_actions(), 30, axis=0))
+
+        self.assertFalse(receipt.diagnostics["success_check"])
+        self.assertEqual(batch.executed_action_count, 30)
+        self.assertTrue(
+            all(item.signal is BackendSignal.RUNNING for item in batch.transitions[:29])
+        )
+        terminal = batch.transitions[-1]
+        self.assertIs(terminal.signal, BackendSignal.SUCCESS)
+        evaluation = terminal.diagnostics["success_evaluation"]
+        self.assertEqual(evaluation["strict_consecutive_steps"], 30)
+        self.assertTrue(evaluation["strict_success"])
+        self.assertTrue(
+            all(
+                item.diagnostics["official_success_latch_released"]
+                for item in batch.transitions[:29]
+            )
+        )
+        self.assertFalse(terminal.diagnostics["official_success_latch_released"])
 
     def test_plan_success_attribute_is_checked_independently_of_return_tuple(
         self,

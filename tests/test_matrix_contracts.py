@@ -13,13 +13,12 @@ from robotactile_benchmark.matrix import (
     MatrixGridKind,
     MatrixGridPoint,
     MatrixManifest,
-    build_focused_restoration_manifest,
+    build_focused_phase_manifest,
     build_primary_matrix_manifest,
 )
 from robotactile_benchmark.severity import severity_value
 from robotactile_benchmark.trials import (
     Condition,
-    RestorationMode,
     TrialManifest,
     system_manifest_hash,
 )
@@ -42,8 +41,6 @@ def _clean_trial() -> TrialManifest:
         action_spec="qpos8_next_step",
         fault_manifest_sha256=None,
         matched_no_touch_system_id=None,
-        restoration_index=None,
-        restoration_mode=None,
     )
 
 
@@ -80,8 +77,6 @@ def _primary_manifest() -> MatrixManifest:
         matrix_id="pull-key-primary-v1",
         clean=_clean_trial(),
         fault_manifests=_primary_faults(),
-        restoration_index=60,
-        restoration_mode=RestorationMode.VALID_STREAM_RESUME,
         no_touch_system_id="univtac-act-vision-only",
         no_touch_checkpoint_sha256="e" * 64,
         no_touch_config_sha256="f" * 64,
@@ -93,7 +88,7 @@ def test_primary_manifest_materializes_70_rows_but_only_two_shared_baselines() -
 
     assert manifest.kind is MatrixGridKind.PRIMARY
     assert len(manifest.comparisons) == 70
-    assert len(manifest.cells) == 142
+    assert len(manifest.cells) == 72
     assert {cell.trial.pair_key for cell in manifest.cells} == {manifest.pair_key}
     clean_cells = [
         cell for cell in manifest.cells if cell.trial.condition is Condition.CLEAN
@@ -125,11 +120,11 @@ def test_primary_manifest_materializes_70_rows_but_only_two_shared_baselines() -
 
 def test_manifest_is_immutable_strictly_round_trippable_and_content_addressed() -> None:
     manifest = _primary_manifest()
-    restored = MatrixManifest.from_dict(manifest.to_dict())
+    round_tripped = MatrixManifest.from_dict(manifest.to_dict())
 
-    assert restored == manifest
-    assert restored.sha256 == manifest.sha256
-    assert tuple(cell.sha256 for cell in restored.cells) == tuple(
+    assert round_tripped == manifest
+    assert round_tripped.sha256 == manifest.sha256
+    assert tuple(cell.sha256 for cell in round_tripped.cells) == tuple(
         cell.sha256 for cell in manifest.cells
     )
     with pytest.raises(FrozenInstanceError):
@@ -140,14 +135,20 @@ def test_manifest_is_immutable_strictly_round_trippable_and_content_addressed() 
         MatrixManifest.from_dict(malformed)
 
 
+def test_legacy_v1_matrix_manifest_fails_closed() -> None:
+    legacy = _primary_manifest().to_dict()
+    legacy["semantic_version"] = "1.0"
+
+    with pytest.raises(ValueError, match="semantic version"):
+        MatrixManifest.from_dict(legacy)
+
+
 def test_primary_manifest_rejects_incomplete_or_declared_grid() -> None:
     with pytest.raises(ValueError, match="14 x 5"):
         build_primary_matrix_manifest(
             matrix_id="missing-cell",
             clean=_clean_trial(),
             fault_manifests=_primary_faults()[:-1],
-            restoration_index=60,
-            restoration_mode=RestorationMode.VALID_STREAM_RESUME,
             no_touch_system_id="vision-only",
             no_touch_checkpoint_sha256="e" * 64,
             no_touch_config_sha256="f" * 64,
@@ -169,40 +170,31 @@ def test_primary_manifest_rejects_incomplete_or_declared_grid() -> None:
             matrix_id="declared-cell",
             clean=_clean_trial(),
             fault_manifests=tuple(faults),
-            restoration_index=60,
-            restoration_mode=RestorationMode.VALID_STREAM_RESUME,
             no_touch_system_id="vision-only",
             no_touch_checkpoint_sha256="e" * 64,
             no_touch_config_sha256="f" * 64,
         )
 
 
-def test_focused_restoration_grid_deduplicates_the_shared_faulted_execution() -> None:
-    fault = _fault("F7_high_load_saturation", 3)
-    manifest = build_focused_restoration_manifest(
-        matrix_id="restoration-sweep-v1",
+def test_focused_phase_grid_deduplicates_shared_baselines() -> None:
+    manifest = build_focused_phase_manifest(
+        matrix_id="phase-sweep-v1",
         clean=_clean_trial(),
         grid_points=(
-            MatrixGridPoint("restore-40", fault, restoration_index=40),
-            MatrixGridPoint("restore-60", fault, restoration_index=60),
+            MatrixGridPoint("phase-a", _fault("F7_high_load_saturation", 3, seed=700)),
+            MatrixGridPoint("phase-b", _fault("F7_high_load_saturation", 3, seed=900)),
         ),
-        restoration_mode=RestorationMode.VALID_STREAM_RESUME,
         no_touch_system_id="univtac-act-vision-only",
         no_touch_checkpoint_sha256="e" * 64,
         no_touch_config_sha256="f" * 64,
     )
 
-    assert manifest.kind is MatrixGridKind.FOCUSED_RESTORATION
+    assert manifest.kind is MatrixGridKind.FOCUSED_PHASE
     assert len(manifest.comparisons) == 2
-    assert len(manifest.cells) == 5
-    assert (
-        len({comparison.faulted_cell_sha256 for comparison in manifest.comparisons})
-        == 1
-    )
-    assert (
-        len({comparison.restored_cell_sha256 for comparison in manifest.comparisons})
-        == 2
-    )
+    assert len(manifest.cells) == 4
+    assert len({row.clean_cell_sha256 for row in manifest.comparisons}) == 1
+    assert len({row.no_touch_cell_sha256 for row in manifest.comparisons}) == 1
+    assert len({row.faulted_cell_sha256 for row in manifest.comparisons}) == 2
 
 
 def test_comparison_rejects_boolean_native_dose_alias_for_integer_one() -> None:
@@ -221,14 +213,13 @@ def test_comparison_rejects_boolean_native_dose_alias_for_integer_one() -> None:
 def test_manifest_rejects_unreferenced_cells_and_crossed_operator_instances() -> None:
     first_fault = _fault("F7_high_load_saturation", 3, seed=700)
     second_fault = _fault("F7_high_load_saturation", 3, seed=900)
-    manifest = build_focused_restoration_manifest(
+    manifest = build_focused_phase_manifest(
         matrix_id="operator-instance-links-v1",
         clean=_clean_trial(),
         grid_points=(
-            MatrixGridPoint("instance-a", first_fault, restoration_index=60),
-            MatrixGridPoint("instance-b", second_fault, restoration_index=60),
+            MatrixGridPoint("instance-a", first_fault),
+            MatrixGridPoint("instance-b", second_fault),
         ),
-        restoration_mode=RestorationMode.VALID_STREAM_RESUME,
         no_touch_system_id="univtac-act-vision-only",
         no_touch_checkpoint_sha256="e" * 64,
         no_touch_config_sha256="f" * 64,

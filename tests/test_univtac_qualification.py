@@ -22,7 +22,9 @@ from robotactile_benchmark.contracts import canonical_hash
 
 
 class UniVTACQualificationTests(unittest.TestCase):
-    def test_task4_canonical_smoke_external_root_pin_is_unchanged(self) -> None:
+    def test_task4_canonical_smoke_external_root_pin_tracks_v2_trial_contract(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as directory:
             summary = smoke_summary(
                 write_cpu_smoke_bundle(Path(directory) / "task4-bundle")
@@ -30,7 +32,7 @@ class UniVTACQualificationTests(unittest.TestCase):
 
         self.assertEqual(
             summary["root_receipt_sha256"],
-            "b951649d9de7175c42bc18b9e5ec10f8d91e4fdb69f1e5fe8d2972c887111ed0",
+            "645c6953bc0fc19ca3e2de9180a65b2640d6c9c512ef09da110b421e158f2734",
         )
 
     def test_cpu_qualification_binds_deterministic_resets_and_action_progress(

@@ -19,12 +19,32 @@ from robotactile_benchmark.execution import (
     LoadedLiveUniVTACArtifact,
     load_live_univtac_artifact,
 )
+from robotactile_benchmark.policies.n0_input_profile import (
+    N0_LIVE_UNIVTAC_INPUT_PROFILE,
+    N0InputProfile,
+    N0SourceColorDomain,
+    prepare_n0_image,
+)
 
 _TILE_WIDTH = 320
 _TILE_HEIGHT = 240
 _LABEL_HEIGHT = 24
 _DIFFERENCE_SCALE = 3.0
 _EVIDENCE_LEVEL = "derived_live_artifact_visualization_v1"
+_RETRAINED_DISPLAY_PROFILE = N0InputProfile(
+    profile_id="retrained-univtac-numeric-rgb-display-v1",
+    source_color_domain=N0SourceColorDomain.RETRAINED_NUMERIC_RGB,
+)
+
+
+def _display_profile(artifact: LoadedLiveUniVTACArtifact) -> N0InputProfile:
+    identity = getattr(artifact, "request_identity", {})
+    if (
+        identity.get("n0_action_per_frame") == 4
+        or identity.get("retrained_control_hz") is not None
+    ):
+        return _RETRAINED_DISPLAY_PROFILE
+    return N0_LIVE_UNIVTAC_INPUT_PROFILE
 
 
 @dataclass(frozen=True)
@@ -148,6 +168,7 @@ def _export_loaded_visualization(
             "condition": artifact.trial.condition.value,
             "capture_profile": artifact.capture_profile.value,
             "difference_scale": _DIFFERENCE_SCALE,
+            "display_color_profile": _display_profile(artifact).to_dict(),
             "evidence_level": _EVIDENCE_LEVEL,
             "fault_manifest_sha256": (
                 None
@@ -243,9 +264,19 @@ def _render_panel(
     Image, ImageDraw, ImageFont, ImageOps = pillow
     canvas = Image.new("RGB", (_TILE_WIDTH * 3, _TILE_HEIGHT * 3), (20, 22, 26))
     font = ImageFont.load_default()
+    profile = _display_profile(artifact)
     vision = delivered.observation.vision
     _paste_tile(
-        canvas, Image, ImageDraw, ImageOps, font, vision["top"], 0, 0, "Top RGB"
+        canvas,
+        Image,
+        ImageDraw,
+        ImageOps,
+        font,
+        vision["top"],
+        0,
+        0,
+        "Top RGB",
+        profile,
     )
     _paste_tile(
         canvas,
@@ -257,6 +288,7 @@ def _render_panel(
         1,
         0,
         "Wrist RGB",
+        profile,
     )
     _paste_metadata(canvas, ImageDraw, font, delivered, artifact)
 
@@ -277,6 +309,7 @@ def _render_panel(
             0,
             row,
             f"Clean tactile: {slot_id}",
+            profile,
         )
         _paste_tile(
             canvas,
@@ -288,6 +321,7 @@ def _render_panel(
             1,
             row,
             f"Delivered tactile: {slot_id}",
+            profile,
         )
         difference = _absolute_difference(clean_payload, delivered_payload)
         _paste_tile(
@@ -300,6 +334,7 @@ def _render_panel(
             2,
             row,
             f"Absolute difference x{_DIFFERENCE_SCALE:g}: {slot_id}",
+            profile,
         )
     return canvas
 
@@ -314,6 +349,7 @@ def _paste_tile(
     column: int,
     row: int,
     label: str,
+    profile: N0InputProfile = N0_LIVE_UNIVTAC_INPUT_PROFILE,
 ) -> None:
     x = column * _TILE_WIDTH
     y = row * _TILE_HEIGHT
@@ -322,7 +358,7 @@ def _paste_tile(
     if array is None:
         draw.text((x + 12, y + 104), "PAYLOAD ABSENT", fill=(220, 80, 80), font=font)
     else:
-        frame = _uint8_rgb(array)
+        frame = _uint8_rgb(array, profile=profile)
         image = image_module.fromarray(frame)
         fitted = image_ops.contain(
             image,
@@ -378,21 +414,34 @@ def _absolute_difference(
 ) -> Optional[Array]:
     if clean is None or delivered is None:
         return None
-    clean_rgb: Array = _uint8_rgb(clean).astype(np.int16)
-    delivered_rgb: Array = _uint8_rgb(delivered).astype(np.int16)
+    # Compute in stored channels; the tile applies the display transform once.
+    clean_rgb: Array = _uint8_rgb(clean, profile=_RETRAINED_DISPLAY_PROFILE).astype(
+        np.int16
+    )
+    delivered_rgb: Array = _uint8_rgb(
+        delivered, profile=_RETRAINED_DISPLAY_PROFILE
+    ).astype(np.int16)
     if clean_rgb.shape != delivered_rgb.shape:
         raise ValueError("clean and delivered tactile shapes disagree")
     difference = np.abs(clean_rgb - delivered_rgb).astype(np.float32)
     return cast(Array, np.clip(difference * _DIFFERENCE_SCALE, 0, 255).astype(np.uint8))
 
 
-def _uint8_rgb(value: Array) -> Array:
+def _uint8_rgb(
+    value: Array, *, profile: N0InputProfile = N0_LIVE_UNIVTAC_INPUT_PROFILE
+) -> Array:
+    """Convert UniVTAC numeric camera channels to display/PIL RGB."""
+
     array = np.asarray(value)
     if array.ndim != 3 or array.shape[2] != 3:
         raise ValueError("visualization arrays must have exact HWC RGB shape")
     if array.dtype != np.uint8:
         raise TypeError("visualization arrays must use uint8")
-    return cast(Array, np.ascontiguousarray(array))
+    return prepare_n0_image(
+        array,
+        profile=profile,
+        name="UniVTAC visualization frame",
+    )
 
 
 def _render_video(

@@ -13,6 +13,7 @@ from robotactile_benchmark.closed_loop.contracts import (
     PolicyIdentity,
 )
 from robotactile_benchmark.contracts import ObservationRecord
+from robotactile_benchmark.execution.contracts import N0ObservedTactileMode
 from robotactile_benchmark.fixtures import make_synthetic_episode
 from robotactile_benchmark.policies.n0_input_profile import (
     N0_LIVE_UNIVTAC_INPUT_PROFILE,
@@ -47,6 +48,14 @@ def _record(step: int) -> ObservationRecord:
         task="pull_out_key",
         seed=17,
         proprio=np.asarray((0.1, 0.2, 0.3, 1.0, 0.0, 0.0, 0.0, 0.02), np.float32),
+    )
+
+
+def _absent_record(step: int) -> ObservationRecord:
+    record = _record(step)
+    return replace(
+        record,
+        tactile=tuple(sensor.without_payload(False) for sensor in record.tactile),
     )
 
 
@@ -87,6 +96,49 @@ class FakeClient:
 
     def close(self) -> None:
         self.closed = True
+
+
+def test_official_policy_omits_tactile_for_structural_absence() -> None:
+    client = FakeClient()
+    identity = replace(_identity(), supports_structural_absence=True)
+    policy = OfficialN0Policy(
+        identity,
+        lambda: client,
+        input_profile=N0_LIVE_UNIVTAC_INPUT_PROFILE,
+        observed_tactile_mode=N0ObservedTactileMode.ABSENT,
+    )
+    prompt = n0_training_prompt("pull_out_key")
+    first = _absent_record(0)
+    policy.reset(
+        PolicyEpisodeContext(
+            episode_id=first.episode_id,
+            task="pull_out_key",
+            initial_seed=17,
+            exogenous_seed=29,
+            instruction=prompt,
+            action_spec=EE8_ACTION_SPEC,
+        )
+    )
+
+    plan = policy.infer(first)
+    policy.commit(
+        PolicyExecution(
+            action_plan_sha256=plan.sha256,
+            executed_actions=plan.actions,
+            delivered_observations=tuple(
+                _absent_record(index) for index in range(1, 13)
+            ),
+            terminal_signal=BackendSignal.RUNNING,
+        )
+    )
+
+    inference = client.infer_calls[0]
+    assert isinstance(inference, Mapping)
+    assert inference["tactile_cond_drop"] is True
+    assert "tactile" not in inference
+    commit = client.commit_payloads[0]
+    assert commit["observed_tactile_absent"] is True
+    assert commit["tactile_keyframes"] is None
 
 
 def test_official_policy_uses_cold_skip_then_full_chunk_and_grounding() -> None:

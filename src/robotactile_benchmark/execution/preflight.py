@@ -202,7 +202,7 @@ def _capture(
 
 
 def _release_gate(lock: IntegrationLock) -> LivePreflightCheck:
-    ids = ("act_runtime", "univtac")
+    ids = ("univtac",)
     evidence = {
         integration_id: str(lock.by_id(integration_id).release_ready).lower()
         for integration_id in ids
@@ -228,7 +228,7 @@ def _checkout_evidence(
 def run_live_preflight(
     request_path: Path,
     *,
-    act_checkout: Path,
+    act_checkout: Path | None = None,
     artifact_root: Path,
     stats_sha256: str,
     encoder_sha256: str,
@@ -251,7 +251,6 @@ def run_live_preflight(
     )
     lock = load_integration_lock()
     univtac_pin = lock.by_id("univtac")
-    act_pin = lock.by_id("act_runtime")
     probe = SystemLiveHostProbe() if host_probe is None else host_probe
     checks = (
         LivePreflightCheck(
@@ -269,10 +268,6 @@ def run_live_preflight(
             lambda: _checkout_evidence(
                 checkout_verifier, univtac_pin, request.upstream_root
             ),
-        ),
-        _capture(
-            "act_checkout",
-            lambda: _checkout_evidence(checkout_verifier, act_pin, act_checkout),
         ),
         _capture(
             "official_act_artifacts",

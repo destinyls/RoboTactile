@@ -45,8 +45,6 @@ def _artifact(tmp_path: Path) -> Path:
         output_dir=None,
         fault_manifest_path=None,
         rest_references_path=None,
-        restoration_index=None,
-        restoration_mode=None,
         matched_no_touch_system_id=None,
         matched_no_touch_artifact_path=None,
         act_device_name="cpu",

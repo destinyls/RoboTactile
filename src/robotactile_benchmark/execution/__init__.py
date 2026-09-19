@@ -1,12 +1,22 @@
 """Typed orchestration for bounded UniVTAC closed-loop execution."""
 
 from robotactile_benchmark.closed_loop.contracts import InitialStatePolicy
+from robotactile_benchmark.execution.action_replay import (
+    ACTION_REPLAY_EVIDENCE_LEVEL,
+    ACTION_REPLAY_SEMANTIC_VERSION,
+    ActionReplayError,
+    ActionReplaySource,
+    ActionTraceReplayReceipt,
+    execute_action_trace_replay,
+    write_action_trace_replay_receipt,
+)
 from robotactile_benchmark.execution.capture_profiles import LiveCaptureProfile
 from robotactile_benchmark.execution.contracts import (
     ArtifactExportStatus,
     LiveExecutionUnavailableError,
     LivePolicyKind,
     LiveUniVTACRunRequest,
+    N0ObservedTactileMode,
 )
 from robotactile_benchmark.execution.live_artifacts import (
     load_live_univtac_artifact,
@@ -56,6 +66,8 @@ from robotactile_benchmark.execution.request_values import (
 )
 
 __all__ = [
+    "ACTION_REPLAY_EVIDENCE_LEVEL",
+    "ACTION_REPLAY_SEMANTIC_VERSION",
     "ArtifactExportStatus",
     "LIVE_ARTIFACT_EVIDENCE_LEVEL",
     "LIVE_PREFLIGHT_EVIDENCE_LEVEL",
@@ -66,12 +78,16 @@ __all__ = [
     "LiveCaptureProfile",
     "LiveExecutionUnavailableError",
     "InitialStatePolicy",
+    "ActionReplayError",
+    "ActionReplaySource",
+    "ActionTraceReplayReceipt",
     "LivePolicyKind",
     "LivePreflightCheck",
     "LivePreflightError",
     "LivePreflightReceipt",
     "LiveUniVTACExecutionResult",
     "LiveUniVTACRunRequest",
+    "N0ObservedTactileMode",
     "PairedLiveUniVTACExecutionResult",
     "PairedExecutionReceiptWrite",
     "LoadedLiveUniVTACRun",
@@ -80,6 +96,7 @@ __all__ = [
     "default_live_policy_factory",
     "default_paired_backend_session_factory",
     "execute_paired_live_univtac_runs",
+    "execute_action_trace_replay",
     "execute_live_univtac_run",
     "load_live_univtac_request",
     "load_live_univtac_artifact",
@@ -89,5 +106,6 @@ __all__ = [
     "run_live_preflight",
     "write_live_univtac_artifact",
     "write_live_preflight_receipt",
+    "write_action_trace_replay_receipt",
     "write_paired_execution_receipt",
 ]

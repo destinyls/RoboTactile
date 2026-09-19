@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "robotactile-benchmark"
-version = "0.4.0"
+version = "0.6.0"
 description = "Auditable optical-tactile robustness benchmark contracts and replay"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -17,6 +17,14 @@ dependencies = [
 [project.optional-dependencies]
 visualization = [
   "Pillow>=9.2,<12",
+]
+n0-vtla = [
+  "msgpack>=1.0,<2",
+  "pyzmq>=25,<28",
+]
+ftp1-policy = [
+  "msgpack>=1.0,<2",
+  "pyzmq>=25,<28",
 ]
 dev = [
   "hatchling==1.27.0",
@@ -59,6 +67,7 @@ include = [
 [tool.hatch.build.targets.wheel.force-include]
 "configs" = "robotactile_benchmark/configs"
 "schemas" = "robotactile_benchmark/schemas"
+"integrations/act_artifacts.lock.json" = "robotactile_benchmark/integrations/act_artifacts.lock.json"
 "integrations/integrations.lock.json" = "robotactile_benchmark/integrations/integrations.lock.json"
 "release/source_manifest.sha256" = "robotactile_benchmark/source_manifest.sha256"
 "LICENSE" = "robotactile_benchmark/LICENSE"

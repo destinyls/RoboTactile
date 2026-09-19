@@ -31,6 +31,20 @@ def test_unchanged_file_reuses_digest_across_labels(tmp_path: Path) -> None:
     assert cache.hits == 1
 
 
+def test_metadata_only_ctime_change_reuses_digest(tmp_path: Path) -> None:
+    artifact = tmp_path / "model.safetensors"
+    artifact.write_bytes(b"stable model bytes")
+
+    first = artifacts._file_sha256(artifact, "checkpoint")
+    artifact.chmod(0o640)
+    second = artifacts._file_sha256(artifact, "checkpoint")
+
+    assert second == first
+    cache = artifacts._cached_file_sha256.cache_info()
+    assert cache.misses == 1
+    assert cache.hits == 1
+
+
 def test_atomic_same_size_replacement_is_a_cache_miss(tmp_path: Path) -> None:
     artifact = tmp_path / "model.safetensors"
     replacement = tmp_path / "replacement.safetensors"
@@ -104,4 +118,70 @@ def test_atomic_replacement_during_hash_is_rejected(
     monkeypatch.setattr(artifacts.os, "read", replacing_read)
 
     with pytest.raises(ValueError, match="changed while hashing"):
+        artifacts._file_sha256(artifact, "checkpoint")
+
+
+def test_persistent_cache_reuses_digest_after_process_cache_clear(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    artifact = tmp_path / "model.safetensors"
+    artifact.write_bytes(b"stable model bytes")
+    cache = tmp_path / "digest-cache"
+    monkeypatch.setenv("ROBOTACTILE_N0_DIGEST_CACHE_DIR", str(cache))
+
+    first = artifacts._file_sha256(artifact, "checkpoint")
+    artifacts._file_sha256_cache_clear()
+
+    def unexpected_hash(*args: object) -> str:
+        raise AssertionError(f"persistent cache miss: {args}")
+
+    monkeypatch.setattr(artifacts, "_cached_file_sha256", unexpected_hash)
+    second = artifacts._file_sha256(artifact, "checkpoint")
+
+    assert second == first
+    assert len(list(cache.glob("*.json"))) == 1
+
+
+def test_persistent_cache_rehashes_changed_content(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    artifact = tmp_path / "model.safetensors"
+    artifact.write_bytes(b"before")
+    cache = tmp_path / "digest-cache"
+    monkeypatch.setenv("ROBOTACTILE_N0_DIGEST_CACHE_DIR", str(cache))
+
+    before = artifacts._file_sha256(artifact, "checkpoint")
+    artifact.write_bytes(b"after-with-a-different-size")
+    after = artifacts._file_sha256(artifact, "checkpoint")
+
+    assert before != after
+    assert after == hashlib.sha256(artifact.read_bytes()).hexdigest()
+    assert len(list(cache.glob("*.json"))) == 1
+
+
+def test_corrupt_persistent_receipt_is_rebuilt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    artifact = tmp_path / "model.safetensors"
+    artifact.write_bytes(b"stable model bytes")
+    cache = tmp_path / "digest-cache"
+    monkeypatch.setenv("ROBOTACTILE_N0_DIGEST_CACHE_DIR", str(cache))
+
+    expected = artifacts._file_sha256(artifact, "checkpoint")
+    receipt = next(cache.glob("*.json"))
+    receipt.write_bytes(b"not-json")
+    artifacts._file_sha256_cache_clear()
+
+    assert artifacts._file_sha256(artifact, "checkpoint") == expected
+    assert receipt.read_bytes().endswith(b"\n")
+
+
+def test_persistent_cache_requires_absolute_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    artifact = tmp_path / "model.safetensors"
+    artifact.write_bytes(b"stable model bytes")
+    monkeypatch.setenv("ROBOTACTILE_N0_DIGEST_CACHE_DIR", "relative/cache")
+
+    with pytest.raises(ValueError, match="must be an absolute path"):
         artifacts._file_sha256(artifact, "checkpoint")

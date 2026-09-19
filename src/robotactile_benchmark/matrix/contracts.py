@@ -14,7 +14,7 @@ from robotactile_benchmark.manifests import FaultManifest
 from robotactile_benchmark.severity import severity_value
 from robotactile_benchmark.trials import Condition, TrialManifest
 
-MATRIX_SEMANTIC_VERSION = "1.0"
+MATRIX_SEMANTIC_VERSION = "2.0"
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
@@ -23,7 +23,6 @@ class MatrixGridKind(str, Enum):
 
     PRIMARY = "primary_14x5_blind"
     FOCUSED_PHASE = "focused_phase"
-    FOCUSED_RESTORATION = "focused_restoration"
 
 
 def require_nonempty(value: object, name: str) -> str:
@@ -49,11 +48,10 @@ def require_integer(value: object, name: str, minimum: int = 0) -> int:
 
 @dataclass(frozen=True)
 class MatrixGridPoint:
-    """One requested fault instance and restoration boundary."""
+    """One requested fault instance."""
 
     focus_id: str
     fault_manifest: FaultManifest
-    restoration_index: int
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -61,10 +59,6 @@ class MatrixGridPoint:
         )
         if not isinstance(self.fault_manifest, FaultManifest):
             raise TypeError("fault_manifest must be a FaultManifest")
-        index = require_integer(self.restoration_index, "restoration_index")
-        if not self.fault_manifest.start_index < index < self.fault_manifest.stop_index:
-            raise ValueError("restoration index must lie inside the fault window")
-        object.__setattr__(self, "restoration_index", index)
 
     @property
     def sha256(self) -> str:
@@ -72,7 +66,6 @@ class MatrixGridPoint:
             {
                 "focus_id": self.focus_id,
                 "fault_manifest_sha256": self.fault_manifest.sha256,
-                "restoration_index": self.restoration_index,
             }
         )
 
@@ -94,11 +87,9 @@ class MatrixCellSpec:
             self.fault_manifest, FaultManifest
         ):
             raise TypeError("fault_manifest must be a FaultManifest or None")
-        faulted = self.trial.condition in {Condition.FAULTED, Condition.RESTORED}
+        faulted = self.trial.condition is Condition.FAULTED
         if faulted != (self.fault_manifest is not None):
-            raise ValueError(
-                "faulted/restored cells must carry exactly one fault manifest"
-            )
+            raise ValueError("faulted cells must carry exactly one fault manifest")
         if (
             self.fault_manifest is not None
             and self.trial.fault_manifest_sha256 != self.fault_manifest.sha256
@@ -172,18 +163,16 @@ class MatrixCellSpec:
 
 @dataclass(frozen=True)
 class MatrixComparison:
-    """Four-condition references for one scientific comparison row."""
+    """Three-condition references for one scientific comparison row."""
 
     point_id: str
     focus_id: str
     operator_id: str
     severity_level: int
     native_dose: object
-    restoration_index: int
     clean_cell_sha256: str
     faulted_cell_sha256: str
     no_touch_cell_sha256: str
-    restored_cell_sha256: str
 
     def __post_init__(self) -> None:
         for name in ("point_id", "focus_id", "operator_id"):
@@ -200,16 +189,10 @@ class MatrixComparison:
             or self.native_dose != expected_dose
         ):
             raise ValueError("comparison native dose does not match the registry")
-        object.__setattr__(
-            self,
-            "restoration_index",
-            require_integer(self.restoration_index, "restoration_index"),
-        )
         for name in (
             "clean_cell_sha256",
             "faulted_cell_sha256",
             "no_touch_cell_sha256",
-            "restored_cell_sha256",
         ):
             object.__setattr__(self, name, require_sha256(getattr(self, name), name))
 
@@ -220,11 +203,9 @@ class MatrixComparison:
             "operator_id": self.operator_id,
             "severity_level": self.severity_level,
             "native_dose": self.native_dose,
-            "restoration_index": self.restoration_index,
             "clean_cell_sha256": self.clean_cell_sha256,
             "faulted_cell_sha256": self.faulted_cell_sha256,
             "no_touch_cell_sha256": self.no_touch_cell_sha256,
-            "restored_cell_sha256": self.restored_cell_sha256,
         }
 
     @classmethod
@@ -235,11 +216,9 @@ class MatrixComparison:
             "operator_id",
             "severity_level",
             "native_dose",
-            "restoration_index",
             "clean_cell_sha256",
             "faulted_cell_sha256",
             "no_touch_cell_sha256",
-            "restored_cell_sha256",
         }
         if not isinstance(value, Mapping) or set(value) != fields:
             raise ValueError("matrix comparison fields mismatch")

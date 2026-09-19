@@ -36,6 +36,9 @@ from robotactile_benchmark.deployment.layout import (
     initialize_deployment_layout,
     resolve_deployment_root,
 )
+from robotactile_benchmark.integrations.n0_twam.official_protocol import (
+    validate_official_n0_clean_claim_request,
+)
 from robotactile_benchmark.integrations.n0_twam.requests import (
     DEFAULT_N0_WATCHDOG_SECONDS_PER_ACTION,
     build_official_n0_clean_request,
@@ -264,6 +267,13 @@ def generate_campaign(args: argparse.Namespace) -> dict[str, object]:
             InitialStatePolicy.OFFICIAL_REPRODUCTION.value,
         )
     )
+    if (
+        args.protocol in {"pilot_v1", "paper_v1"}
+        and initial_state_policy is not InitialStatePolicy.OFFICIAL_REPRODUCTION
+    ):
+        raise ValueError(
+            f"{args.protocol} requires official initial-state reproduction"
+        )
     if args.integration_config is not None and (
         args.tasks is None or len(args.tasks) != 1
     ):
@@ -362,6 +372,11 @@ def generate_campaign(args: argparse.Namespace) -> dict[str, object]:
                 initial_state_policy=initial_state_policy,
                 wall_timeout_role=WallTimeoutRole.INFRASTRUCTURE_WATCHDOG_V1,
             )
+            if args.protocol in {"pilot_v1", "paper_v1"}:
+                validate_official_n0_clean_claim_request(
+                    request,
+                    action_horizon=task.action_horizon,
+                )
             generated = write_official_n0_clean_request(request_path, request)
             if generated.request_file_sha256 != _sha256_file(request_path):
                 raise RuntimeError("generated request file hash mismatch")

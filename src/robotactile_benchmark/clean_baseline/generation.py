@@ -222,15 +222,13 @@ def _validate_clean_request(loaded: object) -> None:
         or loaded.trial.condition is not Condition.CLEAN
         or request.fault_manifest_path is not None
         or request.rest_references_path is not None
-        or request.restoration_index is not None
-        or request.restoration_mode is not None
         or request.matched_no_touch_system_id is not None
         or request.matched_no_touch_artifact_path is not None
         or loaded.fault_manifest is not None
         or loaded.rest_references is not None
     ):
         raise CleanCampaignError(
-            "clean campaign requests cannot carry fault/no-touch/restoration state"
+            "clean campaign requests cannot carry fault/no-touch state"
         )
 
 

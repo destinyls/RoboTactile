@@ -17,7 +17,7 @@ _PREFIXES = (
     (Path("src/curobo"), Path("sources/curobo")),
     (Path("artifacts/checkpoints"), Path("artifacts/models/act")),
     (Path("artifacts/live_univtac"), Path("artifacts/live-univtac")),
-    (Path("requests/live_univtac"), Path("requests/four-condition")),
+    (Path("requests/live_univtac"), Path("requests/three-condition")),
     (Path("artifacts/rest-references"), Path("artifacts/rest-references")),
 )
 

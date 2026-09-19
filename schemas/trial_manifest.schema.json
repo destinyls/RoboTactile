@@ -9,13 +9,13 @@
     "base_system_id", "executed_system_id", "dataset_sha256",
     "base_system_manifest_sha256", "checkpoint_sha256", "config_sha256", "action_spec",
     "fault_manifest_sha256", "matched_no_touch_system_id",
-    "restoration_index", "restoration_mode", "semantic_version"
+    "semantic_version"
   ],
   "properties": {
     "task": {"type": "string", "minLength": 1},
     "initial_seed": {"type": "integer", "minimum": 0},
     "exogenous_seed": {"type": "integer", "minimum": 0},
-    "condition": {"enum": ["clean", "faulted", "no_touch", "restored"]},
+    "condition": {"enum": ["clean", "faulted", "no_touch"]},
     "base_system_id": {"type": "string", "minLength": 1},
     "executed_system_id": {"type": "string", "minLength": 1},
     "dataset_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
@@ -25,34 +25,9 @@
     "action_spec": {"const": "qpos8_next_step"},
     "fault_manifest_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
     "matched_no_touch_system_id": {"type": ["string", "null"]},
-    "restoration_index": {"type": ["integer", "null"], "minimum": 0},
-    "restoration_mode": {
-      "type": ["string", "null"],
-      "enum": ["valid_stream_resume", "maintenance_or_replacement", null]
-    },
-    "semantic_version": {"const": "1.0"}
+    "semantic_version": {"const": "2.0"}
   },
   "allOf": [
-    {
-      "if": {"properties": {"condition": {"const": "restored"}}},
-      "then": {
-        "required": ["fault_manifest_sha256", "restoration_index", "restoration_mode"],
-        "properties": {
-          "fault_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-          "restoration_index": {"type": "integer", "minimum": 0},
-          "restoration_mode": {
-            "enum": ["valid_stream_resume", "maintenance_or_replacement"]
-          },
-          "matched_no_touch_system_id": {"const": null}
-        }
-      },
-      "else": {
-        "properties": {
-          "restoration_index": {"const": null},
-          "restoration_mode": {"const": null}
-        }
-      }
-    },
     {
       "if": {"properties": {"condition": {"const": "faulted"}}},
       "then": {

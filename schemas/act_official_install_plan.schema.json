@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/destinyls/RoboTactile/schemas/act_official_install_plan.schema.json",
+  "title": "RoboTactile official UniVTAC ACT install plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_root",
+    "evidence_level",
+    "files",
+    "include_reference",
+    "lock_sha256",
+    "profiles",
+    "reference_evidence_level",
+    "repository_id",
+    "repository_type",
+    "revision",
+    "schema_version",
+    "tasks",
+    "total_download_size_bytes"
+  ],
+  "properties": {
+    "artifact_root": {"type": "string", "minLength": 1},
+    "evidence_level": {
+      "const": "artifact_installation_only_no_model_or_simulator_execution_v1"
+    },
+    "files": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 57,
+      "items": {"$ref": "#/$defs/plannedFile"}
+    },
+    "include_reference": {"type": "boolean"},
+    "lock_sha256": {"$ref": "#/$defs/sha256"},
+    "profiles": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": {"enum": ["univtac", "vision_only"]}
+    },
+    "reference_evidence_level": {
+      "type": ["string", "null"],
+      "enum": ["upstream_reference_only_no_local_execution_v1", null]
+    },
+    "repository_id": {"const": "byml/UniVTAC"},
+    "repository_type": {"const": "dataset"},
+    "revision": {
+      "const": "172331dbbce95bc04c3e59b22f32dc72ba5561ae"
+    },
+    "schema_version": {
+      "const": "robotactile-official-act-install-plan-v1"
+    },
+    "tasks": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "grasp_classify",
+          "insert_HDMI",
+          "insert_hole",
+          "insert_tube",
+          "lift_bottle",
+          "lift_can",
+          "pull_out_key",
+          "put_bottle_in_shelf"
+        ]
+      }
+    },
+    "total_download_size_bytes": {"type": "integer", "minimum": 1}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "plannedFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "destinations",
+        "evidence_level",
+        "kind",
+        "remote_path",
+        "sha256",
+        "size_bytes",
+        "source_url"
+      ],
+      "properties": {
+        "destinations": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "evidence_level": {
+          "enum": [
+            "artifact_installation_only_no_model_or_simulator_execution_v1",
+            "upstream_reference_only_no_local_execution_v1"
+          ]
+        },
+        "kind": {
+          "enum": [
+            "encoder",
+            "policy",
+            "reference_log",
+            "reference_metadata",
+            "stats"
+          ]
+        },
+        "remote_path": {
+          "type": "string",
+          "pattern": "^checkpoints/[A-Za-z0-9_./-]+$"
+        },
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 1},
+        "source_url": {
+          "type": "string",
+          "pattern": "^https://huggingface\\.co/datasets/byml/UniVTAC/resolve/172331dbbce95bc04c3e59b22f32dc72ba5561ae/checkpoints/[A-Za-z0-9_./-]+\\?download=true$"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "evidence_level": {
+                "const": "artifact_installation_only_no_model_or_simulator_execution_v1"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "kind": {"enum": ["encoder", "policy", "stats"]}
+            }
+          },
+          "else": {
+            "properties": {
+              "kind": {"enum": ["reference_log", "reference_metadata"]}
+            }
+          }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"include_reference": {"const": true}}},
+      "then": {
+        "properties": {
+          "reference_evidence_level": {
+            "const": "upstream_reference_only_no_local_execution_v1"
+          }
+        }
+      },
+      "else": {
+        "properties": {"reference_evidence_level": {"type": "null"}}
+      }
+    }
+  ]
+}

@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import importlib
 import json
+import math
 import os
 import random
 import subprocess
@@ -22,6 +23,7 @@ import numpy as np
 from robotactile_benchmark.action_specs import EE8_ACTION_SPEC, QPOS8_ACTION_SPEC
 from robotactile_benchmark.backends.univtac_contracts import (
     N0_FIXED_ENDPOINT_ACTION_EXECUTION_CONTRACT,
+    N0_RETRAINED_10HZ_ACTION_EXECUTION_CONTRACT,
     N0_TRAINING_60HZ_ACTION_EXECUTION_CONTRACT,
     UniVTACBackendConfig,
     UniVTACContractError,
@@ -50,6 +52,12 @@ from robotactile_benchmark.backends.univtac_placement_compatibility import (
 from robotactile_benchmark.backends.univtac_planner_compatibility import (
     install_local_ik_fallback,
 )
+from robotactile_benchmark.backends.univtac_reset_trajectory import (
+    UniVTACPreMoveTrajectory,
+)
+from robotactile_benchmark.backends.univtac_reset_trajectory_runtime import (
+    install_pre_move_trajectory_replay,
+)
 from robotactile_benchmark.backends.univtac_reuse import (
     prepare_univtac_task_teardown,
     reconstruct_univtac_stage,
@@ -67,8 +75,43 @@ _UPSTREAM_HEADLESS_EXTENSION_IDS = ("omni.ui",)
 _ZERO_DISTANCE_GRASP_APPROACH_TASKS = frozenset({"insert_hole", "insert_tube"})
 _GRASP_APPROACH_DISTANCE_M = 0.05
 _ANTIALIASING_MODES = frozenset({"Off", "FXAA", "DLSS", "TAA", "DLAA"})
-N0_UNIVTAC_ANTIALIASING_MODE = "TAA"
+_RENDERING_MODES = frozenset({"balanced", "performance", "quality"})
+UNIVTAC_ANTIALIASING_MODE = "TAA"
+UNIVTAC_RENDERING_MODE = "balanced"
+# Backward-compatible name used by the N0-specific diagnostic scripts.
+N0_UNIVTAC_ANTIALIASING_MODE = UNIVTAC_ANTIALIASING_MODE
 _N0_TRAINING_CADENCE_ENV = "ROBOTACTILE_N0_TRAINING_CADENCE_DIAGNOSTIC"
+_RESET_TIME_LIMIT_ENV = "ROBOTACTILE_UNIVTAC_RESET_TIME_LIMIT_S"
+
+
+def _resolved_reset_time_limit_s(upstream_limit: object) -> float:
+    """Resolve an infrastructure-only reset watchdog without shortening upstream."""
+
+    if isinstance(upstream_limit, bool) or not isinstance(upstream_limit, (int, float)):
+        raise UniVTACContractError("UniVTAC reset time limit must be numeric")
+    baseline = float(upstream_limit)
+    if not math.isfinite(baseline) or baseline <= 0.0:
+        raise UniVTACContractError(
+            "UniVTAC reset time limit must be positive and finite"
+        )
+    raw_override = os.environ.get(_RESET_TIME_LIMIT_ENV)
+    if raw_override is None:
+        return baseline
+    try:
+        override = float(raw_override)
+    except ValueError as error:
+        raise UniVTACContractError(
+            f"{_RESET_TIME_LIMIT_ENV} must be a positive finite number"
+        ) from error
+    if not math.isfinite(override) or override <= 0.0:
+        raise UniVTACContractError(
+            f"{_RESET_TIME_LIMIT_ENV} must be a positive finite number"
+        )
+    if override < baseline:
+        raise UniVTACContractError(
+            f"{_RESET_TIME_LIMIT_ENV} cannot shorten the upstream watchdog"
+        )
+    return override
 
 
 @dataclass(frozen=True)
@@ -184,15 +227,32 @@ def _resolve_n0_action_execution_contract(requested: Optional[str]) -> tuple[str
 
 
 def _resolved_antialiasing_mode(
-    config: UniVTACBackendConfig,
+    _config: UniVTACBackendConfig,
     value: Optional[str],
 ) -> Optional[str]:
-    """Make the empirically matched N0 renderer explicit and reproducible."""
+    """Use the empirically matched renderer for every live policy runtime."""
 
     validated = _validated_antialiasing_mode(value)
-    if validated is None and config.action_spec == EE8_ACTION_SPEC:
-        return N0_UNIVTAC_ANTIALIASING_MODE
-    return validated
+    if validated is not None:
+        return validated
+    return UNIVTAC_ANTIALIASING_MODE
+
+
+def _resolved_launcher_args(
+    launcher_args: Optional[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Apply the N0-TWAM renderer preset before AppLauncher starts."""
+
+    arguments: dict[str, Any] = {
+        "headless": True,
+        "rendering_mode": UNIVTAC_RENDERING_MODE,
+    }
+    if launcher_args is not None:
+        arguments.update(dict(launcher_args))
+    rendering_mode = arguments.get("rendering_mode")
+    if not isinstance(rendering_mode, str) or rendering_mode not in _RENDERING_MODES:
+        raise UniVTACContractError("unsupported UniVTAC rendering mode")
+    return arguments
 
 
 def _prepare_process_determinism(initial_seed: int) -> None:
@@ -285,6 +345,22 @@ def _install_grasp_approach_compatibility(task: Any, task_id: str) -> bool:
     return True
 
 
+def _install_grasp_initialization_for_action_spec(
+    task: Any,
+    config: UniVTACBackendConfig,
+) -> bool:
+    """Keep the N0 grasp preload out of official qpos-policy evaluation.
+
+    The preload intentionally changes the post-reset gripper position to make
+    EE endpoint execution stable.  Official ACT checkpoints were trained on
+    UniVTAC's released qpos reset and must observe that reset unchanged.
+    """
+
+    if config.action_spec == QPOS8_ACTION_SPEC:
+        return False
+    return install_grasp_initialization_compatibility(task, config.task.task_id)
+
+
 def _git_output(root: Path, arguments: Tuple[str, ...]) -> str:
     completed = subprocess.run(
         ("git", "-C", str(root), *arguments),
@@ -360,6 +436,9 @@ def _configure_task_cfg(
     cfg.random_texture = False
     cfg.tactile_sensor_type = config.aliases.sensor_type
     cfg.save_dir = runtime_dir
+    if not hasattr(cfg, "reset_time_limit"):
+        raise UniVTACContractError("upstream task config lacks reset_time_limit")
+    cfg.reset_time_limit = _resolved_reset_time_limit_s(cfg.reset_time_limit)
 
 
 def _live_joint_names(task: Any) -> Tuple[str, ...]:
@@ -437,9 +516,7 @@ def _launch_univtac_application(
     app_launcher_type = getattr(isaac_app, "AppLauncher", None)
     if not callable(app_launcher_type):
         raise UniVTACContractError("isaaclab.app.AppLauncher is unavailable")
-    arguments = {"headless": True}
-    if launcher_args is not None:
-        arguments.update(dict(launcher_args))
+    arguments = _resolved_launcher_args(launcher_args)
     _record_lifecycle_stage(stage_observer, "app_launcher")
     launcher = app_launcher_type(argparse.Namespace(**arguments))
     simulation_app = getattr(launcher, "app", None)
@@ -493,6 +570,7 @@ def _construct_univtac_task_runtime(
     device: Optional[str],
     antialiasing_mode: Optional[str],
     n0_action_execution_contract: Optional[str],
+    reset_trajectory: Optional[UniVTACPreMoveTrajectory],
     stage_observer: Optional[Callable[[str], None]],
 ) -> UniVTACTaskRuntime:
     """Construct one seed-bound task whose close callback never closes the app."""
@@ -527,15 +605,36 @@ def _construct_univtac_task_runtime(
         construction_stage = "runtime_compatibility_installation"
         _record_lifecycle_stage(stage_observer, construction_stage)
         _install_task_seed_hook(task, resources.torch, initial_seed)
-        install_grasp_initialization_compatibility(task, config.task.task_id)
+        _install_grasp_initialization_for_action_spec(task, config)
         _install_grasp_approach_compatibility(task, config.task.task_id)
         _install_constrained_placement_compatibility(task, config.task.task_id)
         install_local_ik_fallback(task, config.task.task_id)
         install_planner_failure_diagnostics(task, config.task.task_id)
+        if reset_trajectory is not None:
+            if config.action_spec != QPOS8_ACTION_SPEC:
+                raise UniVTACContractError(
+                    "dense reset trajectory replay is only valid for QPOS8"
+                )
+            install_pre_move_trajectory_replay(task, reset_trajectory)
         install_n0_evaluation_reset(task, config)
+        if (
+            config.action_spec == QPOS8_ACTION_SPEC
+            and config.physics_steps_per_action != 1
+        ):
+            from robotactile_benchmark.backends.univtac_qpos_cadence import (
+                install_retrained_qpos_cadence,
+            )
+
+            install_retrained_qpos_cadence(task, config)
         if config.action_spec == EE8_ACTION_SPEC:
             execution_contract, diagnostic_only = _resolve_n0_action_execution_contract(
                 n0_action_execution_contract
+                or (
+                    config.action_execution_contract
+                    if config.action_execution_contract
+                    == N0_RETRAINED_10HZ_ACTION_EXECUTION_CONTRACT
+                    else None
+                )
             )
             install_n0_action_execution(
                 task,
@@ -593,6 +692,7 @@ def launch_univtac_app_host(
     device: Optional[str] = None,
     antialiasing_mode: Optional[str] = None,
     n0_action_execution_contract: Optional[str] = None,
+    reset_trajectory: Optional[UniVTACPreMoveTrajectory] = None,
     stage_observer: Optional[Callable[[str], None]] = None,
 ) -> UniVTACSimulationAppHost:
     """Launch one app host that creates a fresh task runtime per episode."""
@@ -622,6 +722,7 @@ def launch_univtac_app_host(
             device=device,
             antialiasing_mode=resolved_antialiasing,
             n0_action_execution_contract=n0_action_execution_contract,
+            reset_trajectory=reset_trajectory,
             stage_observer=runtime_stage_observer,
         )
 
@@ -663,6 +764,7 @@ def launch_univtac_runtime(
     device: Optional[str] = None,
     antialiasing_mode: Optional[str] = None,
     n0_action_execution_contract: Optional[str] = None,
+    reset_trajectory: Optional[UniVTACPreMoveTrajectory] = None,
     stage_observer: Optional[Callable[[str], None]] = None,
 ) -> UniVTACTaskRuntime:
     """Launch a one-shot task runtime with the legacy task-plus-app close API."""
@@ -675,6 +777,7 @@ def launch_univtac_runtime(
         device=device,
         antialiasing_mode=antialiasing_mode,
         n0_action_execution_contract=n0_action_execution_contract,
+        reset_trajectory=reset_trajectory,
         stage_observer=stage_observer,
     )
     runtime = host.create_runtime(

@@ -6,18 +6,49 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=common.sh
 source "$SCRIPT_DIR/common.sh"
 
-BENCHMARK_VERSION="0.4.0"
+BENCHMARK_VERSION="0.6.0"
 DEPLOY_ROOT="$(default_deployment_root)"
 SYSTEM_PYTHON="${ROBOTACTILE_SYSTEM_PYTHON:-python3}"
 WHEEL_INPUT=""
+WHEEL_MANIFEST_MEMBER="robotactile_benchmark/source_manifest.sha256"
 
 usage() {
   cat <<'EOF'
 Usage: install_robotactile_isaac.sh [--root PATH] [--wheel PATH]
 
-Builds the current source-manifest-bound RoboTactile wheel and installs it into
-the standalone Isaac Sim Python. The invoking Python environment is read only.
+Without --wheel, builds the current source-manifest-bound RoboTactile wheel.
+With --wheel, derives the source identity from the packaged manifest instead.
+The selected wheel is installed into standalone Isaac Sim Python; the invoking
+Python environment is read only.
 EOF
+}
+
+wheel_source_manifest_sha256() {
+  local wheel_path="$1"
+  "$SYSTEM_PYTHON" - "$wheel_path" "$WHEEL_MANIFEST_MEMBER" <<'PY'
+from __future__ import annotations
+
+import hashlib
+import sys
+import zipfile
+from pathlib import Path
+
+wheel_path = Path(sys.argv[1])
+member_name = sys.argv[2]
+with zipfile.ZipFile(wheel_path) as archive:
+    members = tuple(
+        info for info in archive.infolist() if info.filename == member_name
+    )
+    if len(members) != 1:
+        raise SystemExit(
+            f"wheel must contain exactly one {member_name}; found {len(members)}"
+        )
+    payload = archive.read(members[0])
+if not payload:
+    raise SystemExit("packaged source manifest is empty")
+payload.decode("utf-8")
+print(hashlib.sha256(payload).hexdigest())
+PY
 }
 
 while [ "$#" -gt 0 ]; do
@@ -56,7 +87,6 @@ SOURCE_MANIFEST_PATH="$ROBOTACTILE_REPOSITORY_ROOT/release/source_manifest.sha25
 
 [ -x "$ISAAC_SIM_PATH/python.sh" ] || die "Isaac Sim python.sh is absent"
 [ -f "$ISAACLAB_RECEIPT" ] || die "IsaacLab install receipt is absent"
-[ -f "$SOURCE_MANIFEST_PATH" ] || die "RoboTactile source manifest is absent"
 if ! receipt_matches \
   "$ISAACLAB_RECEIPT" \
   "component=isaaclab" \
@@ -64,25 +94,31 @@ if ! receipt_matches \
   "status=installed"; then
   die "IsaacLab receipt is incompatible"
 fi
-if ! "$SYSTEM_PYTHON" \
-  "$ROBOTACTILE_REPOSITORY_ROOT/scripts/release/update_source_manifest.py" \
-  --project-root "$ROBOTACTILE_REPOSITORY_ROOT" \
-  --check >/dev/null; then
-  die "RoboTactile source manifest is stale"
-fi
-if [ -z "$WHEEL_INPUT" ] && \
-  ! "$SYSTEM_PYTHON" -c 'import hatchling' >/dev/null 2>&1; then
-  die "the selected build Python does not provide pinned hatchling"
-fi
 if [ -n "$WHEEL_INPUT" ]; then
   [ -f "$WHEEL_INPUT" ] || die "provided RoboTactile wheel is absent"
   case "$(basename "$WHEEL_INPUT")" in
     "robotactile_benchmark-$BENCHMARK_VERSION-py3-none-any.whl") ;;
     *) die "provided RoboTactile wheel filename is incompatible" ;;
   esac
+  if ! SOURCE_MANIFEST_SHA256="$(
+    wheel_source_manifest_sha256 "$WHEEL_INPUT"
+  )"; then
+    die "provided RoboTactile wheel has no valid packaged source manifest"
+  fi
+else
+  [ -f "$SOURCE_MANIFEST_PATH" ] || die "RoboTactile source manifest is absent"
+  if ! "$SYSTEM_PYTHON" \
+    "$ROBOTACTILE_REPOSITORY_ROOT/scripts/release/update_source_manifest.py" \
+    --project-root "$ROBOTACTILE_REPOSITORY_ROOT" \
+    --check >/dev/null; then
+    die "RoboTactile source manifest is stale"
+  fi
+  if ! "$SYSTEM_PYTHON" -c 'import hatchling' >/dev/null 2>&1; then
+    die "the selected build Python does not provide pinned hatchling"
+  fi
+  SOURCE_MANIFEST_SHA256="$(sha256_file "$SOURCE_MANIFEST_PATH")"
 fi
 
-SOURCE_MANIFEST_SHA256="$(sha256_file "$SOURCE_MANIFEST_PATH")"
 RECEIPT_PATH="$DEPLOY_ROOT/artifacts/deployment/robotactile_isaac_install-${SOURCE_MANIFEST_SHA256:0:16}.json"
 ISAAC_PYTHON=(
   env
@@ -106,12 +142,12 @@ if [ -e "$RECEIPT_PATH" ]; then
     printf '%s\n' "$RECEIPT_PATH"
     exit 0
   fi
-  die "existing RoboTactile Isaac receipt does not match current source"
+  die "existing RoboTactile Isaac receipt does not match requested source identity"
 fi
 
 LOG_PATH="$(new_log_path "robotactile-isaac-install")"
-BUILD_DIRECTORY="$(mktemp -d "$DEPLOY_ROOT/runtime/tmp/robotactile-wheel.XXXXXX")"
 if [ -z "$WHEEL_INPUT" ]; then
+  BUILD_DIRECTORY="$(mktemp -d "$DEPLOY_ROOT/runtime/tmp/robotactile-wheel.XXXXXX")"
   if ! run_logged \
     "$LOG_PATH" \
     "$SYSTEM_PYTHON" -m hatchling build \

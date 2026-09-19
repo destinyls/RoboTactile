@@ -4,10 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from robotactile_benchmark.constants import REST_REFERENCE_OPERATOR_IDS
+from robotactile_benchmark.constants import (
+    OPTICAL_MARKER_REGISTRY_IDS,
+    operator_requires_rest_reference,
+)
 from robotactile_benchmark.contracts import Array, EvaluationRecord
 from robotactile_benchmark.manifests import FaultManifest
 from robotactile_benchmark.operators import get_operator
+from robotactile_benchmark.optical.delivery import OpticalDelivery
 from robotactile_benchmark.rest_references import RestReferenceBundle
 from robotactile_benchmark.streaming.availability_context import (
     apply_availability,
@@ -34,7 +38,10 @@ class StreamingFaultSession:
         self._manifest_sha256 = manifest.sha256
         self._manifest_dict = manifest.to_dict()
         self._rest_references = rest_references
-        if manifest.operator_id in REST_REFERENCE_OPERATOR_IDS:
+        if operator_requires_rest_reference(
+            manifest.operator_id,
+            severity_registry=manifest.severity_registry,
+        ):
             if rest_references is None:
                 raise ValueError(
                     "this operator requires a frozen rest-reference bundle"
@@ -46,6 +53,13 @@ class StreamingFaultSession:
         self._family = get_operator(manifest.operator_id).spec.family
         self._processed_count = 0
         self._histories: dict[str, Array] = {}
+        self._optical = (
+            OpticalDelivery(manifest, rest_references)
+            if manifest.severity_registry in OPTICAL_MARKER_REGISTRY_IDS
+            and self._family == "fidelity"
+            else None
+        )
+        self._previous_source_times: dict[str, float] = {}
         self._source_records: dict[int, EvaluationRecord] = {}
         self._maximum_source_age = (
             maximum_source_age(manifest) if self._family == "temporal" else 0
@@ -85,6 +99,11 @@ class StreamingFaultSession:
             raise ValueError("streaming records must start at zero and remain dense")
         if index == 0:
             self._validate_rest_calibration(clean_record)
+        if (
+            self._manifest.severity_registry in OPTICAL_MARKER_REGISTRY_IDS
+            and self._family == "temporal"
+        ):
+            self._validate_optical_cadence(clean_record)
         if self._family == "temporal":
             self._source_records[index] = clean_record
         if self._family == "availability":
@@ -92,11 +111,15 @@ class StreamingFaultSession:
                 clean_record, self._manifest, self._affected_indices
             )
         elif self._family == "fidelity":
-            delivered = apply_fidelity(
-                clean_record,
-                self._manifest,
-                self._rest_references,
-                self._histories,
+            delivered = (
+                self._optical.deliver(clean_record)
+                if self._optical is not None
+                else apply_fidelity(
+                    clean_record,
+                    self._manifest,
+                    self._rest_references,
+                    self._histories,
+                )
             )
         elif self._family == "temporal":
             delivered = apply_temporal(
@@ -115,9 +138,31 @@ class StreamingFaultSession:
         self._trim_source_cache(index)
         return delivered
 
+    def _validate_optical_cadence(self, record: EvaluationRecord) -> None:
+        import math
+
+        period = float(self._manifest.parameters["sample_period_s"])
+        for slot in self._manifest.sensor_slots:
+            time_s = record.provenance_for(slot).source_time_s
+            if time_s is None or not math.isfinite(time_s):
+                raise ValueError(
+                    "temporal optical profile requires finite source timestamps"
+                )
+            previous = self._previous_source_times.get(slot)
+            if previous is not None and not math.isclose(
+                time_s - previous, period, rel_tol=1e-5, abs_tol=1e-8
+            ):
+                raise ValueError(
+                    "source cadence disagrees with sample_period_s; respecify the schedule"
+                )
+            self._previous_source_times[slot] = time_s
+
     def _validate_rest_calibration(self, clean_record: EvaluationRecord) -> None:
         if (
-            self._manifest.operator_id not in REST_REFERENCE_OPERATOR_IDS
+            not operator_requires_rest_reference(
+                self._manifest.operator_id,
+                severity_registry=self._manifest.severity_registry,
+            )
             or self._rest_references is None
         ):
             return

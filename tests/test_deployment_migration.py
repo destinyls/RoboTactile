@@ -15,11 +15,14 @@ def test_migration_plan_hashes_only_recognized_files_without_writes(
     legacy = tmp_path / "legacy"
     source = legacy / "src/UniVTAC/README.md"
     model = legacy / "artifacts/checkpoints/pull_out_key/policy_last.ckpt"
+    request = legacy / "requests/live_univtac/pull_out_key/clean.json"
     unknown = legacy / "notes.txt"
     source.parent.mkdir(parents=True)
     model.parent.mkdir(parents=True)
+    request.parent.mkdir(parents=True)
     source.write_bytes(b"source")
     model.write_bytes(b"model")
+    request.write_bytes(b"request")
     unknown.write_bytes(b"unknown")
     deployment = tmp_path / "new/deployment"
 
@@ -29,9 +32,11 @@ def test_migration_plan_hashes_only_recognized_files_without_writes(
     assert plan.unmapped_file_count == 1
     assert tuple(entry.destination for entry in plan.entries) == (
         deployment / "artifacts/models/act/pull_out_key/policy_last.ckpt",
+        deployment / "requests/three-condition/pull_out_key/clean.json",
         deployment / "sources/UniVTAC/README.md",
     )
     by_source = {entry.source: entry for entry in plan.entries}
     assert by_source[model].sha256 == hashlib.sha256(b"model").hexdigest()
+    assert by_source[request].sha256 == hashlib.sha256(b"request").hexdigest()
     assert by_source[source].size_bytes == 6
     assert plan.to_dict()["writes_performed"] is False

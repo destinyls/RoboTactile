@@ -1,4 +1,4 @@
-"""Public two-model integration registry and config contract."""
+"""Public first-class model integration registry and config contract."""
 
 from __future__ import annotations
 
@@ -23,17 +23,47 @@ def _canonical(value: object) -> bytes:
     ).encode("utf-8")
 
 
-def test_registry_contains_exactly_two_first_class_models() -> None:
+def test_registry_contains_exactly_five_first_class_models() -> None:
     specs = list_model_integrations()
 
-    assert tuple(spec.integration_id for spec in specs) == ("act", "n0_twam")
+    assert tuple(spec.integration_id for spec in specs) == (
+        "act",
+        "dream_tac",
+        "ftp1_policy",
+        "n0_twam",
+        "n0_vtla",
+    )
     assert specs[0].display_name == "ACT"
+    assert specs[0].external_pin_id == "univtac"
     assert specs[0].capabilities.matched_no_touch is True
     assert specs[0].capabilities.structural_absence is False
-    assert specs[1].display_name == "N0-TWAM"
-    assert specs[1].capabilities.matched_no_touch is False
+    assert specs[0].capabilities.supported_conditions == (
+        "clean",
+        "faulted",
+        "no_touch",
+    )
+    assert specs[1].display_name == "Dream-Tac"
+    assert specs[1].external_pin_id == "dream_tac"
+    assert specs[1].capabilities.action_spec == "ee8_absolute"
+    assert specs[1].capabilities.consumes_tactile is True
     assert specs[1].capabilities.structural_absence is False
-    assert specs[1].capabilities.stateful_commit is True
+    assert specs[1].capabilities.stateful_commit is False
+    assert specs[1].capabilities.supported_conditions == ("clean", "faulted")
+    assert specs[2].display_name == "FTP-1"
+    assert specs[2].capabilities.matched_no_touch is False
+    assert specs[2].capabilities.structural_absence is False
+    assert specs[2].capabilities.stateful_commit is True
+    assert specs[2].capabilities.action_spec == "qpos8_next_step"
+    assert specs[2].capabilities.supported_conditions == ("clean", "faulted")
+    assert specs[3].display_name == "N0-TWAM"
+    assert specs[3].capabilities.matched_no_touch is False
+    assert specs[3].capabilities.structural_absence is False
+    assert specs[3].capabilities.stateful_commit is True
+    assert specs[3].capabilities.supported_conditions == ("clean", "faulted")
+    assert specs[4].display_name == "N0-VTLA"
+    assert specs[4].capabilities.action_spec == "qpos8_next_step"
+    assert specs[4].capabilities.stateful_commit is False
+    assert specs[4].capabilities.supported_conditions == ("clean", "faulted")
 
 
 def test_policy_adapter_is_existing_closed_loop_contract() -> None:
@@ -54,7 +84,9 @@ def test_unknown_model_is_rejected() -> None:
         get_model_integration("arbitrary.module:Policy")
 
 
-@pytest.mark.parametrize("integration_id", ("act", "n0_twam"))
+@pytest.mark.parametrize(
+    "integration_id", ("act", "dream_tac", "ftp1_policy", "n0_twam", "n0_vtla")
+)
 def test_checked_in_config_matches_static_registry(integration_id: str) -> None:
     config = load_model_integration_config(integration_id)
 

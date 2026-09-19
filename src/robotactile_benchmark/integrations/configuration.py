@@ -15,11 +15,24 @@ from robotactile_benchmark.integrations.act.artifacts import (
     act_artifact_manifest_to_dict,
     build_act_artifact_manifest,
 )
+from robotactile_benchmark.integrations.dream_tac.artifacts import (
+    build_dream_tac_artifact_manifest,
+    validate_dream_tac_artifact,
+)
+from robotactile_benchmark.integrations.ftp1_policy.artifacts import (
+    build_ftp1_policy_artifact_manifest,
+    validate_ftp1_policy_artifact,
+)
 from robotactile_benchmark.integrations.n0_twam.artifacts import (
     build_n0_twam_artifact_manifest,
     validate_n0_twam_artifact,
 )
+from robotactile_benchmark.integrations.n0_vtla.artifacts import (
+    build_n0_vtla_artifact_manifest,
+    validate_n0_vtla_artifact,
+)
 from robotactile_benchmark.integrations.registry import ModelIntegrationConfig
+from robotactile_benchmark.policies.dream_tac import DreamTacGripperMapping
 from robotactile_benchmark.policies.univtac_official_act import OfficialACTProfile
 
 
@@ -83,7 +96,13 @@ def _write_pair(
     config_path: Path,
     device: str,
 ) -> GeneratedIntegrationConfiguration:
-    transport = "in_process" if integration_id == "act" else "official_websocket"
+    transport = {
+        "act": "in_process",
+        "dream_tac": "official_http",
+        "ftp1_policy": "official_zmq",
+        "n0_twam": "official_websocket",
+        "n0_vtla": "official_zmq",
+    }[integration_id]
     config = ModelIntegrationConfig(
         schema_version="robotactile-model-integration-config-v1",
         integration_id=integration_id,
@@ -122,6 +141,50 @@ def configure_act_integration(
     return _write_pair(
         integration_id="act",
         manifest=act_artifact_manifest_to_dict(manifest),
+        manifest_path=manifest_path,
+        config_path=config_path,
+        device=device,
+    )
+
+
+def configure_dream_tac_integration(
+    *,
+    bundle_root: Path,
+    checkpoint_root: Path,
+    dataset_stats_path: Path,
+    t5_embeddings_path: Path,
+    task_id: str,
+    instruction: str,
+    experiment_config: str,
+    control_hz: float,
+    gripper_mapping: DreamTacGripperMapping,
+    gripper_threshold: float,
+    gripper_qpos_min: float | None = None,
+    gripper_qpos_max: float | None = None,
+    manifest_path: Path,
+    config_path: Path,
+    device: str,
+) -> GeneratedIntegrationConfiguration:
+    """Hash-bind one user-supplied Dream-Tac Franka serving bundle."""
+
+    manifest = build_dream_tac_artifact_manifest(
+        bundle_root=bundle_root,
+        checkpoint_root=checkpoint_root,
+        dataset_stats_path=dataset_stats_path,
+        t5_embeddings_path=t5_embeddings_path,
+        task_id=task_id,
+        instruction=instruction,
+        experiment_config=experiment_config,
+        control_hz=control_hz,
+        gripper_mapping=gripper_mapping,
+        gripper_threshold=gripper_threshold,
+        gripper_qpos_min=gripper_qpos_min,
+        gripper_qpos_max=gripper_qpos_max,
+    )
+    validate_dream_tac_artifact(manifest)
+    return _write_pair(
+        integration_id="dream_tac",
+        manifest=manifest.to_dict(),
         manifest_path=manifest_path,
         config_path=config_path,
         device=device,
@@ -174,8 +237,61 @@ def configure_n0_twam_integration(
     )
 
 
+def configure_ftp1_policy_integration(
+    *,
+    bundle_root: Path,
+    checkpoint_root: Path,
+    task_id: str,
+    manifest_path: Path,
+    config_path: Path,
+    device: str,
+) -> GeneratedIntegrationConfiguration:
+    """Hash-bind one released task-specific FTP-1 checkpoint."""
+
+    manifest = build_ftp1_policy_artifact_manifest(
+        bundle_root=bundle_root,
+        checkpoint_root=checkpoint_root,
+        task_id=task_id,
+    )
+    validate_ftp1_policy_artifact(manifest)
+    return _write_pair(
+        integration_id="ftp1_policy",
+        manifest=manifest.to_dict(),
+        manifest_path=manifest_path,
+        config_path=config_path,
+        device=device,
+    )
+
+
+def configure_n0_vtla_integration(
+    *,
+    bundle_root: Path,
+    checkpoint_root: Path,
+    manifest_path: Path,
+    config_path: Path,
+    device: str,
+) -> GeneratedIntegrationConfiguration:
+    """Hash-bind the released insert_hole weights and pinned source config."""
+
+    manifest = build_n0_vtla_artifact_manifest(
+        bundle_root=bundle_root,
+        checkpoint_root=checkpoint_root,
+    )
+    validate_n0_vtla_artifact(manifest)
+    return _write_pair(
+        integration_id="n0_vtla",
+        manifest=manifest.to_dict(),
+        manifest_path=manifest_path,
+        config_path=config_path,
+        device=device,
+    )
+
+
 __all__ = [
     "GeneratedIntegrationConfiguration",
     "configure_act_integration",
+    "configure_dream_tac_integration",
+    "configure_ftp1_policy_integration",
     "configure_n0_twam_integration",
+    "configure_n0_vtla_integration",
 ]

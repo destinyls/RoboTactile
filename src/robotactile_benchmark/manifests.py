@@ -9,10 +9,14 @@ from typing import Any, Dict, Optional, Tuple, cast
 
 from robotactile_benchmark.constants import (
     CORE_OPERATOR_IDS,
+    DIAGNOSTIC_LEVEL_FIVE_REGISTRY_IDS,
+    DIAGNOSTIC_OBSERVED_TACTILE_ABSENCE_REGISTRY_ID,
+    DIAGNOSTIC_TACTILE_NULL_REGISTRY_ID,
     FAULT_MANIFEST_SEMANTIC_VERSION,
     OPERATOR_IMPLEMENTATION_VERSION,
     SENSOR_SLOTS,
     SEVERITY_REGISTRY_ID,
+    SUPPORTED_SEVERITY_REGISTRY_IDS,
 )
 from robotactile_benchmark.contracts import canonical_hash, freeze_value, thaw_value
 from robotactile_benchmark.operator_parameters import (
@@ -84,10 +88,27 @@ class FaultManifest:
             raise ValueError("unsupported fault-manifest semantic version")
         if self.implementation_version != OPERATOR_IMPLEMENTATION_VERSION:
             raise ValueError("unsupported operator implementation version")
-        if self.severity_registry != SEVERITY_REGISTRY_ID:
+        if self.severity_registry not in SUPPORTED_SEVERITY_REGISTRY_IDS:
             raise ValueError("unsupported severity registry")
         if not 1 <= severity_level <= 5:
             raise ValueError("severity level must be in [1, 5]")
+        if (
+            self.severity_registry in DIAGNOSTIC_LEVEL_FIVE_REGISTRY_IDS
+            and severity_level != 5
+        ):
+            raise ValueError("diagnostic stress registry requires level 5")
+        if self.severity_registry == DIAGNOSTIC_TACTILE_NULL_REGISTRY_ID:
+            if operator_id != "F1_global_response_drift":
+                raise ValueError("tactile-null registry only permits F1 realization")
+            if start_index != 0:
+                raise ValueError("tactile-null delivery must start at observation zero")
+        if self.severity_registry == DIAGNOSTIC_OBSERVED_TACTILE_ABSENCE_REGISTRY_ID:
+            if operator_id != "A1_stream_absence":
+                raise ValueError("observed-tactile absence registry only permits A1")
+            if start_index != 0:
+                raise ValueError(
+                    "observed-tactile absence must start at observation zero"
+                )
         if operator_seed < 0:
             raise ValueError("operator seed must be non-negative")
         if start_index < 0 or stop_index <= start_index:
@@ -106,6 +127,16 @@ class FaultManifest:
             SENSOR_SLOTS
         ):
             raise ValueError("C1 requires both left and right sensor slots")
+        if (
+            self.severity_registry == DIAGNOSTIC_TACTILE_NULL_REGISTRY_ID
+            and slots != SENSOR_SLOTS
+        ):
+            raise ValueError("tactile-null delivery requires both sensor slots")
+        if (
+            self.severity_registry == DIAGNOSTIC_OBSERVED_TACTILE_ABSENCE_REGISTRY_ID
+            and slots != SENSOR_SLOTS
+        ):
+            raise ValueError("observed-tactile absence requires both sensor slots")
         if not isinstance(self.parameters, Mapping):
             raise TypeError("parameters must be a mapping")
         parameters = materialize_operator_parameters(
@@ -116,6 +147,7 @@ class FaultManifest:
             stop_index,
             slots,
             self.parameters,
+            self.severity_registry,
         )
         observability = (
             self.observability

@@ -8,8 +8,8 @@
   "properties": {
     "entries": {
       "type": "array",
-      "minItems": 5,
-      "maxItems": 5,
+      "minItems": 8,
+      "maxItems": 8,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -27,9 +27,9 @@
         "properties": {
           "artifact_schema": {"type": "string", "minLength": 1},
           "commit_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
-          "install_script": {"type": "string", "pattern": "^(integrations|scripts/live_univtac)/[a-z0-9_]+\\.sh$"},
-          "integration_id": {"enum": ["act_runtime", "curobo", "isaaclab", "n0_twam", "univtac"]},
-          "license_spdx": {"enum": ["Apache-2.0", "BSD-3-Clause", "CC-BY-NC-SA-4.0", "LicenseRef-NVIDIA-NonCommercial"]},
+          "install_script": {"type": "string", "pattern": "^(integrations|scripts/live_univtac|scripts/ftp1_policy)/[a-z0-9_]+\\.sh$"},
+          "integration_id": {"enum": ["act_runtime", "curobo", "dream_tac", "ftp1_policy", "isaaclab", "n0_twam", "n0_vtla", "univtac"]},
+          "license_spdx": {"enum": ["Apache-2.0", "BSD-3-Clause", "CC-BY-NC-SA-4.0", "CC-BY-SA-4.0", "LicenseRef-NVIDIA-NonCommercial"]},
           "release_ready": {"type": "boolean"},
           "repository_url": {"type": "string", "pattern": "^https://github\\.com/"},
           "source_directory": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"},

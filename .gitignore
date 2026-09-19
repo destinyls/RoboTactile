@@ -16,6 +16,10 @@ build/
 checkpoints/
 credentials.json
 data/
+!scripts/n0_twam/hpu_training/data/
+!scripts/n0_twam/hpu_training/data/**
+scripts/n0_twam/hpu_training/data/__pycache__/
+scripts/n0_twam/hpu_training/data/**/*.py[cod]
 /deployment/
 dist/
 outputs/

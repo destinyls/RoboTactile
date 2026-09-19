@@ -4,7 +4,11 @@ from dataclasses import replace
 import numpy as np
 
 from robotactile_benchmark.constants import REST_REFERENCE_OPERATOR_IDS
-from robotactile_benchmark.contracts import array_sha256, build_evaluation_record
+from robotactile_benchmark.contracts import (
+    ContactPhase,
+    array_sha256,
+    build_evaluation_record,
+)
 from robotactile_benchmark.fixtures import (
     make_synthetic_episode,
     make_synthetic_rest_references,
@@ -301,6 +305,28 @@ class DeliveryValidatorTests(unittest.TestCase):
                         float(report.metrics["achieved_dose"]),
                         float(manifest.severity_level),
                     )
+
+    def test_f6_without_release_reports_phase_prerequisite_only(self) -> None:
+        manifest = _manifest("F6_history_residual_imprint")
+        no_release = tuple(
+            build_evaluation_record(
+                observation=record.observation,
+                provenance=tuple(
+                    replace(item, phase=ContactPhase.SUSTAINED)
+                    for item in record.provenance
+                ),
+                clean_record_sha256=record.clean_record_sha256,
+            )
+            for record in self.clean
+        )
+        delivered = apply_fault(no_release, manifest).records
+
+        report = validate_delivery(no_release, delivered, manifest)
+
+        self.assertFalse(report.passed)
+        self.assertIn("NO_RELEASE_SAMPLE", report.failure_codes)
+        self.assertNotIn("SIGNATURE_NOT_DELIVERED", report.failure_codes)
+        self.assertGreater(float(report.metrics["mean_absolute_rgb_delta"]), 0.0)
 
     def test_validator_rejects_a_different_severity_signature(self) -> None:
         for operator_id in (

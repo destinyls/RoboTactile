@@ -115,7 +115,6 @@ def _spec(root: Path, rest_reference: Path) -> PrimaryMatrixGenerationSpec:
         exogenous_seed=29,
         operator_seed_base=20260821,
         fault_start_index=16,
-        restoration_index=180,
         fault_stop_index=301,
         max_control_cycles=300,
         max_observation_steps=301,
@@ -153,8 +152,8 @@ def test_generates_complete_portable_primary_matrix_deterministically(
     assert loaded.receipt_file_sha256 == loaded_second.receipt_file_sha256
     assert _inventory(first) == _inventory(second)
     assert len(loaded.manifest.comparisons) == 70
-    assert len(loaded.manifest.cells) == 142
-    assert loaded.receipt.fault_manifest_count == 140
+    assert len(loaded.manifest.cells) == 72
+    assert loaded.receipt.fault_manifest_count == 70
     assert loaded.receipt.simulator_execution_claimed is False
     assert loaded.receipt.task_success_claimed is False
     assert {
@@ -209,8 +208,6 @@ def test_cli_generates_then_materializes_all_cells_without_execution(
         "17",
         "--exogenous-seed",
         "29",
-        "--restoration-index",
-        "180",
         "--upstream-root",
         str(tmp_path / "UniVTAC"),
         "--runtime-root",
@@ -227,7 +224,7 @@ def test_cli_generates_then_materializes_all_cells_without_execution(
     assert generated.returncode == 0, generated.stderr
     generated_payload = json.loads(generated.stdout)
     assert generated_payload["comparison_count"] == 70
-    assert generated_payload["cell_count"] == 142
+    assert generated_payload["cell_count"] == 72
     assert generated_payload["simulator_execution_claimed"] is False
     materialize = subprocess.run(
         [
@@ -250,7 +247,7 @@ def test_cli_generates_then_materializes_all_cells_without_execution(
     )
     assert materialize.returncode == 0, materialize.stderr
     matrix_payload = json.loads(materialize.stdout)
-    assert matrix_payload["pending_cell_count"] == 142
+    assert matrix_payload["pending_cell_count"] == 72
     assert matrix_payload["executed_cell_count"] == 0
     assert matrix_payload["simulator_qualification_claimed"] is False
 
@@ -298,3 +295,16 @@ def test_receipt_member_inventory_is_exact(tmp_path: Path) -> None:
             if cell.fault_manifest is not None
         },
     }
+
+
+def test_legacy_v1_primary_generation_contracts_fail_closed(tmp_path: Path) -> None:
+    rest_reference = _rest_reference(tmp_path)
+
+    with pytest.raises(PrimaryMatrixGenerationError, match="version mismatch"):
+        replace(_spec(tmp_path, rest_reference), semantic_version="1.0")
+
+    output = tmp_path / "primary"
+    generate_primary_matrix_bundle(output, _spec(tmp_path, rest_reference))
+    loaded = load_primary_matrix_generation(output)
+    with pytest.raises(PrimaryMatrixGenerationError, match="version mismatch"):
+        replace(loaded.receipt, semantic_version="1.0")

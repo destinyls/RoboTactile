@@ -34,8 +34,11 @@ def test_packaged_lock_has_exact_external_sources_and_license_boundary() -> None
     assert tuple(pin.integration_id for pin in lock.entries) == (
         "act_runtime",
         "curobo",
+        "dream_tac",
+        "ftp1_policy",
         "isaaclab",
         "n0_twam",
+        "n0_vtla",
         "univtac",
     )
     assert lock.by_id("univtac").commit_sha == (
@@ -46,8 +49,24 @@ def test_packaged_lock_has_exact_external_sources_and_license_boundary() -> None
         "c43a2160dd31c449d92b28eab52c0e2f09e4738a"
     )
     assert lock.by_id("n0_twam").license_spdx == "CC-BY-NC-SA-4.0"
+    assert lock.by_id("dream_tac").commit_sha == (
+        "14bab51d6862fd07124745c55cd395ea5caa9fd3"
+    )
+    assert lock.by_id("dream_tac").license_spdx == "Apache-2.0"
+    assert lock.by_id("dream_tac").source_directory == "Dream-Tac"
+    assert lock.by_id("dream_tac").release_ready is False
+    assert lock.by_id("ftp1_policy").commit_sha == (
+        "89fa681d6c014cce28300946b7526db808e0b1c1"
+    )
+    assert lock.by_id("ftp1_policy").license_spdx == "Apache-2.0"
+    assert lock.by_id("ftp1_policy").source_directory == "ftp1-policy"
     assert lock.by_id("act_runtime").release_ready is False
     assert lock.by_id("n0_twam").release_ready is True
+    assert lock.by_id("n0_vtla").commit_sha == (
+        "03a0ce4d7091ca2354864796770715aa212601b7"
+    )
+    assert lock.by_id("n0_vtla").license_spdx == "CC-BY-SA-4.0"
+    assert lock.by_id("n0_vtla").source_directory == "N0-VTLA"
     assert lock.by_id("isaaclab").license_spdx == "BSD-3-Clause"
     assert lock.by_id("isaaclab").source_directory == "IsaacLab"
     assert lock.by_id("curobo").license_spdx == ("LicenseRef-NVIDIA-NonCommercial")

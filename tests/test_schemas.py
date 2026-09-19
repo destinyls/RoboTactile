@@ -33,10 +33,24 @@ VERSIONED_SCHEMA_BRANCHES = {
     ),
 }
 OPTIONAL_SCHEMA_FIELDS = {
+    "dream_tac_artifact_manifest.schema.json": {
+        "gripper_qpos_max",
+        "gripper_qpos_min",
+    },
     "live_univtac_root_receipt.schema.json": {"capture_profile"},
     "live_univtac_request.schema.json": {
         "initial_state_policy",
+        "n0_observed_tactile_mode",
+        "success_profile_id",
         "wall_timeout_role",
+        "n0_action_per_frame",
+        "n0_prompt_override",
+        "retrained_prompt",
+        "retrained_control_hz",
+        "retrained_tactile_payload",
+        "tactile_availability_mode",
+        "tactile_zero_shape",
+        "n0_vtla_execution_profile",
     },
 }
 
@@ -98,6 +112,9 @@ class SchemaSynchronizationTests(unittest.TestCase):
             for path in sorted((ROOT / "schemas").glob("*.json"))
         }
         required_schemas = {
+            "act_artifacts_lock.schema.json",
+            "act_official_install_plan.schema.json",
+            "act_official_install_receipt.schema.json",
             "calibration_request_receipt.schema.json",
             "clean_baseline_summary.schema.json",
             "clean_campaign_run.schema.json",
@@ -106,6 +123,7 @@ class SchemaSynchronizationTests(unittest.TestCase):
             "closed_loop_result.schema.json",
             "closed_loop_root_receipt.schema.json",
             "deployment_layout_receipt.schema.json",
+            "dream_tac_artifact_manifest.schema.json",
             "fault_manifest.schema.json",
             "live_univtac_request.schema.json",
             "live_univtac_root_receipt.schema.json",
@@ -116,6 +134,10 @@ class SchemaSynchronizationTests(unittest.TestCase):
             "n0_twam_artifact_manifest.schema.json",
             "n0_observation_parity.schema.json",
             "n0_server_runtime_attestation.schema.json",
+            "n0_fault_campaign_generation_receipt.schema.json",
+            "n0_fault_campaign_manifest.schema.json",
+            "n0_fault_campaign_summary.schema.json",
+            "n0_fault_campaign_unsupported_contract.schema.json",
             "official_act_artifact_manifest.schema.json",
             "paired_execution_receipt.schema.json",
             "pull_out_key_matrix_receipt.schema.json",
@@ -198,13 +220,52 @@ class SchemaSynchronizationTests(unittest.TestCase):
             },
         )
 
-        policy_branch = schema["allOf"][0]
+        policy_branch = next(
+            branch
+            for branch in schema["allOf"]
+            if branch.get("if", {}).get("properties", {}).get("policy_kind")
+            == {"const": "act"}
+        )
         act_properties = policy_branch["then"]["properties"]
         n0_properties = policy_branch["else"]["properties"]
         self.assertEqual(act_properties["execute_action_steps"], {"const": 1})
         self.assertIs(act_properties["initial_state_policy"], False)
         self.assertIs(act_properties["wall_timeout_role"], False)
-        self.assertEqual(n0_properties["execute_action_steps"], {"const": 24})
+        self.assertNotIn("execute_action_steps", n0_properties)
+        action_steps = {
+            branch["if"]["properties"]["policy_kind"]["const"]: branch["then"][
+                "properties"
+            ]["execute_action_steps"]
+            for branch in schema["allOf"]
+            if "policy_kind" in branch.get("if", {}).get("properties", {})
+            and "execute_action_steps" in branch.get("then", {}).get("properties", {})
+        }
+        self.assertEqual(
+            action_steps,
+            {
+                "act": {"const": 1},
+                "ftp1_policy": {"const": 1},
+                "n0_vtla": {"const": 50},
+                "dream_tac": {"const": 20},
+            },
+        )
+        n0_branch = next(
+            branch["then"]
+            for branch in schema["allOf"]
+            if branch.get("if", {}).get("properties", {}).get("policy_kind")
+            == {"const": "n0"}
+        )
+        self.assertEqual(
+            n0_branch["else"]["properties"]["execute_action_steps"], {"const": 24}
+        )
+        self.assertEqual(
+            n0_branch["then"]["properties"]["execute_action_steps"], {"const": 8}
+        )
+        self.assertEqual(n0_branch["if"]["required"], ["n0_action_per_frame"])
+        self.assertEqual(
+            n0_branch["if"]["properties"]["n0_action_per_frame"], {"const": 4}
+        )
+        self.assertIn("n0_prompt_override", n0_branch["then"]["required"])
         self.assertEqual(
             schema["properties"]["initial_state_policy"]["enum"],
             ["replace_initial_terminal_v1", "diagnostic_allow_invalid_v1"],
@@ -445,13 +506,18 @@ class SchemaSynchronizationTests(unittest.TestCase):
         self.assertEqual(task_v1_properties, task_fields - v2_task_fields)
         self.assertEqual(task_v2_required, task_fields)
         self.assertEqual(task_v2_properties, task_fields)
-        for name in (
-            "official_act_artifact_manifest.schema.json",
-            "pull_out_key_matrix_receipt.schema.json",
-        ):
-            self.assertEqual(
-                schemas[name]["properties"]["semantic_version"]["const"], "1.0"
-            )
+        self.assertEqual(
+            schemas["official_act_artifact_manifest.schema.json"]["properties"][
+                "semantic_version"
+            ]["const"],
+            "1.0",
+        )
+        self.assertEqual(
+            schemas["pull_out_key_matrix_receipt.schema.json"]["properties"][
+                "semantic_version"
+            ]["const"],
+            MATRIX_SEMANTIC_VERSION,
+        )
 
         known_ids = {schema["$id"] for schema in schemas.values()}
 
@@ -534,6 +600,7 @@ class SchemaSynchronizationTests(unittest.TestCase):
         conditions = {
             entry["if"]["properties"]["operator_id"]["const"]: entry["then"]
             for entry in schema["allOf"]
+            if "operator_id" in entry["if"]["properties"]
         }
         for operator_id in (
             "F5_contact_shape_distortion",

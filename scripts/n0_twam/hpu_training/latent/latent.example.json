@@ -1,0 +1,7 @@
+{
+  "dataset_root": "/mnt/data/task/n0_twam_track31_retrain_official_20260829/data/lerobot/train759",
+  "source_manifest_path": "/mnt/data/task/n0_twam_track31_retrain_official_20260829/data/lerobot/source_split_manifest.json",
+  "conversion_receipt_path": "/mnt/data/task/n0_twam_track31_retrain_official_20260829/data/lerobot/train759_receipt.json",
+  "official_repo": "/mnt/data/task/n0_twam_track31_retrain_official_20260829/source/N0-TWAM",
+  "model_path": "/mnt/data/task/n0_twam_track32_franka_xyzw_20260817_v1/models/n0-twam-base-dafcb053902cc7a51310780fdfdb71ff8e79c0be"
+}

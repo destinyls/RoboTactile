@@ -1,4 +1,4 @@
-"""Public model-integration contracts shared by ACT and N0-TWAM."""
+"""Public model-integration contracts shared by all first-class policies."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from robotactile_benchmark.closed_loop.interfaces import ClosedLoopPolicy
 
 PolicyAdapter = ClosedLoopPolicy
 
-_CONDITIONS = frozenset({"clean", "faulted", "no_touch", "restored"})
+_CONDITIONS = frozenset({"clean", "faulted", "no_touch"})
 
 
 def _nonempty(value: str, name: str) -> str:

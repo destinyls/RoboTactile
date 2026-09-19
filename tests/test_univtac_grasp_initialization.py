@@ -10,6 +10,9 @@ from robotactile_benchmark.backends.univtac_contracts import UniVTACContractErro
 from robotactile_benchmark.backends.univtac_grasp_initialization import (
     install_grasp_initialization_compatibility,
 )
+from robotactile_benchmark.backends.univtac_rest_calibration import (
+    N0_EMPTY_GRIPPER_CALIBRATION_CONTRACT,
+)
 
 
 class _Pose:
@@ -159,6 +162,24 @@ def test_grasp_initialization_uses_loaded_adaptive_preload_after_shallow_contact
         {},
         {"time_dilation_factor": pytest.approx(0.2)},
     ]
+
+
+def test_rest_calibration_bypasses_only_the_pre_move_grasp_witness() -> None:
+    task, close_values, messages = _task(lift_on_attempt=None)
+    assert install_grasp_initialization_compatibility(task, "grasp_classify")
+    task._robotactile_rest_calibration = {
+        "calibration_contract": N0_EMPTY_GRIPPER_CALIBRATION_CONTRACT,
+    }
+    task.pre_move = lambda: None
+
+    assert task.reset(seed=17, instructions=["prompt"]) == "reset-done"
+
+    witness = task._robotactile_grasp_initialization
+    assert witness["calibration_bypass"] is True
+    assert witness["attempt_count"] == 0
+    assert witness["selected_attempt"] == "rest_calibration_empty_gripper"
+    assert close_values == []
+    assert len(messages) == 1
 
 
 def test_other_task_does_not_install_grasp_initialization() -> None:

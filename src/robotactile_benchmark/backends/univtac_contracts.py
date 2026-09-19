@@ -10,6 +10,7 @@ from typing import Any, Optional, Tuple
 
 from robotactile_benchmark.action_specs import (
     ACTION_MODE_BY_SPEC,
+    EE8_ACTION_SPEC,
     QPOS8_ACTION_SPEC,
     validate_action_spec,
 )
@@ -40,11 +41,13 @@ QPOS_ACTION_EXECUTION_CONTRACT = "univtac_stock_qpos_v1"
 N0_STOCK_EE_ACTION_EXECUTION_CONTRACT = "univtac_stock_ee_v1"
 N0_FIXED_ENDPOINT_ACTION_EXECUTION_CONTRACT = "robotactile_fixed_endpoint_v1"
 N0_TRAINING_60HZ_ACTION_EXECUTION_CONTRACT = "robotactile_n0_training_60hz_ee_v1"
+N0_RETRAINED_10HZ_ACTION_EXECUTION_CONTRACT = "robotactile_n0_retrained_10hz_ee_v1"
 N0_EE_ACTION_EXECUTION_CONTRACTS = frozenset(
     {
         N0_STOCK_EE_ACTION_EXECUTION_CONTRACT,
         N0_FIXED_ENDPOINT_ACTION_EXECUTION_CONTRACT,
         N0_TRAINING_60HZ_ACTION_EXECUTION_CONTRACT,
+        N0_RETRAINED_10HZ_ACTION_EXECUTION_CONTRACT,
     }
 )
 FIXED_NATIVE_STEP_CONTRACT = "fixed_physics_steps_per_action_v1"
@@ -208,9 +211,13 @@ class UniVTACBackendConfig:
             N0_DECIMATION if action_spec != QPOS8_ACTION_SPEC else DECIMATION
         )
         expected_physics_steps = (
-            N0_PHYSICS_STEPS_PER_ACTION
+            (12 if self.physics_steps_per_action == 12 else N0_PHYSICS_STEPS_PER_ACTION)
             if action_spec != QPOS8_ACTION_SPEC
-            else PHYSICS_STEPS_PER_ACTION
+            else (
+                self.physics_steps_per_action
+                if self.physics_steps_per_action in (1, 2, 12)
+                else PHYSICS_STEPS_PER_ACTION
+            )
         )
         if (
             self.action_mode != ACTION_MODE_BY_SPEC[action_spec]
@@ -249,7 +256,11 @@ class UniVTACBackendConfig:
         """Return the source-bound action surface used in production."""
 
         if self.action_spec == QPOS8_ACTION_SPEC:
+            if self.physics_steps_per_action != PHYSICS_STEPS_PER_ACTION:
+                return f"robotactile_retrained_{self.sim_hz // self.physics_steps_per_action}hz_qpos_v1"
             return QPOS_ACTION_EXECUTION_CONTRACT
+        if self.physics_steps_per_action == 12:
+            return N0_RETRAINED_10HZ_ACTION_EXECUTION_CONTRACT
         return N0_TRAINING_60HZ_ACTION_EXECUTION_CONTRACT
 
     @property
@@ -343,13 +354,60 @@ def load_univtac_task_registry(
 
 
 def build_univtac_backend_config(
-    task_id: str, action_spec: str = QPOS8_ACTION_SPEC
+    task_id: str,
+    action_spec: str = QPOS8_ACTION_SPEC,
+    *,
+    n0_action_execution_contract: Optional[str] = None,
+    control_hz: Optional[int] = None,
+    tactile_payload: Optional[str] = None,
 ) -> UniVTACBackendConfig:
     """Build one typed backend config from the frozen packaged registry."""
 
     from robotactile_benchmark.backends.univtac_registry import build_config
 
-    return build_config(task_id, action_spec=action_spec)
+    return build_config(
+        task_id,
+        action_spec=action_spec,
+        n0_action_execution_contract=n0_action_execution_contract,
+        control_hz=control_hz,
+        tactile_payload=tactile_payload,
+    )
+
+
+def resolve_univtac_full_horizon_budget(
+    task_id: str,
+    *,
+    max_control_cycles: Optional[int] = None,
+    max_observation_steps: Optional[int] = None,
+) -> tuple[int, int]:
+    """Resolve omitted evaluation limits from the frozen task registry.
+
+    The generic 300-step fallback is invalid for tasks such as
+    ``lift_bottle`` (500) and ``insert_HDMI`` (600).  Explicit shorter limits
+    remain available for diagnostic probes, but the two bounds must describe
+    one complete control/observation sequence.
+    """
+
+    horizon = build_univtac_backend_config(task_id).task.action_horizon
+    cycles = horizon if max_control_cycles is None else max_control_cycles
+    observations = (
+        cycles + 1 if max_observation_steps is None else max_observation_steps
+    )
+    for value, name in (
+        (cycles, "max_control_cycles"),
+        (observations, "max_observation_steps"),
+    ):
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise UniVTACContractError(f"{name} must be a positive integer")
+    if cycles > horizon:
+        raise UniVTACContractError(
+            "max_control_cycles exceeds the frozen task action horizon"
+        )
+    if observations != cycles + 1:
+        raise UniVTACContractError(
+            "max_observation_steps must equal max_control_cycles + 1"
+        )
+    return cycles, observations
 
 
 def validate_packaged_univtac_config(config: UniVTACBackendConfig) -> None:
@@ -357,7 +415,20 @@ def validate_packaged_univtac_config(config: UniVTACBackendConfig) -> None:
 
     try:
         expected = build_univtac_backend_config(
-            config.task.task_id, action_spec=config.action_spec
+            config.task.task_id,
+            action_spec=config.action_spec,
+            n0_action_execution_contract=(
+                config.action_execution_contract
+                if config.action_spec == EE8_ACTION_SPEC
+                else None
+            ),
+            control_hz=(
+                config.sim_hz // config.physics_steps_per_action
+                if config.action_spec == QPOS8_ACTION_SPEC
+                and config.physics_steps_per_action != 1
+                else None
+            ),
+            tactile_payload=config.aliases.tactile_payload,
         )
     except KeyError as error:
         raise UniVTACContractError(

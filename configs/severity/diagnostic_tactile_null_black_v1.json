@@ -1,0 +1,10 @@
+{
+  "registry_id": "diagnostic_tactile_null_black_v1",
+  "semantic_version": "1.0",
+  "calibration_status": "all-zero black-frame tactile-null ablation; outside paper S1-S5 claims",
+  "cross_operator_comparable": false,
+  "level": 5,
+  "paths": {
+    "F1_global_response_drift": {"unit": "black_pixel_value", "value": 0.0}
+  }
+}

@@ -14,13 +14,13 @@
     "trial_manifest_sha256": {"$ref": "#/$defs/sha256"},
     "task": {"type": "string", "minLength": 1},
     "pair_key": {"$ref": "#/$defs/sha256"},
-    "condition": {"enum": ["clean", "faulted", "no_touch", "restored"]},
+    "condition": {"enum": ["clean", "faulted", "no_touch"]},
     "operator_id": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/operator"}]},
     "severity_level": {"type": ["integer", "null"], "minimum": 1, "maximum": 5},
     "status": {"enum": ["completed", "crash", "unsupported", "validator_rejected"]},
     "artifact": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/artifact"}]},
     "failure_code": {"type": ["string", "null"], "minLength": 1},
-    "semantic_version": {"const": "1.0"}
+    "semantic_version": {"const": "2.0"}
   },
   "$defs": {
     "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
@@ -44,7 +44,7 @@
   },
   "allOf": [
     {
-      "if": {"properties": {"condition": {"enum": ["faulted", "restored"]}}, "required": ["condition"]},
+      "if": {"properties": {"condition": {"const": "faulted"}}, "required": ["condition"]},
       "then": {"properties": {
         "operator_id": {"$ref": "#/$defs/operator"},
         "severity_level": {"type": "integer", "minimum": 1, "maximum": 5}

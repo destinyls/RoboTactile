@@ -20,7 +20,16 @@ _SCHEMA_VERSION = "robotactile-integrations-lock-v2"
 _LOCK_PATH = "integrations/integrations.lock.json"
 _SHA40 = re.compile(r"^[0-9a-f]{40}$")
 _SOURCE_DIRECTORY = re.compile(r"^[A-Za-z0-9._-]+$")
-_EXPECTED_IDS = ("act_runtime", "curobo", "isaaclab", "n0_twam", "univtac")
+_EXPECTED_IDS = (
+    "act_runtime",
+    "curobo",
+    "dream_tac",
+    "ftp1_policy",
+    "isaaclab",
+    "n0_twam",
+    "n0_vtla",
+    "univtac",
+)
 _ALLOWED_FIELDS = frozenset(
     {
         "artifact_schema",

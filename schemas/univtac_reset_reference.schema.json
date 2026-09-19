@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robotactile.invalid/schemas/univtac_reset_reference.schema.json",
+  "title": "RoboTactile UniVTAC Reset Reference",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "task_id",
+    "initial_seed",
+    "exogenous_seed",
+    "pair_key",
+    "dataset_sha256",
+    "checkpoint_sha256",
+    "config_sha256",
+    "source_artifact_root_sha256",
+    "source_result_sha256",
+    "source_run_content_sha256",
+    "expected_simulator_state_sha256",
+    "expected_native_step",
+    "expected_qpos8",
+    "qpos_atol",
+    "schema",
+    "semantic_version"
+  ],
+  "properties": {
+    "task_id": {"type": "string", "minLength": 1},
+    "initial_seed": {"type": "integer", "minimum": 0},
+    "exogenous_seed": {"type": "integer", "minimum": 0},
+    "pair_key": {"$ref": "#/$defs/sha256"},
+    "dataset_sha256": {"$ref": "#/$defs/sha256"},
+    "checkpoint_sha256": {"$ref": "#/$defs/sha256"},
+    "config_sha256": {"$ref": "#/$defs/sha256"},
+    "source_artifact_root_sha256": {"$ref": "#/$defs/sha256"},
+    "source_result_sha256": {"$ref": "#/$defs/sha256"},
+    "source_run_content_sha256": {"$ref": "#/$defs/sha256"},
+    "expected_simulator_state_sha256": {"$ref": "#/$defs/sha256"},
+    "expected_native_step": {"type": "integer", "minimum": 0},
+    "expected_qpos8": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "items": {"type": "number"}
+    },
+    "qpos_atol": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 0.001
+    },
+    "schema": {"const": "univtac-reset-reference-v1"},
+    "semantic_version": {"const": "1.0"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

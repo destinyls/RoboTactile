@@ -1,0 +1,39 @@
+{
+  "protocol_id": "n0_twam_tactile_causal_diagnostic_v1",
+  "semantic_version": "1.1",
+  "policy_kind": "n0",
+  "evaluation_mode": "recorded_hdf5_offline_causal_diagnostic",
+  "conditions": [
+    "clean",
+    "observed_tactile_absence"
+  ],
+  "primary_task_ids": [
+    "grasp_classify",
+    "lift_can"
+  ],
+  "dataset_evaluation_cohort": {
+    "physical_split": "frozen40",
+    "split_manifest": "configs/protocols/univtac_frozen40_hdf5_v1.json",
+    "total_episode_count": 40,
+    "evaluated_episode_count": 40,
+    "registered_task_count": 8,
+    "episodes_per_task": 5,
+    "primary_task_count": 2,
+    "primary_episode_count": 10
+  },
+  "anchor_selection": {
+    "preferred_mode": "strongest_bilateral_contact",
+    "fallback_mode": "strongest_unilateral_contact",
+    "complete_future_action_horizon_required": 12,
+    "no_contact_episode_policy": "reject"
+  },
+  "reported_metrics": [
+    "clean_expert_action_error",
+    "observed_tactile_absence_expert_action_error",
+    "absence_minus_clean_action_error",
+    "clean_absence_action_drift",
+    "absence_worse_episode_fraction"
+  ],
+  "closed_loop_success_rate_claimed": false,
+  "claim_boundary": "All 40 frozen HDF5 episodes are evaluated directly with paired Clean and structural observed-tactile-absence N0 inference at a deterministic contact anchor. Predictions are not executed in a simulator, so this protocol reports offline action sensitivity and does not report task success rate."
+}

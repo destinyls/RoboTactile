@@ -25,7 +25,6 @@ from robotactile_benchmark.matrix import (
 )
 from robotactile_benchmark.trials import (
     Condition,
-    RestorationMode,
     TrialManifest,
     system_manifest_hash,
 )
@@ -48,8 +47,6 @@ def _manifest():
         action_spec="qpos8_next_step",
         fault_manifest_sha256=None,
         matched_no_touch_system_id=None,
-        restoration_index=None,
-        restoration_mode=None,
     )
     faults = tuple(
         FaultManifest(
@@ -82,8 +79,6 @@ def _manifest():
         matrix_id="runner-primary-v1",
         clean=clean,
         fault_manifests=faults,
-        restoration_index=60,
-        restoration_mode=RestorationMode.VALID_STREAM_RESUME,
         no_touch_system_id="univtac-act-vision-only",
         no_touch_checkpoint_sha256="e" * 64,
         no_touch_config_sha256="f" * 64,
@@ -108,7 +103,6 @@ class FakeExecutor:
             fault is not None
             and fault.operator_id == "F4_local_nonresponsive_patch"
             and fault.severity_level == 4
-            and cell.trial.condition is Condition.RESTORED
         ):
             return MatrixCellExecution.validator_rejected(
                 CellArtifactReference(
@@ -164,17 +158,17 @@ def test_cpu_fake_primary_e2e_preserves_all_cells_and_executes_baselines_once(
     summary = load_matrix_summary(tmp_path / "matrix", manifest)
 
     assert result.summary == summary
-    assert result.executed_cell_count == 142
+    assert result.executed_cell_count == 72
     assert result.reused_cell_count == 0
     assert result.pending_cell_count == 0
-    assert len(summary.cells) == 142
+    assert len(summary.cells) == 72
     assert Counter(state.status for state in summary.cells) == {
-        MatrixCellStatus.COMPLETED: 139,
+        MatrixCellStatus.COMPLETED: 69,
         MatrixCellStatus.CRASH: 1,
         MatrixCellStatus.UNSUPPORTED: 1,
         MatrixCellStatus.VALIDATOR_REJECTED: 1,
     }
-    assert len(executor.calls) == len(set(executor.calls)) == 142
+    assert len(executor.calls) == len(set(executor.calls)) == 72
     assert sum(state.condition is Condition.CLEAN for state in summary.cells) == 1
     assert sum(state.condition is Condition.NO_TOUCH for state in summary.cells) == 1
     assert all(state.task == "pull_out_key" for state in summary.cells)
@@ -192,7 +186,7 @@ def test_resume_strictly_reuses_every_verified_cell_without_executor_calls(
     result = run_matrix(tmp_path / "matrix", manifest, resumed)
 
     assert result.executed_cell_count == 0
-    assert result.reused_cell_count == 142
+    assert result.reused_cell_count == 72
     assert result.pending_cell_count == 0
     assert resumed.calls == []
 
@@ -232,19 +226,19 @@ def test_partial_run_returns_every_unexecuted_cell_as_pending_then_resumes(
     assert partial.summary is None
     assert partial.executed_cell_count == 3
     assert partial.reused_cell_count == 0
-    assert partial.pending_cell_count == 139
-    assert len(partial.states) == 142
+    assert partial.pending_cell_count == 69
+    assert len(partial.states) == 72
     assert Counter(state.status for state in partial.states) == {
         MatrixCellStatus.COMPLETED: 3,
-        MatrixCellStatus.PENDING: 139,
+        MatrixCellStatus.PENDING: 69,
     }
 
     resumed = FakeExecutor()
     complete = run_matrix(tmp_path / "matrix", manifest, resumed)
-    assert complete.executed_cell_count == 139
+    assert complete.executed_cell_count == 69
     assert complete.reused_cell_count == 3
     assert complete.pending_cell_count == 0
-    assert len(resumed.calls) == 139
+    assert len(resumed.calls) == 69
 
 
 def test_corrupt_existing_cell_fails_closed_instead_of_silently_recomputing(

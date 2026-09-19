@@ -1,0 +1,11 @@
+{
+  "nodes": [
+    "192.0.2.107",
+    "192.0.2.108"
+  ],
+  "ssh_user": "root",
+  "ssh_port": 36000,
+  "master_addr": "192.0.2.107",
+  "master_port": 29620,
+  "processes_per_node": 8
+}

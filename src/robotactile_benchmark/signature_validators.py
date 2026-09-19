@@ -8,6 +8,10 @@ from typing import Optional, Tuple
 
 import numpy as np
 
+from robotactile_benchmark.constants import (
+    OPTICAL_MARKER_REGISTRY_IDS,
+    operator_requires_rest_reference,
+)
 from robotactile_benchmark.contracts import (
     Array,
     ContactPhase,
@@ -73,12 +77,32 @@ def _mean_ratio(numerators: Sequence[float], denominators: Sequence[float]) -> f
     return numerator / max(denominator, 1e-12)
 
 
-def _f1(pairs: Sequence[Tuple[Array, Array, Array]]) -> float:
+def _f1(
+    pairs: Sequence[Tuple[Array, Array, Array]], manifest: FaultManifest
+) -> Tuple[float, str]:
+    if manifest.parameters.get("response_domain") == "absolute_black_frame":
+        pixel_count = sum(delivered.size for _, delivered, _ in pairs)
+        black_count = sum(
+            int(np.count_nonzero(delivered == 0)) for _, delivered, _ in pairs
+        )
+        return float(black_count) / max(pixel_count, 1), "black_element_fraction"
+    if manifest.parameters["temporal_path"] == "immediate_step":
+        retained = _mean_ratio(
+            [
+                float(np.abs(delivered - baseline).sum())
+                for _, delivered, baseline in pairs
+            ],
+            [float(np.abs(clean - baseline).sum()) for clean, _, baseline in pairs],
+        )
+        return max(0.0, 1.0 - retained), "certified_rest_residual_attenuation"
     retained_ratios = [
         float(delivered.mean()) / max(float(clean.mean()), 1e-12)
         for clean, delivered, _ in pairs
     ]
-    return float(min(retained_ratios)) if retained_ratios else 0.0
+    return (
+        float(min(retained_ratios)) if retained_ratios else 0.0,
+        "retained_global_gain",
+    )
 
 
 def _f2(pairs: Sequence[Tuple[Array, Array, Array]]) -> float:
@@ -249,14 +273,22 @@ def measure_signature(
 ) -> SignatureMeasurement:
     """Validate an exact deterministic signature and measure its native effect."""
 
-    requires_rest = manifest.operator_id in {
-        "F1_global_response_drift",
-        "F2_spatial_sensitivity_loss",
-        "F3_persistent_surface_artifact",
-        "F4_local_nonresponsive_patch",
-        "F6_history_residual_imprint",
-        "C2_frame_misregistration",
-    }
+    if (
+        manifest.severity_registry in OPTICAL_MARKER_REGISTRY_IDS
+        and manifest.operator_id.startswith("F")
+    ):
+        from robotactile_benchmark.optical.validation import measure_optical
+
+        return SignatureMeasurement(
+            *measure_optical(
+                clean_records, delivered_records, manifest, rest_references
+            )
+        )
+
+    requires_rest = operator_requires_rest_reference(
+        manifest.operator_id,
+        severity_registry=manifest.severity_registry,
+    )
     if requires_rest and rest_references is None:
         raise ValueError("this pixel signature requires rest references")
     expected_payloads = expected_pixel_payloads(
@@ -284,7 +316,22 @@ def measure_signature(
     )
     failures = []
     if operator_id == "F1_global_response_drift":
-        dose, unit = _f1(all_pairs), "retained_global_gain"
+        dose, unit = _f1(all_pairs, manifest)
+        if manifest.parameters.get(
+            "response_domain"
+        ) == "absolute_black_frame" and not any(
+            float(np.abs(clean).sum()) > 0.0 for clean, _, _ in all_pairs
+        ):
+            failures.append("NO_CLEAN_TACTILE_CONTENT")
+        elif (
+            manifest.parameters.get("response_domain") != "absolute_black_frame"
+            and manifest.parameters["temporal_path"] == "immediate_step"
+            and not any(
+                float(np.abs(clean - baseline).sum()) > 0.0
+                for clean, _, baseline in all_pairs
+            )
+        ):
+            failures.append("NO_CLEAN_TACTILE_SIGNAL")
     elif operator_id == "F2_spatial_sensitivity_loss":
         dose, unit = _f2(contact_pairs), "central_residual_attenuation"
     elif operator_id == "F3_persistent_surface_artifact":
@@ -333,6 +380,32 @@ def measure_signature(
     if not matched and _mean_rgb_delta(all_pairs) <= 0.0:
         failures.append("SIGNATURE_NOT_DELIVERED")
     diagnostics = {"mean_absolute_rgb_delta": _mean_rgb_delta(all_pairs)}
+    if (
+        operator_id == "F1_global_response_drift"
+        and manifest.parameters["temporal_path"] == "immediate_step"
+    ):
+        if manifest.parameters.get("response_domain") == "absolute_black_frame":
+            diagnostics["black_frame_max_abs_value"] = max(
+                (
+                    float(np.abs(delivered).max(initial=0.0))
+                    for _, delivered, _ in all_pairs
+                ),
+                default=0.0,
+            )
+            diagnostics["clean_tactile_l1"] = float(
+                sum(np.abs(clean).sum() for clean, _, _ in all_pairs)
+            )
+        else:
+            diagnostics["certified_rest_max_abs_error"] = max(
+                (
+                    float(np.abs(delivered - baseline).max(initial=0.0))
+                    for _, delivered, baseline in all_pairs
+                ),
+                default=0.0,
+            )
+            diagnostics["clean_tactile_residual_l1"] = float(
+                sum(np.abs(clean - baseline).sum() for clean, _, baseline in all_pairs)
+            )
     if operator_id == "F5_contact_shape_distortion":
         diagnostics.update(
             {

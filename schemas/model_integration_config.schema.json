@@ -14,8 +14,8 @@
   "properties": {
     "artifact_manifest": {"type": "string", "minLength": 1},
     "device": {"type": "string", "minLength": 1},
-    "integration_id": {"enum": ["act", "n0_twam"]},
+    "integration_id": {"enum": ["act", "dream_tac", "ftp1_policy", "n0_twam", "n0_vtla"]},
     "schema_version": {"const": "robotactile-model-integration-config-v1"},
-    "transport": {"enum": ["in_process", "typed_gateway"]}
+    "transport": {"enum": ["in_process", "official_http", "official_websocket", "official_zmq"]}
   }
 }

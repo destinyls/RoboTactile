@@ -310,11 +310,13 @@ def test_public_factory_host_constructs_two_task_local_runtimes(
         device: Optional[str],
         antialiasing_mode: Optional[str],
         n0_action_execution_contract: Optional[str],
+        reset_trajectory: Optional[object],
         stage_observer: Optional[StageObserver],
     ) -> UniVTACTaskRuntime:
         assert device == "cuda:7"
-        assert antialiasing_mode is None
+        assert antialiasing_mode == "TAA"
         assert n0_action_execution_contract is None
+        assert reset_trajectory is None
         assert stage_observer is None
         constructed.append((runtime_dir, initial_seed))
         runtime, task = make_fake_runtime(

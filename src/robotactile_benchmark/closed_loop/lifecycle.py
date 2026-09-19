@@ -13,7 +13,6 @@ from robotactile_benchmark.closed_loop.interfaces import (
     SimulationBackend,
 )
 from robotactile_benchmark.closed_loop.results import ClosedLoopTrialResult
-from robotactile_benchmark.trials import Condition, TrialManifest
 
 
 class ClosedLoopResourceCloseError(RuntimeError):
@@ -70,25 +69,6 @@ def pre_close_evidence(
         transition_entries,
         initial_diagnostics,
     )
-
-
-def restoration_validation(
-    trial: TrialManifest,
-    finalization: DeliveryFinalization,
-) -> Optional[tuple[bool, Tuple[str, ...]]]:
-    """Require restored runs to expose the declared restoration index."""
-
-    if trial.condition is not Condition.RESTORED:
-        return None
-    if any(
-        record.observation.step_index == trial.restoration_index
-        for record in finalization.delivered_records
-    ):
-        return None
-    existing = (
-        () if finalization.validation is None else finalization.validation.failure_codes
-    )
-    return False, tuple(dict.fromkeys(existing + ("RESTORATION_NOT_OBSERVED",)))
 
 
 def close_resources(

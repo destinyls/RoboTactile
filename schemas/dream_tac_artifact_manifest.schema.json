@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robotactile.invalid/schemas/dream_tac_artifact_manifest.schema.json",
+  "title": "RoboTactile Dream-Tac artifact manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "dependentRequired": {
+    "gripper_qpos_max": ["gripper_qpos_min"],
+    "gripper_qpos_min": ["gripper_qpos_max"]
+  },
+  "required": [
+    "action_horizon",
+    "action_conversion",
+    "action_execution",
+    "benchmark_action_dim",
+    "bundle_root",
+    "casa_inference_contract",
+    "camera_mapping",
+    "checkpoint_files",
+    "checkpoint_root",
+    "checkpoint_tree_sha256",
+    "control_hz",
+    "color_contract",
+    "dataset_stats_path",
+    "dataset_stats_sha256",
+    "experiment_config",
+    "external_commit",
+    "gripper_mapping",
+    "gripper_threshold",
+    "image_size",
+    "instruction",
+    "raw_action_dim",
+    "proprio_contract",
+    "quaternion_order",
+    "schema_version",
+    "server_protocol",
+    "state_dim",
+    "t5_embeddings_path",
+    "t5_embeddings_sha256",
+    "tactile_contract",
+    "task_id",
+    "use_tactile",
+    "weight_release_status"
+  ],
+  "properties": {
+    "action_horizon": {"const": 20},
+    "action_conversion": {"const": "absolute_xyz_rpy_gripper_to_ee8_wxyz_v1"},
+    "action_execution": {"const": "full_20_step_chunk_then_reinfer_v1"},
+    "benchmark_action_dim": {"const": 8},
+    "bundle_root": {"type": "string", "minLength": 1},
+    "casa_inference_contract": {"const": "upstream_http_gate_missing_v1"},
+    "camera_mapping": {"const": "top_cam_front__wrist_l_cam_high_v1"},
+    "checkpoint_files": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/fileIdentity"}
+    },
+    "checkpoint_root": {"type": "string", "minLength": 1},
+    "checkpoint_tree_sha256": {"$ref": "#/$defs/sha256"},
+    "control_hz": {"type": "number", "exclusiveMinimum": 0},
+    "color_contract": {"const": "uint8_hwc_rgb_png_v1"},
+    "dataset_stats_path": {"type": "string", "minLength": 1},
+    "dataset_stats_sha256": {"$ref": "#/$defs/sha256"},
+    "experiment_config": {"type": "string", "minLength": 1},
+    "external_commit": {"const": "14bab51d6862fd07124745c55cd395ea5caa9fd3"},
+    "gripper_mapping": {
+      "enum": [
+        "greater_than_threshold_is_closed_v1",
+        "greater_than_threshold_is_open_v1",
+        "direct_qpos_v1"
+      ]
+    },
+    "gripper_qpos_max": {"type": "number"},
+    "gripper_qpos_min": {"type": "number"},
+    "gripper_threshold": {"type": "number"},
+    "image_size": {"const": 224},
+    "instruction": {"type": "string", "minLength": 1},
+    "raw_action_dim": {"const": 7},
+    "proprio_contract": {"const": "ee8_wxyz_to_xyz_rpy_v1"},
+    "quaternion_order": {"const": "wxyz"},
+    "schema_version": {"const": "robotactile-dream-tac-artifact-v1"},
+    "server_protocol": {"const": "dream-tac-franka-http-v1"},
+    "state_dim": {"const": 6},
+    "t5_embeddings_path": {"type": "string", "minLength": 1},
+    "t5_embeddings_sha256": {"$ref": "#/$defs/sha256"},
+    "tactile_contract": {"const": "delivered_left_right_rgb_required_v1"},
+    "task_id": {"type": "string", "minLength": 1},
+    "use_tactile": {"const": true},
+    "weight_release_status": {"const": "user_supplied_unverified"}
+  },
+  "allOf": [
+    {
+      "if": {
+        "anyOf": [
+          {"required": ["gripper_qpos_min"]},
+          {"required": ["gripper_qpos_max"]}
+        ]
+      },
+      "then": {
+        "properties": {"gripper_mapping": {"const": "direct_qpos_v1"}}
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "fileIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}

@@ -22,6 +22,9 @@ from robotactile_benchmark.execution.contracts import (
     production_univtac_launcher_args,
 )
 from robotactile_benchmark.execution.preflight import _LIVE_ISAAC_MODULES
+from robotactile_benchmark.execution.preflight_contracts import (
+    LIVE_PREFLIGHT_SEMANTIC_VERSION,
+)
 from robotactile_benchmark.execution.request_values import (
     live_univtac_request_to_dict,
 )
@@ -87,8 +90,6 @@ def _request_file(root: Path) -> Path:
         output_dir=root / "output",
         fault_manifest_path=None,
         rest_references_path=None,
-        restoration_index=None,
-        restoration_mode=None,
         matched_no_touch_system_id=None,
         matched_no_touch_artifact_path=None,
         act_device_name="cuda:0",
@@ -122,7 +123,7 @@ def _release_ready(lock: object) -> LivePreflightCheck:
     return LivePreflightCheck(
         "external_release_readiness",
         True,
-        {"act_runtime": "true", "univtac": "true"},
+        {"univtac": "true"},
     )
 
 
@@ -130,7 +131,6 @@ def test_preflight_is_deterministic_no_allocation_and_strictly_reloadable(
     tmp_path: Path,
 ) -> None:
     arguments = {
-        "act_checkout": tmp_path / "WorldArena",
         "artifact_root": tmp_path / "artifacts",
         "stats_sha256": "c" * 64,
         "encoder_sha256": "d" * 64,
@@ -149,7 +149,6 @@ def test_preflight_is_deterministic_no_allocation_and_strictly_reloadable(
     assert first.simulator_execution_claimed is False
     assert first.simulator_qualification_claimed is False
     assert {item.check_id for item in first.checks} == {
-        "act_checkout",
         "external_release_readiness",
         "host_platform",
         "isaac_python",
@@ -163,10 +162,11 @@ def test_preflight_is_deterministic_no_allocation_and_strictly_reloadable(
     assert load_live_preflight_receipt(output) == first
 
 
-def test_current_unreleased_external_model_pin_fails_closed(tmp_path: Path) -> None:
+def test_unrelated_legacy_act_pin_does_not_block_official_preflight(
+    tmp_path: Path,
+) -> None:
     receipt = run_live_preflight(
         _request_file(tmp_path),
-        act_checkout=tmp_path / "WorldArena",
         artifact_root=tmp_path / "artifacts",
         stats_sha256="c" * 64,
         encoder_sha256="d" * 64,
@@ -176,9 +176,8 @@ def test_current_unreleased_external_model_pin_fails_closed(tmp_path: Path) -> N
         artifact_validator=_artifact,
     )
 
-    failed = tuple(item.check_id for item in receipt.checks if not item.passed)
-    assert failed == ("external_release_readiness",)
-    assert receipt.passed is False
+    assert tuple(item.check_id for item in receipt.checks if not item.passed) == ()
+    assert receipt.passed is True
 
 
 def test_noncanonical_or_symlinked_request_is_rejected(tmp_path: Path) -> None:
@@ -186,7 +185,6 @@ def test_noncanonical_or_symlinked_request_is_rejected(tmp_path: Path) -> None:
     value = request_path.read_text(encoding="utf-8")
     request_path.write_text(value.replace(":", ": ", 1), encoding="utf-8")
     arguments = {
-        "act_checkout": tmp_path / "WorldArena",
         "artifact_root": tmp_path / "artifacts",
         "stats_sha256": "c" * 64,
         "encoder_sha256": "d" * 64,
@@ -226,6 +224,27 @@ def test_receipt_tampering_and_different_existing_output_are_rejected(
         load_live_preflight_receipt(output)
     with pytest.raises(FileExistsError):
         write_live_preflight_receipt(output, receipt)
+
+
+def test_v1_or_restored_preflight_receipt_fails_closed() -> None:
+    kwargs = {
+        "request_content_sha256": "a" * 64,
+        "task_id": "pull_out_key",
+        "condition": "clean",
+        "policy_kind": "act",
+        "checks": (LivePreflightCheck("only", True, {"value": "frozen"}),),
+        "passed": True,
+    }
+    current = LivePreflightReceipt(**kwargs)
+    assert current.semantic_version == LIVE_PREFLIGHT_SEMANTIC_VERSION
+
+    with pytest.raises(LivePreflightError, match="semantic version"):
+        LivePreflightReceipt(**kwargs, semantic_version="1.0")
+    with pytest.raises(LivePreflightError, match="condition is invalid"):
+        LivePreflightReceipt(**{**kwargs, "condition": "restored"})
+    assert LivePreflightReceipt(**{**kwargs, "condition": "no_touch"}).condition == (
+        "no_touch"
+    )
 
 
 def test_public_cli_exposes_live_preflight_not_cpu_qualification() -> None:

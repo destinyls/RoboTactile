@@ -1,9 +1,9 @@
 # Reproducing RoboTactile
 
 This guide is the shortest supported path from a source checkout to a verified
-RoboTactile result. It separates package verification, N0-TWAM Clean execution,
-ACT robustness matrices, and paper claims so that one stage is never presented
-as evidence for another.
+RoboTactile result. It separates package verification, FTP-1 and N0-TWAM live
+execution, ACT robustness matrices, and paper claims so that one stage is never
+presented as evidence for another.
 
 All commands start in the repository root. Generated sources, runtimes, model
 files, requests, receipts, and results stay below the ignored `deployment/`
@@ -17,13 +17,41 @@ tree unless `ROBOTACTILE_DEPLOY_ROOT` selects another task-specific directory.
 | N0-TWAM recorded HDF5 evaluation | `robotactile recorded-n0` | Real recorded observations; no simulator success |
 | N0-TWAM UniVTAC Clean | `scripts/n0_twam/run_clean_campaign_all_tasks.py` | One task, all eight tasks, pilot, and paper protocols are implemented |
 | ACT UniVTAC robustness matrix | `generate-primary-matrix` + `run-live-matrix` | Current public 14 x 5 live-matrix path |
-| N0-TWAM UniVTAC fault campaign | No public campaign driver yet | Low-level N0 live requests and streaming faults exist; do not claim an end-to-end matrix |
+| N0-TWAM UniVTAC fault campaign | `generate-n0-fault-campaign` + `run-n0-fault-campaign` + `report-n0-fault-campaign` | Ordinary A1/A2 remain typed unsupported; the explicit non-paper observed-tactile-absence diagnostic makes full-horizon A1 executable |
+| N0 tactile-reliance diagnostic | `scripts/n0_twam/run_contact_ablation_pilot.py` | Runs matched Clean, structural tactile absence, and simulator replay of saved Clean actions; diagnostic only |
+| FTP-1 UniVTAC Clean/Faulted group | `scripts/ftp1_policy/prepare_robustness_group.py` + `live-univtac-paired-run` | Six released tasks; F1--F7/T1--T3/C1--C2 executable, A1/A2 N/A |
 
-The last row is an explicit release limitation. The current primary generator
-binds an ACT tactile checkpoint and a separately trained ACT vision-only
-checkpoint. Frozen N0-TWAM has no matched vision-only checkpoint, and its A1/A2
-structural-absence conditions are `unsupported_contract` because the model
-requires both tactile streams.
+The ACT primary matrix binds an ACT tactile checkpoint and a separately trained
+ACT vision-only checkpoint. Frozen N0-TWAM has no matched vision-only
+checkpoint, so its A1/A2 structural-absence conditions are
+`unsupported_contract`: the integration requires both tactile streams and does
+not substitute black, resting, or duplicated frames. F6 and F7 additionally
+require release and high-load phases, respectively; lack of those delivered
+phases is validator ineligibility rather than zero success rate.
+
+The sole exception is the explicit
+`--diagnostic-observed-tactile-absence` path. It requires full-horizon,
+two-stream A1 and a server launched with
+`--enable-observed-tactile-absence`; no tactile tensor is transported. It is a
+model-reliance diagnostic and must not be reported as the paper's retrained
+`w/o observed` condition.
+
+The complete recorded tactile causal diagnostic is frozen by
+`configs/protocols/n0_twam_tactile_causal_diagnostic_v1.json`: all 40 HDF5
+episodes are evaluated, covering eight tasks with five episodes per task.
+`grasp_classify` and `lift_can` form a separately reported primary subgroup of
+ten episodes. The paired calculation reports Clean/expert error,
+structural-absence/expert error, their delta, and Clean/absence action drift.
+Those files are not closed-loop trials and cannot produce task Success Rate.
+
+For saturation diagnosis, `run_contact_ablation_pilot.py` accepts one generated
+observed-tactile-absence campaign for one task. It starts one Isaac
+`SimulationApp`, constructs a fresh task runtime for every condition, and runs
+Clean, structural absence, and exact Clean-action replay for each seed. Action
+replay executes saved actions in a fresh simulator episode without policy
+inference; it therefore measures trajectory/task-predicate reproducibility,
+not tactile-policy performance. The output requires exact initial-state hashes
+and sets `paper_claim=false`.
 
 ## Operator map
 
@@ -279,17 +307,108 @@ robotactile validate-registry
 robotactile smoke-matrix --output outputs/operator-smoke-matrix
 ```
 
-The current complete live primary matrix is ACT-specific:
+The complete ACT live primary matrix remains ACT-specific:
 
 ```bash
 robotactile generate-primary-matrix --help
 robotactile run-live-matrix --help
 ```
 
-Do not present those commands as an N0-TWAM fault benchmark. A public N0
-fault-campaign generator must additionally bind the N0 task config, preserve
-Clean/delivered observation hashes, reset temporal/stateful operators per
-episode, and report A1/A2 as unsupported rather than substituting black images.
+Do not present those ACT commands as an N0-TWAM fault benchmark. The separate
+N0 Clean/Faulted campaign is implemented by
+`generate-n0-fault-campaign`, `run-n0-fault-campaign`, and
+`report-n0-fault-campaign`. It binds one N0 task config, executes the paired
+conditions from exact simulator resets, and reports A1/A2 as unsupported
+rather than substituting black images. The separately named
+full-horizon A1 diagnostic is the only structural-absence exception. See
+[the P0-P3 workflow](benchmark_workflow.md#n0-twam-cleanfaulted-robust-campaign-p0-p3).
+
+## FTP-1 closed-loop reproduction
+
+FTP-1 is an independent first-class integration. It does not reuse ACT or an
+N0 runtime. The minimum one-task path is:
+
+```bash
+export DEPLOY_ROOT="${ROBOTACTILE_DEPLOY_ROOT:-$PWD/deployment}"
+export TASK=insert_hole
+
+bash integrations/install_univtac.sh
+bash scripts/ftp1_policy/install_official_runtime.sh --root "$DEPLOY_ROOT"
+
+hf download MJJJJ1064/ftp1_univtac_finetune \
+  --revision 620ac69b4fffd2341300cfef1b1d224d56710ed3 \
+  --include 'FTP1_UniVTAC_insert_hole_expert_gsmall_ftp1/19999/**' \
+  --local-dir "$DEPLOY_ROOT/artifacts/models/ftp1_policy"
+
+robotactile integrations configure ftp1-policy \
+  --root "$DEPLOY_ROOT" --task "$TASK"
+robotactile integrations doctor \
+  --model ftp1_policy --root "$DEPLOY_ROOT" --task "$TASK"
+```
+
+Start the isolated worker as shown in
+[Model integrations](model_integrations.md#configure-diagnose-and-start-the-worker),
+then materialize a no-clobber matched group:
+
+```bash
+export FTP1_CONFIG="$DEPLOY_ROOT/artifacts/models/ftp1_policy/configs/$TASK/integration_config.json"
+export FTP1_GROUP="$DEPLOY_ROOT/requests/ftp1-policy/$TASK/diagnostic-stress-max-v1"
+export DATASET_SHA256='<exact 64-hex UniVTAC dataset identity>'
+export REST_REFERENCE='<absolute certified rest-reference artifact root>'
+
+python scripts/ftp1_policy/prepare_robustness_group.py \
+  --root "$DEPLOY_ROOT" \
+  --config "$FTP1_CONFIG" \
+  --task "$TASK" \
+  --severity-profile diagnostic_stress_max \
+  --dataset-sha256 "$DATASET_SHA256" \
+  --initial-seed 3000000 \
+  --exogenous-seed 3000000 \
+  --max-control-cycles 255 \
+  --max-observation-steps 256 \
+  --wall-timeout-s 1800 \
+  --device cuda:0 \
+  --rest-reference "$REST_REFERENCE" \
+  --output-root "$FTP1_GROUP"
+```
+
+Use only the ordered request list written into the generated plan receipt;
+Clean must be first. Execute it in Isaac's Python, where the exact RoboTactile
+wheel has already been installed:
+
+```bash
+export FTP1_PLAN="$FTP1_GROUP/robustness_plan_receipt.json"
+FTP1_REQUESTS=()
+while IFS= read -r relative_path; do
+  FTP1_REQUESTS+=("$FTP1_GROUP/$relative_path")
+done < <(python -c 'import json,sys; [print(x) for x in json.load(open(sys.argv[1]))["paired_run"]["request_paths"]]' "$FTP1_PLAN")
+export FTP1_PAIRED_RECEIPT="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["paired_run"]["receipt_path"])' "$FTP1_PLAN")"
+
+"$DEPLOY_ROOT/runtime/isaac-sim-4.5.0/python.sh" \
+  -m robotactile_benchmark.cli live-univtac-paired-run \
+  --root "$DEPLOY_ROOT" \
+  --config "$FTP1_CONFIG" \
+  --requests "${FTP1_REQUESTS[@]}" \
+  --receipt "$FTP1_PAIRED_RECEIPT" \
+  --capture-profile metrics_only_v1 \
+  --ftp1-endpoint tcp://127.0.0.1:5561
+```
+
+All Faulted requests replay the same canonical post-reset snapshot as Clean.
+A1/A2 are recorded as N/A for this tactile-required checkpoint interface and
+are not passed to the runner.
+
+Interpret evidence in order:
+
+- **CODE**: registry/config/request tests and deterministic operator replay;
+- **OFFLINE**: a pinned FTP-1 worker loads and returns a contract-valid action;
+- **CLOSED-LOOP**: Isaac executes a strict-loadable Clean or Faulted trace and
+  records its terminal predicate.
+
+None of those levels alone is a paper Success Rate. A reportable robustness
+result also needs preregistered tasks/seeds/severities, qualification, complete
+denominators, and source-bound aggregation. This repository does not claim an
+FTP-1 success rate until those live artifacts actually exist.
 
 ## 10. Release and result checklist
 

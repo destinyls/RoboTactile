@@ -31,7 +31,11 @@ def apply_temporal(
         "T2_held_last_freeze",
     }:
         source_index = int(manifest.parameters["source_index_map"][offset])
-        if manifest.operator_id == "T2_held_last_freeze" and source_index == index:
+        if (
+            manifest.operator_id == "T2_held_last_freeze"
+            and source_index == index
+            and manifest.parameters.get("temporal_schedule") != "full_episode_v1"
+        ):
             return clean_record
         output = clean_record
         source_record = source_lookup(source_index)

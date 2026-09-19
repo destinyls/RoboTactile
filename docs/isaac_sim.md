@@ -5,6 +5,13 @@ downloaded Isaac Sim 4.5.0 package, runs a headless infrastructure smoke,
 installs the pinned IsaacLab and cuRobo sources, and shows how to launch one
 auditable UniVTAC ACT trial.
 
+The first-class ACT integration loads the pinned UniVTAC
+`policy/ACT/act_policy.py` implementation only. WorldArena/ACTStrict is a
+legacy compatibility path and is not installed by this guide. RoboTactile does
+not provide or claim a public official ACT weight bundle; the commands below
+require user-supplied or trained `policy_last.ckpt`, `dataset_stats.pkl`, and
+`encoder.pth` files.
+
 The commands below are not executed by installing the RoboTactile wheel. They
 must be run explicitly on a compatible NVIDIA Linux host.
 Directory ownership is defined in [Deployment layout](deployment_layout.md);
@@ -72,6 +79,7 @@ command. Do not use `/`, `/data`, `/mnt`, or a shared storage root directly.
 export ROBOTACTILE_ROOT="$(pwd -P)"
 robotactile deployment init
 export DEPLOY_ROOT="${ROBOTACTILE_DEPLOY_ROOT:-$ROBOTACTILE_ROOT/deployment}"
+export ISAAC_SIM_PATH="$DEPLOY_ROOT/runtime/isaac-sim-4.5.0"
 robotactile deployment doctor --profile core
 ```
 
@@ -127,7 +135,7 @@ Inspect the receipt without changing it:
 ```bash
 python3 -m json.tool \
   "$DEPLOY_ROOT/artifacts/deployment/isaac_sim_install.json"
-test -x "$DEPLOY_ROOT/runtime/isaac-sim-4.5.0/python.sh"
+test -x "$ISAAC_SIM_PATH/python.sh"
 ```
 
 ## 4. Run the headless GPU smoke
@@ -200,7 +208,7 @@ bash scripts/live_univtac/bootstrap_blackwell_sm120.sh \
   --cuda-sha256 '<verified-sha256>' \
   --isaac-archive "$PWD/deployment/runtime/isaac-sim-standalone-4.5.0-linux-x86_64.zip" \
   --isaac-sha256 '<verified-sha256>' \
-  --wheel "$PWD/dist/robotactile_benchmark-0.4.0-py3-none-any.whl" \
+  --wheel "$PWD/dist/robotactile_benchmark-0.6.0-py3-none-any.whl" \
   --gpu 0
 ```
 
@@ -277,7 +285,6 @@ checks `$DEPLOY_ROOT/runtime/cuda-toolkit-12.4` first and then the legacy
 
 ```bash
 bash integrations/install_univtac.sh
-bash integrations/install_act_runtime.sh
 bash scripts/n0_twam/install_official_runtime.sh --root "$DEPLOY_ROOT"
 bash scripts/live_univtac/install_tacex_univtac.sh \
   --root "$DEPLOY_ROOT" \
@@ -298,6 +305,10 @@ bash scripts/live_univtac/qualify_univtac_task_import.sh \
 Each installer verifies origin, commit, cleanliness, and license identity and
 writes a sibling `*.robotactile-install.json` receipt. These commands check out
 source only; they do not download datasets or weights.
+
+Do not add `integrations/install_act_runtime.sh` to this sequence. It checks
+out the legacy WorldArena/ACTStrict `policy_best.ckpt` source contract and is
+not consumed by the official UniVTAC ACT loader or preflight.
 
 The TacEx core installer binds its receipt to the pinned UniVTAC checkout and
 keeps Torch 2.7/CUDA 12.8 unchanged. The second installer builds UniVTAC's
@@ -326,6 +337,12 @@ using the commands in [Model integrations](model_integrations.md#n0-twam-end-to-
 The simulator-side client dependencies are installed only inside standalone
 Isaac Python by `scripts/n0_twam/install_isaac_client.sh`.
 
+FTP-1 is likewise isolated from Isaac and N0-TWAM. Its official model process
+runs from `deployment/runtime/ftp1-policy`; Isaac receives only the lightweight
+ZMQ client and executes one absolute qpos8 action per simulator control step.
+Use [Model integrations](model_integrations.md#ftp-1-integration) for the
+pinned source, checkpoint manifest, server, and Clean/Faulted commands.
+
 ## 7. Install RoboTactile into Isaac's Python
 
 Use the manifest-bound installer to build the wheel and install it only into
@@ -339,9 +356,23 @@ bash scripts/live_univtac/install_robotactile_isaac.sh \
 
 If the target host intentionally has no build tooling, build the pure-Python
 wheel on a trusted source host and transfer it under the RoboTactile deployment
-root. Then pass `--wheel /absolute/path/to/robotactile_benchmark-0.4.0-py3-none-any.whl`.
-The installer rejects a different filename and verifies the packaged source
-manifest after installation before writing its receipt.
+root. Then pass `--wheel /absolute/path/to/robotactile_benchmark-0.6.0-py3-none-any.whl`.
+In this explicit-wheel mode, the installer derives the source identity from
+`robotactile_benchmark/source_manifest.sha256` inside the wheel; it does not
+require the target host's repository checkout to match that wheel. It rejects
+a different filename, a missing or duplicate packaged manifest, and any
+post-install runtime-manifest mismatch before writing its receipt. Without
+`--wheel`, the existing local source-manifest check and wheel build remain
+mandatory.
+
+Official ACT has no separate Python service in RoboTactile. The pinned
+UniVTAC class and the `policy_last.ckpt` model are loaded in-process by this
+same Isaac-local Python. Preserve the Torch/Torchvision versions shipped with
+the qualified Isaac runtime: do not install the upstream ACT conda environment
+over Isaac and do not use `pip --upgrade` or a force reinstall to replace
+Isaac's Torch stack. A missing auxiliary ACT import is an Isaac-local
+compatibility failure, not permission to overwrite Torch, IsaacLab, cuRobo,
+TacEx, or their native extensions.
 
 If the final import fails, stop. Do not run a trial from the core development Python and
 describe it as Isaac execution.
@@ -400,15 +431,20 @@ exact post-reset witnesses, loads no learned policy, does not evaluate task succ
 `simulator_qualification_claimed=false`, and records
 `in_process_snapshot_replay_equivalence_v1` only.
 
-## 9. Generate one four-condition request set
+## 9. Generate one three-condition request set
 
 Place the official tactile ACT and matched vision-only artifacts under one
 artifact root. Record the checkpoint, statistics, and encoder hashes before
 generating requests:
 
+These model files are not downloaded by any RoboTactile installer. Supply or
+train them first, review their provenance and license, and keep them under the
+ignored deployment root. Source installation alone is insufficient.
+
 ```bash
 export UNIVTAC_ROOT="$DEPLOY_ROOT/sources/UniVTAC"
 export CHECKPOINT_ROOT="$DEPLOY_ROOT/artifacts/models/act"
+export ACT_TASK=pull_out_key
 export TACTILE_CHECKPOINT_SHA256='<64-hex-tactile-checkpoint-sha256>'
 export VISION_CHECKPOINT_SHA256='<64-hex-vision-only-checkpoint-sha256>'
 export STATS_SHA256='<64-hex-dataset-stats-sha256>'
@@ -423,24 +459,55 @@ python scripts/live_univtac/generate_pull_out_key_matrix.py \
   --exogenous-seed 29 \
   --operator T1_fixed_source_delay \
   --severity 3 \
-  --fault-start 16 \
-  --restoration-index 180
+  --fault-start 16
 ```
 
-The generator creates `clean`, `faulted`, `no_touch`, and `restored` requests
+The generator creates `clean`, `faulted`, and `no_touch` requests
 with one matched pair identity. It does not launch Isaac or a policy.
 
-Generate the tactile ACT runtime config from those real files before
-preflight. The command computes the hashes; do not edit the all-zero example:
+Generate a canonical config for each real profile before preflight. The
+command computes the hashes; do not edit the all-zero example:
 
 ```bash
-robotactile integrations configure act --task pull_out_key
-robotactile integrations doctor --model act
+robotactile integrations configure act \
+  --root "$DEPLOY_ROOT" \
+  --task "$ACT_TASK" \
+  --profile univtac
+
+robotactile integrations configure act \
+  --root "$DEPLOY_ROOT" \
+  --task "$ACT_TASK" \
+  --profile vision_only
+
+export ACT_CONFIG="$DEPLOY_ROOT/artifacts/models/act/configs/$ACT_TASK/univtac/integration_config.json"
+export ACT_VISION_CONFIG="$DEPLOY_ROOT/artifacts/models/act/configs/$ACT_TASK/vision_only/integration_config.json"
+
+robotactile integrations doctor \
+  --model act \
+  --root "$DEPLOY_ROOT" \
+  --task "$ACT_TASK" \
+  --profile univtac \
+  --config "$ACT_CONFIG"
+
+"$ISAAC_SIM_PATH/python.sh" \
+  scripts/act/verify_official_runtime.py \
+  --integration-config "$ACT_CONFIG"
+
+"$ISAAC_SIM_PATH/python.sh" \
+  scripts/act/verify_official_runtime.py \
+  --integration-config "$ACT_VISION_CONFIG"
 ```
+
+By default, each probe validates the content-addressed artifact and imports
+NumPy, Torch, Torchvision, and IPython from Isaac-local Python without loading
+the policy or starting Isaac. Add `--load-policy` only for an opt-in strict
+load-and-immediate-close smoke. Both modes report
+`closed_loop_execution_claimed=false`; neither is a closed-loop or success
+result.
 
 ## 10. Run the no-allocation live preflight
 
-Validate the request, both pinned source checkouts, official ACT artifacts,
+Validate the request, pinned UniVTAC checkout, official ACT artifacts,
 NVIDIA visibility, and Isaac's bundled Python before allocating the simulator:
 
 ```bash
@@ -448,37 +515,46 @@ export REQUEST_ROOT='<generated-request-directory>'
 
 robotactile preflight-live \
   --request "$REQUEST_ROOT/requests/clean.json" \
-  --config "$DEPLOY_ROOT/artifacts/models/act/integration_config.json"
+  --root "$DEPLOY_ROOT" \
+  --config "$ACT_CONFIG"
 ```
 
-The command fails while either external model pin has `release_ready=false`, a
-checkout is dirty, an artifact hash differs, the GPU is not visible, or Isaac
-Python lacks required packages. It never imports a learned model, constructs an
-AppLauncher, or executes a task. Archive the receipt, but do not report it as
-simulator execution or qualification.
+The command fails when the pinned UniVTAC checkout is dirty or mismatched, an
+artifact hash differs, the GPU is not visible, or Isaac Python lacks required
+packages. It never imports a learned model, constructs an AppLauncher, or
+executes a task. Archive the receipt, but do not report it as simulator
+execution or qualification.
 
 ## 11. Execute the live ACT requests as one paired session
 
 Set `REQUEST_ROOT` to the directory printed by the generator. Requests use
 logical `cuda:0`; `CUDA_VISIBLE_DEVICES` selects the physical GPU.
 
-Use `live-univtac-paired-run`, not four independent simulator processes. For
+Use `live-univtac-paired-run`, not three independent simulator processes. For
 the standalone archive, invoke the entry point through its bundled Python:
 
 ```bash
 export REQUEST_ROOT='<generated-request-directory>'
 
 CUDA_VISIBLE_DEVICES="$GPU_INDEX" \
-  "$ISAAC_SIM_PATH/python.sh" -m robotactile_benchmark.cli \
+  "$ISAAC_SIM_PATH/python.sh" \
+    -m robotactile_benchmark.cli \
     live-univtac-paired-run \
     --requests \
       "$REQUEST_ROOT/requests/clean.json" \
       "$REQUEST_ROOT/requests/faulted.json" \
       "$REQUEST_ROOT/requests/no_touch.json" \
-      "$REQUEST_ROOT/requests/restored.json" \
     --receipt "$REQUEST_ROOT/paired_execution_receipt.json" \
-    --config "$DEPLOY_ROOT/artifacts/models/act/integration_config.json"
+    --root "$DEPLOY_ROOT"
 ```
+
+Do not pass the single-profile `--config "$ACT_CONFIG"` option to this mixed-
+profile command. From `--root`, the paired runner resolves and validates both
+`artifacts/models/act/configs/$ACT_TASK/univtac/integration_config.json` and
+`artifacts/models/act/configs/$ACT_TASK/vision_only/integration_config.json`.
+The explicit `--config` shown in Sections 9--10 remains valid for
+single-profile doctor and preflight; it is also valid for a single-profile
+`live-univtac-run` command.
 
 The group receipt uses
 `evidence_level=unqualified_paired_live_univtac_execution_v1`; every exported

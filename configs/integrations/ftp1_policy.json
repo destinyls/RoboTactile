@@ -1,0 +1,1 @@
+{"artifact_manifest":"examples/ftp1_policy/artifact_manifest.example.json","device":"cuda:0","integration_id":"ftp1_policy","schema_version":"robotactile-model-integration-config-v1","transport":"official_zmq"}

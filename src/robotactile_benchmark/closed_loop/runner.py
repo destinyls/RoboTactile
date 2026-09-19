@@ -33,7 +33,6 @@ from robotactile_benchmark.closed_loop.lifecycle import (
     capture_execution_evidence,
     close_resources,
     pre_close_evidence,
-    restoration_validation,
 )
 from robotactile_benchmark.closed_loop.result_hashes import build_trial_result
 from robotactile_benchmark.closed_loop.results import ClosedLoopTrialResult
@@ -276,10 +275,16 @@ def _run_closed_loop_trial(
                 if run_spec.wall_timeout_role is WallTimeoutRole.SCORING_BOUNDARY_V1
                 else None
             )
-            if (
-                backend_signal is BackendSignal.RUNNING
-                and elapsed_before_commit is not None
-                and elapsed_before_commit >= run_spec.wall_timeout_s
+            runner_budget_exhausted = (
+                control_cycle_count >= run_spec.max_control_cycles
+                or observation_count >= run_spec.max_observation_steps
+            )
+            if backend_signal is BackendSignal.RUNNING and (
+                runner_budget_exhausted
+                or (
+                    elapsed_before_commit is not None
+                    and elapsed_before_commit >= run_spec.wall_timeout_s
+                )
             ):
                 backend_signal = BackendSignal.TIMEOUT
             stage = "commit"
@@ -301,18 +306,11 @@ def _run_closed_loop_trial(
         finalization = session.finalize()
         execution_status = TerminalStatus(backend_signal.value)
         terminal_status = execution_status
-        validation_override = restoration_validation(trial, finalization)
+        validation_override = None
         if finalization.validation is not None and not finalization.validation.passed:
-            restoration_codes = (
-                () if validation_override is None else validation_override[1]
-            )
             validation_override = (
                 False,
-                tuple(
-                    dict.fromkeys(
-                        finalization.validation.failure_codes + restoration_codes
-                    )
-                ),
+                finalization.validation.failure_codes,
             )
         if validation_override is None:
             failure_stage = None

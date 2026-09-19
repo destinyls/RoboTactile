@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
-from typing import Optional, Protocol, Sequence, Tuple
+from typing import Optional, Protocol, Sequence, Tuple, Union
 
 from robotactile_benchmark.closed_loop.contracts import PolicyIdentity
 from robotactile_benchmark.closed_loop.interfaces import ClosedLoopPolicy
+from robotactile_benchmark.execution.capture_profiles import LiveCaptureProfile
 from robotactile_benchmark.execution.contracts import (
     ArtifactExportStatus,
     LivePolicyKind,
@@ -21,8 +24,10 @@ from robotactile_benchmark.execution.live_artifacts_contracts import (
     LoadedLiveUniVTACArtifact,
 )
 from robotactile_benchmark.execution.live_univtac import (
+    LiveArtifactExporter,
     LiveBackendFactory,
     LivePolicyFactory,
+    LiveUniVTACExecutionResult,
     default_live_backend_factory,
     execute_live_univtac_run,
 )
@@ -32,6 +37,9 @@ from robotactile_benchmark.execution.paired_live_univtac import (
     PairedLiveUniVTACExecutionResult,
     default_paired_backend_session_factory,
     execute_paired_live_univtac_runs,
+)
+from robotactile_benchmark.execution.sequential_policy_pool import (
+    SequentialPolicyPool,
 )
 from robotactile_benchmark.policies.univtac_official_act import OfficialACTProfile
 from robotactile_benchmark.policies.univtac_official_act_loading import (
@@ -50,6 +58,9 @@ class OfficialACTPolicyLoader(Protocol):
         identity: PolicyIdentity,
         request: OfficialUniVTACACTLoadRequest,
     ) -> ClosedLoopPolicy: ...
+
+
+ACTStatsSHA256 = Union[str, Mapping[OfficialACTProfile, str]]
 
 
 @dataclass(frozen=True)
@@ -164,6 +175,7 @@ def execute_official_act_live_run(
     encoder_sha256: str,
     backend_factory: Optional[LiveBackendFactory] = None,
     policy_loader: Optional[OfficialACTPolicyLoader] = None,
+    capture_profile: LiveCaptureProfile = LiveCaptureProfile.PAPER_FULL,
 ) -> LoadedLiveUniVTACArtifact:
     """Execute, export, and independently reload one unqualified live trace."""
 
@@ -173,6 +185,12 @@ def execute_official_act_live_run(
         stats_sha256=stats_sha256,
         encoder_sha256=encoder_sha256,
     )
+    selected_capture = LiveCaptureProfile(capture_profile)
+    exporter: LiveArtifactExporter = (
+        write_live_univtac_artifact
+        if selected_capture.is_full_trace
+        else partial(write_live_univtac_artifact, capture_profile=selected_capture)
+    )
     result = execute_live_univtac_run(
         request,
         backend_factory=(
@@ -181,7 +199,7 @@ def execute_official_act_live_run(
         policy_factory=make_official_act_policy_factory(
             binding, policy_loader=policy_loader
         ),
-        artifact_exporter=write_live_univtac_artifact,
+        artifact_exporter=exporter,
     )
     if (
         result.artifact_export is not ArtifactExportStatus.EXPORTED
@@ -194,6 +212,7 @@ def execute_official_act_live_run(
         artifact.run_content_sha256 != result.loaded.content_sha256
         or artifact.root_receipt.result_sha256 != result.evidence.result.sha256
         or artifact.root_receipt.simulator_qualification_claimed is not False
+        or artifact.capture_profile is not selected_capture
     ):
         raise RuntimeError("reloaded official ACT live artifact cross-link mismatch")
     return artifact
@@ -203,12 +222,18 @@ def execute_official_act_paired_live_runs(
     requests: Sequence[LiveUniVTACRunRequest],
     *,
     artifact_root: Path,
-    stats_sha256: str,
+    stats_sha256: ACTStatsSHA256,
     encoder_sha256: str,
     session_factory: PairedBackendSessionFactory = (
         default_paired_backend_session_factory
     ),
     policy_loader: Optional[OfficialACTPolicyLoader] = None,
+    capture_profile: LiveCaptureProfile = LiveCaptureProfile.PAPER_FULL,
+    pre_close_publisher: Optional[Callable[[OfficialACTPairedLiveResult], None]] = None,
+    post_execution_gate: Optional[
+        Callable[[int, LiveUniVTACExecutionResult], None]
+    ] = None,
+    require_shared_runtime_dir: bool = False,
 ) -> OfficialACTPairedLiveResult:
     """Execute matched ACT conditions through one snapshot/replay session."""
 
@@ -217,27 +242,96 @@ def execute_official_act_paired_live_runs(
         load_official_univtac_act_policy if policy_loader is None else policy_loader
     )
 
-    def policy_factory(loaded: LoadedLiveUniVTACRun) -> ClosedLoopPolicy:
-        binding = build_official_act_live_binding(
-            loaded.request,
-            artifact_root=artifact_root,
-            stats_sha256=stats_sha256,
-            encoder_sha256=encoder_sha256,
-        )
-        return selected_loader(loaded.policy_identity, binding.load_request)
-
-    paired = execute_paired_live_univtac_runs(
-        request_tuple,
-        session_factory=session_factory,
-        policy_factory=policy_factory,
-        artifact_exporter=write_live_univtac_artifact,
+    selected_capture = LiveCaptureProfile(capture_profile)
+    exporter: LiveArtifactExporter = (
+        write_live_univtac_artifact
+        if selected_capture.is_full_trace
+        else partial(write_live_univtac_artifact, capture_profile=selected_capture)
     )
+    published: list[OfficialACTPairedLiveResult] = []
+
+    def publish_before_close(result: PairedLiveUniVTACExecutionResult) -> None:
+        wrapped = OfficialACTPairedLiveResult(
+            result,
+            _load_verified_artifacts(request_tuple, selected_capture),
+        )
+        if pre_close_publisher is not None:
+            pre_close_publisher(wrapped)
+        published.append(wrapped)
+
+    with SequentialPolicyPool() as policy_pool:
+
+        def policy_factory(loaded: LoadedLiveUniVTACRun) -> ClosedLoopPolicy:
+            profile = official_act_profile(loaded.request.condition)
+            binding = build_official_act_live_binding(
+                loaded.request,
+                artifact_root=artifact_root,
+                stats_sha256=_profile_stats_sha256(stats_sha256, profile),
+                encoder_sha256=encoder_sha256,
+            )
+            key = (binding.load_request, loaded.policy_identity)
+            return policy_pool.acquire(
+                key,
+                loaded.policy_identity,
+                lambda: selected_loader(
+                    loaded.policy_identity,
+                    binding.load_request,
+                ),
+            )
+
+        paired = execute_paired_live_univtac_runs(
+            request_tuple,
+            session_factory=session_factory,
+            policy_factory=policy_factory,
+            artifact_exporter=exporter,
+            pre_close_publisher=(
+                publish_before_close if pre_close_publisher is not None else None
+            ),
+            post_execution_gate=post_execution_gate,
+            require_shared_runtime_dir=require_shared_runtime_dir,
+        )
+        if published:
+            if len(published) != 1 or published[0].paired != paired:
+                raise RuntimeError("paired ACT pre-close publication mismatch")
+            return published[0]
+        return OfficialACTPairedLiveResult(
+            paired,
+            _load_verified_artifacts(request_tuple, selected_capture),
+        )
+
+
+def _profile_stats_sha256(
+    value: ACTStatsSHA256,
+    profile: OfficialACTProfile,
+) -> str:
+    if isinstance(value, str):
+        return value
+    if not isinstance(value, Mapping):
+        raise TypeError("stats_sha256 must be a string or profile mapping")
+    try:
+        digest = value[profile]
+    except KeyError as error:
+        raise ValueError(
+            f"missing ACT statistics digest for {profile.value}"
+        ) from error
+    if not isinstance(digest, str):
+        raise TypeError("ACT statistics digest must be a string")
+    return digest
+
+
+def _load_verified_artifacts(
+    requests: Sequence[LiveUniVTACRunRequest],
+    capture_profile: LiveCaptureProfile,
+) -> Tuple[LoadedLiveUniVTACArtifact, ...]:
     artifacts = []
-    for request in request_tuple:
+    for request in requests:
         if request.output_dir is None:
             raise ValueError("paired official ACT request requires output_dir")
-        artifacts.append(load_live_univtac_artifact(request.output_dir))
-    return OfficialACTPairedLiveResult(paired=paired, artifacts=tuple(artifacts))
+        artifact = load_live_univtac_artifact(request.output_dir)
+        if artifact.capture_profile is not capture_profile:
+            raise RuntimeError("paired ACT artifact capture profile mismatch")
+        artifacts.append(artifact)
+    return tuple(artifacts)
 
 
 def official_act_live_summary(

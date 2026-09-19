@@ -14,8 +14,8 @@ from robotactile_benchmark.resources import (
 )
 from robotactile_benchmark.severity import SEVERITY_PATHS
 from robotactile_benchmark.trials import (
+    TRIAL_MANIFEST_SEMANTIC_VERSION,
     Condition,
-    RestorationMode,
     TerminalStatus,
     TrialManifest,
     build_paired_trial_grid,
@@ -43,8 +43,6 @@ def _trial(**overrides):
         "action_spec": "qpos8_next_step",
         "fault_manifest_sha256": None,
         "matched_no_touch_system_id": None,
-        "restoration_index": None,
-        "restoration_mode": None,
     }
     values.update(overrides)
     return TrialManifest(**values)
@@ -190,13 +188,10 @@ class ResourceContractTests(unittest.TestCase):
 
 
 class TrialManifestTests(unittest.TestCase):
-    def test_four_conditions_share_one_pair_key_and_use_a_real_control(self) -> None:
+    def test_three_conditions_share_one_pair_key_and_use_a_real_control(self) -> None:
         grid = build_paired_trial_grid(
             clean=_trial(),
             faulted_manifest=_fault(80),
-            restored_manifest=_fault(40),
-            restoration_index=40,
-            restoration_mode=RestorationMode.VALID_STREAM_RESUME,
             no_touch_system_id="n0-twam-track31-no-touch",
             no_touch_checkpoint_sha256="e" * 64,
             no_touch_config_sha256="f" * 64,
@@ -208,21 +203,18 @@ class TrialManifestTests(unittest.TestCase):
         self.assertEqual(no_touch.executed_system_id, "n0-twam-track31-no-touch")
         self.assertNotEqual(no_touch.checkpoint_sha256, grid[0].checkpoint_sha256)
         self.assertIsNone(no_touch.fault_manifest_sha256)
-        restored_cell = next(
-            item for item in grid if item.condition is Condition.RESTORED
-        )
-        self.assertEqual(restored_cell.restoration_index, 40)
-        self.assertEqual(
-            restored_cell.restoration_mode,
-            RestorationMode.VALID_STREAM_RESUME,
-        )
-        self.assertNotEqual(
-            grid[1].fault_manifest_sha256, restored_cell.fault_manifest_sha256
-        )
         for item in grid:
-            restored = TrialManifest.from_dict(item.to_dict())
-            self.assertEqual(restored, item)
-            self.assertEqual(restored.sha256, item.sha256)
+            reloaded = TrialManifest.from_dict(item.to_dict())
+            self.assertEqual(item.semantic_version, TRIAL_MANIFEST_SEMANTIC_VERSION)
+            self.assertEqual(reloaded, item)
+            self.assertEqual(reloaded.sha256, item.sha256)
+
+    def test_v1_restored_era_trial_manifest_fails_closed(self) -> None:
+        document = _trial().to_dict()
+        document["semantic_version"] = "1.0"
+
+        with self.assertRaisesRegex(ValueError, "semantic version"):
+            TrialManifest.from_dict(document)
 
     def test_invalid_condition_combinations_fail_closed(self) -> None:
         with self.assertRaisesRegex(ValueError, "clean"):
@@ -235,22 +227,6 @@ class TrialManifestTests(unittest.TestCase):
             _trial(
                 condition=Condition.NO_TOUCH,
                 matched_no_touch_system_id="control",
-            )
-        with self.assertRaisesRegex(ValueError, "restoration index"):
-            _trial(
-                condition=Condition.RESTORED,
-                fault_manifest_sha256="d" * 64,
-            )
-        with self.assertRaisesRegex(ValueError, "persist beyond"):
-            build_paired_trial_grid(
-                clean=_trial(),
-                faulted_manifest=_fault(40),
-                restored_manifest=_fault(40),
-                restoration_index=40,
-                restoration_mode=RestorationMode.VALID_STREAM_RESUME,
-                no_touch_system_id="control",
-                no_touch_checkpoint_sha256="e" * 64,
-                no_touch_config_sha256="f" * 64,
             )
         with self.assertRaisesRegex(ValueError, "base system"):
             _trial(executed_system_id="different-clean-system")

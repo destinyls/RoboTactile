@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 from PIL import Image
 
@@ -33,6 +34,7 @@ from robotactile_benchmark.trials import (
 )
 from robotactile_benchmark.visualization.live_artifact import (
     _export_loaded_visualization,
+    _uint8_rgb,
 )
 
 
@@ -54,8 +56,6 @@ def _trial(fault: FaultManifest) -> TrialManifest:
         action_spec="qpos8_next_step",
         fault_manifest_sha256=fault.sha256,
         matched_no_touch_system_id=None,
-        restoration_index=None,
-        restoration_mode=None,
     )
 
 
@@ -125,10 +125,42 @@ def test_visualization_exports_source_bound_preview(tmp_path: Path) -> None:
     assert result.rendered_frame_count == 2
     assert receipt["source_live_artifact_root_sha256"] == "f" * 64
     assert receipt["condition"] == "faulted"
+    assert receipt["display_color_profile"]["channel_transform"] == "reverse_rgb"
     assert receipt["preview_step_index"] == 3
     assert receipt["simulator_qualification_claimed"] is False
     assert receipt["video_exported"] is False
     assert set(receipt["members"]) == {"preview.png"}
+
+
+def test_visualization_uses_n0_twam_univtac_color_conversion() -> None:
+    simulator_numeric = np.array([[[11, 22, 33]]], dtype=np.uint8)
+
+    display_rgb = _uint8_rgb(simulator_numeric)
+
+    assert display_rgb.tolist() == [[[33, 22, 11]]]
+
+
+@pytest.mark.parametrize(
+    "identity", [{"n0_action_per_frame": 4}, {"retrained_control_hz": 10}]
+)
+def test_retrained_visualization_preserves_model_input_rgb(tmp_path, identity):
+    from robotactile_benchmark.visualization.live_artifact import _display_profile
+
+    artifact = _artifact()
+    artifact.request_identity = identity
+    raw = np.array([[[11, 22, 33]]], dtype=np.uint8)
+    assert _uint8_rgb(raw, profile=_display_profile(artifact)).tolist() == raw.tolist()
+    result = _export_loaded_visualization(
+        artifact,
+        tmp_path / "retrained",
+        fps=10,
+        stride=1,
+        max_frames=1,
+        video=False,
+        ffmpeg="ffmpeg",
+    )
+    receipt = json.loads(result.receipt.read_text())
+    assert receipt["display_color_profile"]["channel_transform"] == "identity"
 
 
 def test_preview_capture_visualizes_and_metrics_only_rejects_frames(

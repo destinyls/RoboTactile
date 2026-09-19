@@ -138,7 +138,7 @@ initialize_layout() {
     "$root/artifacts/rest-references" \
     "$root/artifacts/live-univtac" \
     "$root/requests/calibration" \
-    "$root/requests/four-condition" \
+    "$root/requests/three-condition" \
     "$root/requests/primary-matrix" \
     "$root/outputs/matrices" \
     "$root/outputs/reports" \

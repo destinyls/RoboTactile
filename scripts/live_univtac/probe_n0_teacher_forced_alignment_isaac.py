@@ -84,7 +84,15 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--upstream-root", type=Path, required=True)
     parser.add_argument("--runtime-dir", type=Path, required=True)
     parser.add_argument("--hdf5", type=Path, required=True)
-    parser.add_argument("--hdf5-index", type=int, default=0)
+    parser.add_argument(
+        "--hdf5-index",
+        type=int,
+        help=(
+            "target row; defaults to the last row with a successor so the "
+            "probe covers the complete expert task instead of an arbitrary "
+            "intermediate state"
+        ),
+    )
     parser.add_argument("--replay-stride", type=int, default=1)
     parser.add_argument(
         "--actor-placement",
@@ -112,17 +120,23 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _validate_args(args: argparse.Namespace) -> None:
-    for name in ("initial_seed", "exogenous_seed", "hdf5_index"):
+    for name in ("initial_seed", "exogenous_seed"):
         value = getattr(args, name)
         if isinstance(value, bool) or not isinstance(value, int) or value < 0:
             raise ValueError(f"{name} must be a non-negative integer")
+    if args.hdf5_index is not None and (
+        isinstance(args.hdf5_index, bool)
+        or not isinstance(args.hdf5_index, int)
+        or args.hdf5_index < 0
+    ):
+        raise ValueError("hdf5_index must be a non-negative integer when provided")
     if (
         isinstance(args.replay_stride, bool)
         or not isinstance(args.replay_stride, int)
         or args.replay_stride < 1
     ):
         raise ValueError("replay_stride must be a positive integer")
-    if args.hdf5_index % args.replay_stride != 0:
+    if args.hdf5_index is not None and args.hdf5_index % args.replay_stride != 0:
         raise ValueError("hdf5_index must lie on the official replay stride")
     if args.actor_placement == "hdf5_initial" and args.task != "lift_bottle":
         raise ValueError("hdf5_initial actor placement currently requires lift_bottle")
@@ -161,8 +175,13 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     hdf5 = _regular_file(args.hdf5, "HDF5")
     output = _output_path(args.output_dir)
     expert = load_expert_hdf5_trajectory(hdf5, args.task)
+    target_index = expert.count - 2 if args.hdf5_index is None else args.hdf5_index
+    if target_index >= expert.count - 1:
+        raise ValueError("hdf5_index must select a row with a successor")
+    if target_index % args.replay_stride != 0:
+        raise ValueError("resolved hdf5_index must lie on the official replay stride")
     joint9_trajectory, joint_source_sha256 = load_expert_hdf5_joint9_trajectory(hdf5)
-    reference = load_expert_hdf5_frame(hdf5, args.hdf5_index)
+    reference = load_expert_hdf5_frame(hdf5, target_index)
     actor_poses: dict[str, Array] | None = None
     actor_source_sha256: str | None = None
     if args.actor_placement == "hdf5_initial":
@@ -177,8 +196,6 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         or len(joint9_trajectory) != expert.count
     ):
         raise RuntimeError("HDF5 changed while loading teacher-forced reference")
-    if args.hdf5_index >= expert.count - 1:
-        raise ValueError("hdf5_index must select a row with a successor")
     config = build_univtac_backend_config(args.task, action_spec=EE8_ACTION_SPEC)
     launcher_args = production_univtac_launcher_args()
     launcher_args["rendering_mode"] = args.rendering_mode
@@ -255,7 +272,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         native_before = native_step(runtime.task)
         _emit_stage(
             stage,
-            hdf5_index=args.hdf5_index,
+            hdf5_index=target_index,
             native_step_before=native_before,
             replay_stride=args.replay_stride,
         )
@@ -264,7 +281,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
             backend=backend,
             joint9_trajectory=joint9_trajectory,
             expert_states=expert.states,
-            target_index=args.hdf5_index,
+            target_index=target_index,
             stride=args.replay_stride,
             physics_steps_per_target=config.physics_steps_per_action,
         )
@@ -308,7 +325,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         stage = "metric_computation"
         _emit_stage(stage)
         target_match = state_match_at_index(
-            expert.states, replay_record.observation.proprio, args.hdf5_index
+            expert.states, replay_record.observation.proprio, target_index
         )
         nearest_match = select_nearest_state_match(
             expert.states, replay_record.observation.proprio
@@ -457,7 +474,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                     ),
                     "config_sha256": config.sha256,
                     "hdf5": {
-                        "index": args.hdf5_index,
+                        "index": target_index,
                         "native_step": reference.native_step,
                         "path": str(hdf5),
                         "pixel_provenance": (

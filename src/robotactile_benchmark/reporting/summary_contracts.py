@@ -233,52 +233,6 @@ class OperatorCellSummary:
 
 
 @dataclass(frozen=True)
-class RecoverySummary:
-    """Post-restoration recovery without treating missing recovery as zero lag."""
-
-    eligible_count: int
-    recovered_count: int
-    unrecovered_fraction: Optional[float]
-    median_lag_steps: Optional[float]
-    mean_lag_steps: Optional[float]
-
-    def __post_init__(self) -> None:
-        if (
-            self.eligible_count < 0
-            or not 0 <= self.recovered_count <= self.eligible_count
-        ):
-            raise ValueError("recovery counts are invalid")
-        object.__setattr__(
-            self,
-            "unrecovered_fraction",
-            _rate(self.unrecovered_fraction, "unrecovered_fraction"),
-        )
-        for name in ("median_lag_steps", "mean_lag_steps"):
-            value = _finite_optional(getattr(self, name), name)
-            if value is not None and value < 0.0:
-                raise ValueError("recovery lag must be non-negative")
-            object.__setattr__(self, name, value)
-        if self.eligible_count == 0 and any(
-            value is not None
-            for value in (
-                self.unrecovered_fraction,
-                self.median_lag_steps,
-                self.mean_lag_steps,
-            )
-        ):
-            raise ValueError("ineligible recovery summary cannot contain estimates")
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "eligible_count": self.eligible_count,
-            "recovered_count": self.recovered_count,
-            "unrecovered_fraction": self.unrecovered_fraction,
-            "median_lag_steps": self.median_lag_steps,
-            "mean_lag_steps": self.mean_lag_steps,
-        }
-
-
-@dataclass(frozen=True)
 class BenchmarkSummary:
     """Complete system-level reporting payload bound to source run receipts."""
 
@@ -287,7 +241,6 @@ class BenchmarkSummary:
     tasks: Tuple[TaskSummary, ...]
     operator_cells: Tuple[OperatorCellSummary, ...]
     worst_cell: OperatorCellSummary
-    recovery: RecoverySummary
     coverage: CoverageSummary
     macro_clean_sr: float
     macro_no_touch_sr: Optional[float]
@@ -348,7 +301,6 @@ class BenchmarkSummary:
                 "operator_id": self.worst_cell.operator_id,
                 "severity_level": self.worst_cell.severity_level,
             },
-            "recovery": self.recovery.to_dict(),
             "coverage": self.coverage.to_dict(),
             "macro_clean_sr": self.macro_clean_sr,
             "macro_no_touch_sr": self.macro_no_touch_sr,

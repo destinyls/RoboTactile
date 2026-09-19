@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from typing import Any, cast
 
 import numpy as np
 
 from robotactile_benchmark.backends.univtac_contracts import UniVTACContractError
+from robotactile_benchmark.backends.univtac_rest_calibration import (
+    N0_EMPTY_GRIPPER_CALIBRATION_CONTRACT,
+)
 from robotactile_benchmark.contracts import Array
 
 _SUPPORTED_TASKS = frozenset({"grasp_classify"})
@@ -221,6 +225,32 @@ def install_grasp_initialization_compatibility(task: Any, task_id: str) -> bool:
         nonlocal initial_position
         initial_position = None
         result = upstream_reset(*args, **kwargs)
+        calibration = getattr(task, "_robotactile_rest_calibration", None)
+        if calibration is not None:
+            if (
+                not isinstance(calibration, Mapping)
+                or calibration.get("calibration_contract")
+                != N0_EMPTY_GRIPPER_CALIBRATION_CONTRACT
+            ):
+                raise UniVTACContractError(
+                    "grasp_classify rest calibration witness is invalid"
+                )
+            witness = {
+                "attempt_count": 0,
+                "attempts": [],
+                "calibration_bypass": True,
+                "passed": True,
+                "preload_required": False,
+                "preload_reason": "rest_calibration_empty_gripper_v1",
+                "selected_attempt": "rest_calibration_empty_gripper",
+                "task_id": task_id,
+            }
+            task._robotactile_grasp_initialization = witness
+            log_info(
+                "ROBOTACTILE_GRASP_INITIALIZATION "
+                + json.dumps(witness, separators=(",", ":"), sort_keys=True)
+            )
+            return result
         attempts = [capture_attempt("official_lower_bound")]
         if bool(attempts[-1]["kinematics_passed"]):
             run_retry("loaded_adaptive", in_place=True)

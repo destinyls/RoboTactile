@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/destinyls/RoboTactile/schemas/act_official_install_receipt.schema.json",
+  "title": "RoboTactile official UniVTAC ACT install receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_family",
+    "evidence_level",
+    "install_plan",
+    "lock_sha256",
+    "plan_sha256",
+    "reference_evidence_level",
+    "repository_id",
+    "repository_type",
+    "revision",
+    "schema_version"
+  ],
+  "properties": {
+    "artifact_family": {"const": "official_univtac_act_hf_release"},
+    "evidence_level": {
+      "const": "artifact_installation_only_no_model_or_simulator_execution_v1"
+    },
+    "install_plan": {
+      "$ref": "act_official_install_plan.schema.json"
+    },
+    "lock_sha256": {"$ref": "#/$defs/sha256"},
+    "plan_sha256": {"$ref": "#/$defs/sha256"},
+    "reference_evidence_level": {
+      "type": ["string", "null"],
+      "enum": ["upstream_reference_only_no_local_execution_v1", null]
+    },
+    "repository_id": {"const": "byml/UniVTAC"},
+    "repository_type": {"const": "dataset"},
+    "revision": {
+      "const": "172331dbbce95bc04c3e59b22f32dc72ba5561ae"
+    },
+    "schema_version": {
+      "const": "robotactile-official-act-install-receipt-v1"
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

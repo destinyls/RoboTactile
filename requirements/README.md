@@ -42,7 +42,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --require-hashes -r requirements/core.lock.txt
 python -m pip install --no-deps \
-  dist/robotactile_benchmark-0.4.0-py3-none-any.whl
+  dist/robotactile_benchmark-0.6.0-py3-none-any.whl
 ```
 
 `uv.lock` remains an optional maintainer artifact. It is not required by the

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 import time
 from collections.abc import Callable
@@ -43,6 +44,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--runtime-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--preclose-output", type=Path)
+    parser.add_argument(
+        "--supervise-close",
+        action="store_true",
+        help="run the probe in a child process and finalize abrupt app closure",
+    )
     parser.add_argument("--task", required=True)
     parser.add_argument(
         "--initial-seed",
@@ -120,6 +126,170 @@ def _require_sha256(value: object, name: str) -> str:
     ):
         raise RuntimeError(f"{name} is not a lowercase SHA256")
     return value
+
+
+def _load_valid_preclose(path: Path) -> dict[str, object]:
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise RuntimeError(
+            f"cannot read supervised preclose receipt: {error}"
+        ) from error
+    if not isinstance(document, dict):
+        raise RuntimeError("supervised preclose receipt must be a JSON object")
+
+    supplied_hash = document.get("content_sha256")
+    unhashed = dict(document)
+    unhashed.pop("content_sha256", None)
+    if supplied_hash != canonical_hash(unhashed):
+        raise RuntimeError("supervised preclose receipt content SHA256 mismatch")
+
+    expected = {
+        "app_close_status": "pending",
+        "exit_code": None,
+        "failure": None,
+        "policy_loaded": False,
+        "receipt_stage": "preclose",
+        "same_process_confirmed": True,
+        "status": "runtimes_passed_app_close_pending",
+    }
+    for field, value in expected.items():
+        if document.get(field) != value:
+            raise RuntimeError(
+                f"supervised preclose receipt has invalid {field}: "
+                f"{document.get(field)!r}"
+            )
+
+    runtime_count = document.get("runtime_count")
+    completed_count = document.get("completed_runtime_count")
+    runs = document.get("runs")
+    process_id = document.get("app_process_id")
+    stages = document.get("app_lifecycle_stages")
+    if (
+        isinstance(runtime_count, bool)
+        or not isinstance(runtime_count, int)
+        or runtime_count < 2
+        or completed_count != runtime_count
+        or not isinstance(runs, list)
+        or len(runs) != runtime_count
+        or any(
+            not isinstance(item, dict)
+            or item.get("status") != "passed"
+            or item.get("process_id") != process_id
+            for item in runs
+        )
+        or not isinstance(stages, list)
+        or "app_close_pending" not in stages
+    ):
+        raise RuntimeError("supervised preclose receipt has invalid runtime evidence")
+    return document
+
+
+def _normalized_process_exit_code(returncode: int) -> int:
+    return returncode if returncode >= 0 else 128 + abs(returncode)
+
+
+def _finalize_supervised_preclose(
+    preclose: dict[str, object],
+    *,
+    child_returncode: int,
+    close_duration_s: float,
+) -> tuple[int, dict[str, object]]:
+    exit_code = _normalized_process_exit_code(child_returncode)
+    document = dict(preclose)
+    raw_stages = document.get("app_lifecycle_stages")
+    if not isinstance(raw_stages, (list, tuple)) or any(
+        not isinstance(item, str) for item in raw_stages
+    ):
+        raise RuntimeError("supervised preclose receipt has invalid lifecycle stages")
+    stages = list(raw_stages)
+    stages.append("app_close_start")
+    document.update(
+        {
+            "app_close_duration_s": close_duration_s,
+            "app_lifecycle_stages": tuple(stages),
+            "exit_code": exit_code,
+            "receipt_stage": "final",
+        }
+    )
+    total_duration_s = document.get("total_duration_s")
+    if isinstance(total_duration_s, (int, float)) and not isinstance(
+        total_duration_s, bool
+    ):
+        document["total_duration_s"] = total_duration_s + close_duration_s
+
+    if exit_code == 0:
+        stages.append("app_close_system_exit_zero")
+        document.update(
+            {
+                "app_close_status": "system_exit_zero",
+                "failure": None,
+                "status": "passed",
+            }
+        )
+    else:
+        stages.append("app_close_process_exit_nonzero")
+        close_failure = {
+            "error_message": (
+                "supervised child exited with code "
+                f"{exit_code} before writing the final receipt"
+            ),
+            "error_type": "ChildProcessError",
+            "stage": "app_close",
+        }
+        raw_cleanup_errors = document.get("cleanup_errors", ())
+        if not isinstance(raw_cleanup_errors, (list, tuple)) or any(
+            not isinstance(item, dict) for item in raw_cleanup_errors
+        ):
+            raise RuntimeError("supervised preclose receipt has invalid cleanup errors")
+        cleanup_errors = list(raw_cleanup_errors)
+        cleanup_errors.append(close_failure)
+        document.update(
+            {
+                "app_close_status": "process_exit_nonzero",
+                "cleanup_errors": tuple(cleanup_errors),
+                "failure": close_failure,
+                "status": "failed",
+            }
+        )
+
+    document["app_lifecycle_stages"] = tuple(stages)
+    document.pop("content_sha256", None)
+    document["content_sha256"] = canonical_hash(document)
+    return exit_code, document
+
+
+def _supervise_close(
+    child_argv: list[str],
+    *,
+    output: Path,
+    preclose_output: Path,
+) -> int:
+    command = [sys.executable, str(Path(__file__).resolve()), *child_argv]
+    child_started_wall = time.time()
+    completed = subprocess.run(command, check=False)
+    child_returncode = int(completed.returncode)
+    if output.is_file():
+        return _normalized_process_exit_code(child_returncode)
+    if output.exists() or output.is_symlink():
+        raise RuntimeError("supervised child created a non-file final output")
+    if not preclose_output.is_file():
+        raise RuntimeError(
+            "supervised child exited without a final or valid preclose receipt"
+        )
+
+    preclose = _load_valid_preclose(preclose_output)
+    preclose_written_wall = max(child_started_wall, preclose_output.stat().st_mtime)
+    close_duration_s = max(0.0, time.time() - preclose_written_wall)
+    exit_code, document = _finalize_supervised_preclose(
+        preclose,
+        child_returncode=child_returncode,
+        close_duration_s=close_duration_s,
+    )
+    write_canonical_no_clobber(output, document)
+    serialized = json.dumps(document, sort_keys=True, separators=(",", ":"))
+    print(serialized, file=sys.stdout if exit_code == 0 else sys.stderr, flush=True)
+    return exit_code
 
 
 def _runtime_directory(
@@ -383,8 +553,16 @@ def run(
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    args = _parser().parse_args(argv)
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    args = _parser().parse_args(raw_argv)
     output, preclose_output = _output_paths(args)
+    if args.supervise_close:
+        child_argv = [item for item in raw_argv if item != "--supervise-close"]
+        return _supervise_close(
+            child_argv,
+            output=output,
+            preclose_output=preclose_output,
+        )
 
     def write_preclose(document: dict[str, object]) -> None:
         write_canonical_no_clobber(preclose_output, document)

@@ -20,11 +20,15 @@ from robotactile_benchmark.contracts import (
     ObservationRecord,
     freeze_array,
 )
+from robotactile_benchmark.execution.contracts import N0ObservedTactileMode
 from robotactile_benchmark.policies.n0_input_profile import (
     N0InputProfile,
     prepare_n0_image,
 )
-from robotactile_benchmark.transport.n0_official import OfficialN0CommitTransform
+from robotactile_benchmark.transport.n0_official import (
+    OfficialN0CommitTransform,
+    native_action_shape,
+)
 
 NATIVE_ACTION_SHAPE = (20, 2, 12)
 SLOTS_PER_FRAME = 12
@@ -53,12 +57,13 @@ class OfficialN0PolicyClient(Protocol):
         self,
         *,
         video_keyframes: Sequence[Mapping[str, Array]],
-        tactile_keyframes: Sequence[Mapping[str, Array]],
+        tactile_keyframes: Optional[Sequence[Mapping[str, Array]]],
         inferred_action: Array,
         native_action: Array,
         action_transform: OfficialN0CommitTransform,
         current_state: Array,
         prompt: str,
+        observed_tactile_absent: bool = False,
     ) -> None: ...
 
     def discard_terminal(self) -> None: ...
@@ -175,16 +180,19 @@ def _rot6d10_to_ee8(value: Array) -> Array:
     return result
 
 
-def native_to_ee8_actions(native: object, *, cold_chunk: bool) -> Array:
+def native_to_ee8_actions(
+    native: object, *, cold_chunk: bool, action_per_frame: int = 12
+) -> Array:
     """Convert official [20,2,12] output to executable frame-major EE8 rows."""
 
     value = np.asarray(native)
+    shape = native_action_shape(action_per_frame)
     if (
         value.dtype != np.float32
-        or value.shape != NATIVE_ACTION_SHAPE
+        or value.shape != shape
         or not np.isfinite(value).all()
     ):
-        raise ValueError(f"N0 native action must be float32 {NATIVE_ACTION_SHAPE}")
+        raise ValueError(f"N0 native action must be float32 {shape}")
     start_frame = 1 if cold_chunk else 0
     rows = [
         _rot6d10_to_ee8(value[:10, frame, slot])
@@ -198,6 +206,7 @@ def _wire_observation(
     observation: ObservationRecord,
     *,
     input_profile: N0InputProfile,
+    observed_tactile_mode: N0ObservedTactileMode,
 ) -> tuple[dict[str, Array], dict[str, Array], Array]:
     if set(observation.vision) != {"top", "wrist_l"}:
         raise ValueError("official N0 vision keys must be top and wrist_l")
@@ -212,6 +221,12 @@ def _wire_observation(
     tactile: dict[str, Array] = {}
     for slot_id, key in (("left", "tactile_a"), ("right", "tactile_b")):
         sensor = observation.sensor(slot_id)
+        if observed_tactile_mode is N0ObservedTactileMode.ABSENT:
+            if sensor.payload_present or sensor.payload is not None:
+                raise ValueError(
+                    "N0 observed-tactile absence requires payload-free streams"
+                )
+            continue
         if not sensor.payload_present or sensor.payload is None:
             raise ValueError("official N0 requires both tactile streams")
         tactile[f"observation.images.{key}"] = prepare_n0_image(
@@ -231,15 +246,31 @@ class OfficialN0Policy:
         client_factory: Callable[[], OfficialN0PolicyClient],
         *,
         input_profile: N0InputProfile,
+        action_per_frame: int = 12,
+        prompt_override: Optional[str] = None,
+        observed_tactile_mode: N0ObservedTactileMode = (N0ObservedTactileMode.REQUIRED),
     ) -> None:
+        native_action_shape(action_per_frame)
+        if prompt_override is not None and (
+            not isinstance(prompt_override, str) or not prompt_override.strip()
+        ):
+            raise ValueError("N0 prompt_override must be non-empty")
+        self.action_per_frame = action_per_frame
+        self._prompt_override = prompt_override
         if identity.action_spec != EE8_ACTION_SPEC:
             raise ValueError("official N0 policy requires ee8_absolute")
-        if not identity.consumes_tactile or identity.supports_structural_absence:
-            raise ValueError("official N0 requires tactile without structural absence")
+        mode = N0ObservedTactileMode(observed_tactile_mode)
+        if not identity.consumes_tactile:
+            raise ValueError("official N0 requires a tactile-consuming base identity")
+        if identity.supports_structural_absence != (
+            mode is N0ObservedTactileMode.ABSENT
+        ):
+            raise ValueError("official N0 tactile mode and policy identity disagree")
         if type(input_profile) is not N0InputProfile:
             raise TypeError("input_profile must be an exact N0InputProfile")
         self.identity = identity
         self.input_profile = input_profile
+        self.observed_tactile_mode = mode
         self._client_factory = client_factory
         self._client: Optional[OfficialN0PolicyClient] = None
         self._context: Optional[PolicyEpisodeContext] = None
@@ -259,7 +290,7 @@ class OfficialN0Policy:
             raise RuntimeError("closed official N0 policy cannot reset")
         if context.action_spec != EE8_ACTION_SPEC:
             raise ValueError("official N0 reset action spec mismatch")
-        prompt = n0_training_prompt(context.task)
+        prompt = self._prompt_override or n0_training_prompt(context.task)
         if context.instruction != prompt:
             raise ValueError("official N0 reset prompt must match training verbatim")
         self._client_instance().reset(prompt=prompt, seed=context.exogenous_seed)
@@ -283,17 +314,22 @@ class OfficialN0Policy:
         vision, tactile, current_state = _wire_observation(
             observation,
             input_profile=self.input_profile,
+            observed_tactile_mode=self.observed_tactile_mode,
         )
-        prompt = n0_training_prompt(observation.task)
-        native = self._client_instance().infer(
-            {
-                "obs": vision,
-                "tactile": tactile,
-                "current_state": current_state.tolist(),
-                "prompt": prompt,
-            }
+        prompt = self._prompt_override or n0_training_prompt(observation.task)
+        wire_observation: dict[str, object] = {
+            "obs": vision,
+            "current_state": current_state.tolist(),
+            "prompt": prompt,
+        }
+        if self.observed_tactile_mode is N0ObservedTactileMode.ABSENT:
+            wire_observation["tactile_cond_drop"] = True
+        else:
+            wire_observation["tactile"] = tactile
+        native = self._client_instance().infer(wire_observation)
+        actions = native_to_ee8_actions(
+            native, cold_chunk=self._cold_chunk, action_per_frame=self.action_per_frame
         )
-        actions = native_to_ee8_actions(native, cold_chunk=self._cold_chunk)
         plan = ActionPlan(EE8_ACTION_SPEC, observation.step_index, actions)
         self._pending_plan = plan
         self._pending_native = native
@@ -324,7 +360,7 @@ class OfficialN0Policy:
             delivered = execution.delivered_observations
             if len(delivered) != self._pending_plan.actions.shape[0]:
                 raise RuntimeError("official N0 grounding observation count mismatch")
-            every = SLOTS_PER_FRAME // KEYFRAMES_PER_FRAME
+            every = self.action_per_frame // KEYFRAMES_PER_FRAME
             selected = tuple(
                 delivered[index] for index in range(every - 1, len(delivered), every)
             )
@@ -332,17 +368,25 @@ class OfficialN0Policy:
                 _wire_observation(
                     item,
                     input_profile=self.input_profile,
+                    observed_tactile_mode=self.observed_tactile_mode,
                 )
                 for item in selected
             )
             client.commit(
                 video_keyframes=tuple(item[0] for item in wire),
-                tactile_keyframes=tuple(item[1] for item in wire),
+                tactile_keyframes=(
+                    None
+                    if self.observed_tactile_mode is N0ObservedTactileMode.ABSENT
+                    else tuple(item[1] for item in wire)
+                ),
                 inferred_action=self._pending_native,
                 native_action=self._pending_native,
                 action_transform=OfficialN0CommitTransform.IDENTITY,
                 current_state=self._pending_state,
-                prompt=n0_training_prompt(context.task),
+                prompt=self._prompt_override or n0_training_prompt(context.task),
+                observed_tactile_absent=(
+                    self.observed_tactile_mode is N0ObservedTactileMode.ABSENT
+                ),
             )
         self._pending_plan = None
         self._pending_native = None

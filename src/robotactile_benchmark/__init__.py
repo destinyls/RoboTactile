@@ -3,4 +3,4 @@
 from robotactile_benchmark.constants import CORE_OPERATOR_IDS
 
 __all__ = ["CORE_OPERATOR_IDS"]
-__version__ = "0.4.0"
+__version__ = "0.6.0"

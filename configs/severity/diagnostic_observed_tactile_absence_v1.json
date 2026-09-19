@@ -1,0 +1,10 @@
+{
+  "registry_id": "diagnostic_observed_tactile_absence_v1",
+  "semantic_version": "1.0",
+  "calibration_status": "training-consistent observed-tactile structural-absence diagnostic; outside paper S1-S5 claims",
+  "cross_operator_comparable": false,
+  "level": 5,
+  "paths": {
+    "A1_stream_absence": {"unit": "affected_window_fraction", "value": 1.0}
+  }
+}

@@ -22,8 +22,6 @@ def _outcome(
     digest_index: int,
     operator: str | None = None,
     severity: int | None = None,
-    recovery_eligible: bool = False,
-    recovery_lag: int | None = None,
 ) -> OutcomeRecord:
     eligible = success is not None
     return OutcomeRecord(
@@ -41,8 +39,6 @@ def _outcome(
         source_root_sha256=_HEXES[digest_index],
         operator_id=operator,
         severity_level=severity,
-        recovery_eligible=recovery_eligible,
-        recovery_lag_steps=recovery_lag,
     )
 
 
@@ -96,26 +92,22 @@ def _fixture() -> tuple[OutcomeRecord, ...]:
                 )
             )
             digest_index += 1
-    recovery = (0, None, 2, None)
-    for (task, pair, _, _), lag in zip(pairs, recovery):
-        records.append(
-            _outcome(
-                task=task,
-                pair=pair,
-                condition=Condition.RESTORED,
-                success=lag is not None,
-                digest_index=digest_index,
-                operator="A1_stream_absence",
-                severity=1,
-                recovery_eligible=True,
-                recovery_lag=lag,
-            )
-        )
-        digest_index += 1
     return tuple(records)
 
 
 class ReportingAggregationTests(unittest.TestCase):
+    def test_legacy_v1_reporting_spec_fails_closed(self) -> None:
+        with self.assertRaisesRegex(ValueError, "semantic version"):
+            ReportingSpec(
+                system_id="touch-policy",
+                matched_control_qualified=True,
+                minimum_clean_gain=0.05,
+                primary_operator_ids=("A1_stream_absence",),
+                bootstrap_resamples=100,
+                bootstrap_seed=7,
+                semantic_version="1.0",
+            )
+
     def test_aggregation_uses_task_axis_operator_and_severity_equal_weighting(
         self,
     ) -> None:
@@ -139,16 +131,28 @@ class ReportingAggregationTests(unittest.TestCase):
         self.assertEqual(by_task["task_a"].clean_sr, 1.0)
         self.assertEqual(by_task["task_a"].no_touch_sr, 0.5)
         self.assertEqual(by_task["task_a"].fault_sr, 0.5)
-        self.assertEqual(by_task["task_a"].paired_delta_sr, -0.5)
+        self.assertEqual(by_task["task_a"].paired_delta_sr, 0.5)
         self.assertEqual(by_task["task_a"].tgr, 0.0)
         self.assertEqual(by_task["task_b"].fault_sr, 0.125)
         self.assertEqual(by_task["task_b"].tgr, 0.25)
         self.assertAlmostEqual(summary.macro_tgr, 0.125)
+        self.assertEqual(summary.macro_paired_delta_sr, 0.4375)
+        self.assertEqual(summary.paired_delta_interval.estimate, 0.4375)
         self.assertEqual(summary.worst_cell.operator_id, "A1_stream_absence")
         self.assertEqual(summary.worst_cell.severity_level, 2)
         self.assertEqual(summary.worst_cell.success_rate, 0.0)
+        self.assertEqual(summary.worst_cell.paired_delta_sr, 0.75)
+        self.assertIsNotNone(summary.worst_cell.paired_delta_lower)
+        self.assertIsNotNone(summary.worst_cell.paired_delta_upper)
+        assert summary.worst_cell.paired_delta_lower is not None
+        assert summary.worst_cell.paired_delta_upper is not None
+        self.assertGreaterEqual(summary.worst_cell.paired_delta_lower, 0.0)
+        self.assertGreaterEqual(
+            summary.worst_cell.paired_delta_upper,
+            summary.worst_cell.paired_delta_lower,
+        )
 
-    def test_aggregation_reports_native_doses_recovery_and_coverage(self) -> None:
+    def test_aggregation_reports_native_doses_and_coverage(self) -> None:
         unsupported = _outcome(
             task="task_a",
             pair="a1",
@@ -182,10 +186,6 @@ class ReportingAggregationTests(unittest.TestCase):
         self.assertEqual(curve.native_dose, 0.10)
         self.assertEqual(curve.native_unit, "affected_window_fraction")
         self.assertEqual(curve.success_rate, 0.0)
-        self.assertEqual(summary.recovery.eligible_count, 4)
-        self.assertEqual(summary.recovery.recovered_count, 2)
-        self.assertEqual(summary.recovery.unrecovered_fraction, 0.5)
-        self.assertEqual(summary.recovery.median_lag_steps, 1.0)
         self.assertEqual(summary.coverage.requested_count, len(_fixture()) + 1)
         self.assertEqual(summary.coverage.ineligible_count, 1)
 
@@ -380,7 +380,8 @@ class ReportingAggregationTests(unittest.TestCase):
 
         self.assertEqual(summary.macro_clean_sr, 1.0)
         self.assertEqual(summary.macro_fault_sr, 0.0)
-        self.assertEqual(summary.macro_paired_delta_sr, -1.0)
+        self.assertEqual(summary.macro_paired_delta_sr, 1.0)
+        self.assertEqual(summary.paired_delta_interval.estimate, 1.0)
         self.assertIsNone(summary.macro_no_touch_sr)
         self.assertIsNone(summary.macro_tgr)
         self.assertEqual(

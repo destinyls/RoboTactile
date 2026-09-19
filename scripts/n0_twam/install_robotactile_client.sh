@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../live_univtac/common.sh
 source "$SCRIPT_DIR/../live_univtac/common.sh"
 
-BENCHMARK_VERSION="0.4.0"
+BENCHMARK_VERSION="0.6.0"
 DEPLOY_ROOT="$(default_deployment_root)"
 SYSTEM_PYTHON="${ROBOTACTILE_SYSTEM_PYTHON:-python3}"
 WHEEL_INPUT=""

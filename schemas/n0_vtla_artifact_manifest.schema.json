@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robotactile.invalid/schemas/n0_vtla_artifact_manifest.schema.json",
+  "title": "RoboTactile N0-VTLA artifact manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "asset_id",
+    "bundle_root",
+    "checkpoint_path",
+    "checkpoint_repository",
+    "checkpoint_revision",
+    "checkpoint_root",
+    "checkpoint_sha256",
+    "config_name",
+    "config_path",
+    "config_sha256",
+    "external_commit",
+    "normalizer_path",
+    "normalizer_sha256",
+    "schema_version",
+    "task_id"
+  ],
+  "properties": {
+    "asset_id": {"const": "n0_insert_hole_norm"},
+    "bundle_root": {"type": "string"},
+    "checkpoint_path": {"type": "string"},
+    "checkpoint_repository": {"const": "NeoteAI/n0_VTLA_insert_hole"},
+    "checkpoint_revision": {"const": "73a514c015c6745a14a3efdca92f25c6cfab5eb5"},
+    "checkpoint_root": {"type": "string"},
+    "checkpoint_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "config_name": {"const": "sim_single_arm_tactile"},
+    "config_path": {"type": "string"},
+    "config_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "external_commit": {"const": "03a0ce4d7091ca2354864796770715aa212601b7"},
+    "normalizer_path": {"type": "string"},
+    "normalizer_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "schema_version": {"const": "robotactile-n0-vtla-artifact-v1"},
+    "task_id": {"const": "insert_hole"}
+  }
+}

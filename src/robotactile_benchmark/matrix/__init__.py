@@ -1,8 +1,7 @@
-"""Four-condition benchmark matrix construction and orchestration."""
+"""Three-condition benchmark matrix construction and orchestration."""
 
 from robotactile_benchmark.matrix.builders import (
     build_focused_phase_manifest,
-    build_focused_restoration_manifest,
     build_primary_matrix_manifest,
 )
 from robotactile_benchmark.matrix.contracts import (
@@ -91,7 +90,6 @@ __all__ = [
     "PrimaryMatrixGenerationReceipt",
     "PrimaryMatrixGenerationSpec",
     "build_focused_phase_manifest",
-    "build_focused_restoration_manifest",
     "build_primary_matrix_manifest",
     "generate_primary_matrix_bundle",
     "load_cell_receipt",

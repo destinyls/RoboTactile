@@ -9,8 +9,9 @@ from types import MappingProxyType
 from typing import Any, Tuple, cast
 
 from robotactile_benchmark.contracts import canonical_hash
+from robotactile_benchmark.trials import Condition
 
-LIVE_PREFLIGHT_SEMANTIC_VERSION = "1.0"
+LIVE_PREFLIGHT_SEMANTIC_VERSION = "2.0"
 LIVE_PREFLIGHT_EVIDENCE_LEVEL = "live_preflight_no_simulator_execution_v1"
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
@@ -94,8 +95,13 @@ class LivePreflightReceipt:
             "request_content_sha256",
             _sha256(self.request_content_sha256, "request_content_sha256"),
         )
-        for name in ("task_id", "condition", "policy_kind"):
+        for name in ("task_id", "policy_kind"):
             object.__setattr__(self, name, _nonempty(getattr(self, name), name))
+        condition = _nonempty(self.condition, "condition")
+        try:
+            object.__setattr__(self, "condition", Condition(condition).value)
+        except ValueError as error:
+            raise LivePreflightError("preflight condition is invalid") from error
         checks = tuple(self.checks)
         if not checks or any(type(item) is not LivePreflightCheck for item in checks):
             raise LivePreflightError("checks must contain exact preflight checks")

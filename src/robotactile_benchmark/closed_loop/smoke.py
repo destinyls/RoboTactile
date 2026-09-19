@@ -56,8 +56,6 @@ def write_cpu_smoke_bundle(output: Path) -> LoadedClosedLoopBundle:
         action_spec="qpos8_next_step",
         fault_manifest_sha256=fault.sha256,
         matched_no_touch_system_id=None,
-        restoration_index=None,
-        restoration_mode=None,
     )
     run_spec = ClosedLoopRunSpec(
         prompt="insert the cable",

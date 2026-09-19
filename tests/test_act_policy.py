@@ -493,8 +493,6 @@ class StrictACTRuntime:
                 action_spec=identity.action_spec,
                 fault_manifest_sha256=fault.sha256,
                 matched_no_touch_system_id=None,
-                restoration_index=None,
-                restoration_mode=None,
             )
             backend = DeterministicFakeBackend(make_synthetic_episode())
             runtime = RecordingRuntime()

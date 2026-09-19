@@ -37,13 +37,13 @@
         }
       }
     },
-    "condition": {"enum": ["clean", "faulted", "no_touch", "restored"]},
+    "condition": {"enum": ["clean", "faulted", "no_touch"]},
     "evidence_level": {"const": "live_preflight_no_simulator_execution_v1"},
     "passed": {"type": "boolean"},
     "policy_kind": {"const": "act"},
     "receipt_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "request_content_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-    "semantic_version": {"const": "1.0"},
+    "semantic_version": {"const": "2.0"},
     "simulator_execution_claimed": {"const": false},
     "simulator_qualification_claimed": {"const": false},
     "task_id": {"type": "string", "minLength": 1}

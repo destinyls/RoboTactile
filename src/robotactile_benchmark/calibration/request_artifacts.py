@@ -75,8 +75,6 @@ def build_clean_calibration_request(
         output_dir=spec.live_artifact_output_dir,
         fault_manifest_path=None,
         rest_references_path=None,
-        restoration_index=None,
-        restoration_mode=None,
         matched_no_touch_system_id=None,
         matched_no_touch_artifact_path=None,
         act_device_name=spec.act_device_name,

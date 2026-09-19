@@ -159,14 +159,23 @@ def _port_is_open(host: str, port: int, timeout_s: float = 1.0) -> bool:
         return False
 
 
-def _n0_subprocess_environment() -> dict[str, str]:
+def _n0_subprocess_environment(deployment_root: Path) -> dict[str, str]:
     """Remove parent-runtime paths before entering the isolated N0 runtime."""
 
-    return {
+    environment = {
         name: value
         for name, value in os.environ.items()
         if name not in _N0_ISOLATED_ENVIRONMENT_KEYS
     }
+    environment.setdefault(
+        "ROBOTACTILE_N0_DIGEST_CACHE_DIR",
+        str(
+            deployment_root
+            / "runtime/artifact-digest-cache/n0-twam"
+            / socket.gethostname()
+        ),
+    )
+    return environment
 
 
 def _require_runtime_launcher(path: Path, runtime_root: Path, label: str) -> Path:
@@ -795,7 +804,7 @@ def run_task_shard(args: argparse.Namespace) -> tuple[dict[str, object], int]:
     worker_posix_session_id: int | None = None
     worker_shutdown = "not_started"
     worker_source_binding_sha256: str | None = None
-    n0_environment = _n0_subprocess_environment()
+    n0_environment = _n0_subprocess_environment(layout.root)
     with log_path.open("xb") as log_stream:
         try:
             server = subprocess.Popen(

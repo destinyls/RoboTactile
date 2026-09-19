@@ -128,7 +128,7 @@ for path in "$ROBOTACTILE_RECEIPT" "$UIPC_RECEIPT" "$SMOKE_PATH"; do
 done
 [ ! -e "$RECEIPT_PATH" ] || die "refusing to overwrite pairing receipt"
 receipt_matches "$ROBOTACTILE_RECEIPT" \
-  "component=robotactile_isaac" "version=0.4.0" "status=installed" \
+  "component=robotactile_isaac" "version=0.6.0" "status=installed" \
   "source_manifest_sha256=$CURRENT_SOURCE_MANIFEST_SHA256" || \
   die "RoboTactile Isaac receipt is incompatible"
 receipt_matches "$UIPC_RECEIPT" "component=tacex_uipc" "status=installed" || \
@@ -198,7 +198,7 @@ expected = {
     "divergence_proven": True,
     "evidence_level": "in_process_snapshot_replay_equivalence_v1",
     "policy_loaded": False,
-    "robotactile_version": "0.4.0",
+    "robotactile_version": "0.6.0",
     "runtime_close_requested": True,
     "simulator_qualification_claimed": False,
     "status": "passed",

@@ -19,7 +19,11 @@ from robotactile_benchmark.action_specs import EE8_ACTION_SPEC
 from robotactile_benchmark.backends.univtac_contracts import (
     build_univtac_backend_config,
 )
-from robotactile_benchmark.backends.univtac_factory import launch_univtac_runtime
+from robotactile_benchmark.backends.univtac_factory import (
+    UNIVTAC_ANTIALIASING_MODE,
+    UNIVTAC_RENDERING_MODE,
+    launch_univtac_runtime,
+)
 from robotactile_benchmark.backends.univtac_isaac import UniVTACIsaacBackend
 from robotactile_benchmark.closed_loop.contracts import PolicyEpisodeContext
 from robotactile_benchmark.contracts import Array, canonical_hash
@@ -65,12 +69,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--rendering-mode",
         choices=("balanced", "performance", "quality"),
-        default="balanced",
+        default=UNIVTAC_RENDERING_MODE,
     )
     parser.add_argument(
         "--antialiasing-mode",
         choices=("Off", "FXAA", "DLSS", "TAA", "DLAA"),
-        default="DLSS",
+        default=UNIVTAC_ANTIALIASING_MODE,
     )
     parser.add_argument("--static-render-count", type=int, default=8)
     return parser

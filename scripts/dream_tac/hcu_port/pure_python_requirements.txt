@@ -1,0 +1,5 @@
+# Install with: python -m pip install --target SITE --no-deps --require-hashes -r FILE
+ftfy==6.3.1 --hash=sha256:7c70eb532015cd2f9adb53f101fb6c7945988d023a085d127d1573dc49dd0083
+wcwidth==0.2.13 --hash=sha256:3da69048e4540d84af32131829ff948f1e022c1c6bdb8d6102117aac784f6859
+webdataset==0.2.111 --hash=sha256:57a70eb5d7029303ce2262d900ee3f16443bb5e9cf25f634775ce972859bcee4
+braceexpand==0.1.7 --hash=sha256:91332d53de7828103dcae5773fb43bc34950b0c8160e35e0f44c4427a3b85014

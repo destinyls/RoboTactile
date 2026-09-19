@@ -15,6 +15,7 @@ class N0SourceColorDomain(str, Enum):
 
     CHECKPOINT_PIL_RGB = "checkpoint_pil_decoded_rgb"
     UNIVTAC_SIMULATOR_RGB = "univtac_simulator_numeric_rgb"
+    RETRAINED_NUMERIC_RGB = "retrained_train759_numeric_rgb"
 
 
 @dataclass(frozen=True)
@@ -67,6 +68,10 @@ N0_RECORDED_CHECKPOINT_INPUT_PROFILE = N0InputProfile(
     profile_id="n0-recorded-checkpoint-pil-color-v1",
     source_color_domain=N0SourceColorDomain.CHECKPOINT_PIL_RGB,
 )
+N0_RETRAINED_INPUT_PROFILE = N0InputProfile(
+    profile_id="n0-train759-vt-10hz-numeric-rgb-v1",
+    source_color_domain=N0SourceColorDomain.RETRAINED_NUMERIC_RGB,
+)
 
 
 def prepare_n0_image(
@@ -92,5 +97,6 @@ __all__ = [
     "N0SourceColorDomain",
     "N0_LIVE_UNIVTAC_INPUT_PROFILE",
     "N0_RECORDED_CHECKPOINT_INPUT_PROFILE",
+    "N0_RETRAINED_INPUT_PROFILE",
     "prepare_n0_image",
 ]

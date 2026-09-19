@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robotactile.invalid/schemas/n0_fault_campaign_manifest.schema.json",
+  "title": "RoboTactile N0 Fault Campaign Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "campaign_id", "policy_kind", "operator_ids", "severity_levels",
+    "operator_template_seed_derivation", "pair_count", "cell_count",
+    "live_request_count", "unsupported_contract_count",
+    "rest_reference_bindings", "cells", "severity_registry", "semantic_version"
+  ],
+  "properties": {
+    "campaign_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "policy_kind": {"const": "n0"},
+    "operator_ids": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {"$ref": "#/$defs/operatorId"}
+    },
+    "severity_levels": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {"type": "integer", "minimum": 1, "maximum": 5}
+    },
+    "operator_template_seed_derivation": {"const": "sha256_signed31_pair_operator_v1"},
+    "pair_count": {"type": "integer", "minimum": 1},
+    "cell_count": {"type": "integer", "minimum": 2},
+    "live_request_count": {"type": "integer", "minimum": 1},
+    "unsupported_contract_count": {"type": "integer", "minimum": 0},
+    "rest_reference_bindings": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/restBinding"}
+    },
+    "cells": {
+      "type": "array", "minItems": 2,
+      "items": {"$ref": "#/$defs/cell"}
+    },
+    "severity_registry": {
+      "enum": [
+        "provisional_engineering_v2",
+        "diagnostic_stress_max_v1",
+        "optical_marker_v1",
+        "optical_marker_stress_v1",
+        "optical_marker_extreme_v1",
+        "optical_decision_stress_v1",
+        "diagnostic_observed_tactile_absence_v1",
+        "diagnostic_tactile_null_black_v1"
+      ]
+    },
+    "semantic_version": {"const": "1.0"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "nullableSha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+    "operatorId": {
+      "enum": [
+        "A1_stream_absence", "A2_frame_erasure",
+        "F1_global_response_drift", "F2_spatial_sensitivity_loss",
+        "F3_persistent_surface_artifact", "F4_local_nonresponsive_patch",
+        "F5_contact_shape_distortion", "F6_history_residual_imprint",
+        "F7_high_load_saturation", "T1_fixed_source_delay",
+        "T2_held_last_freeze", "T3_inter_sensor_skew",
+        "C1_sensor_identity_misrouting", "C2_frame_misregistration"
+      ]
+    },
+    "restBinding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["artifact_relpath", "artifact_root_sha256", "rest_reference_sha256"],
+      "properties": {
+        "artifact_relpath": {"type": "string", "pattern": "^rest_references/.+"},
+        "artifact_root_sha256": {"$ref": "#/$defs/sha256"},
+        "rest_reference_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "cell": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "ordinal", "task", "initial_seed", "exogenous_seed", "pair_key",
+        "condition", "disposition", "operator_id", "severity_level",
+        "operator_template_seed", "request_relpath", "artifact_relpath",
+        "request_file_sha256", "trial_manifest_sha256",
+        "fault_manifest_sha256", "fault_manifest_relpath",
+        "unsupported_receipt_relpath", "unsupported_receipt_sha256"
+      ],
+      "properties": {
+        "ordinal": {"type": "integer", "minimum": 0},
+        "task": {"type": "string", "minLength": 1},
+        "initial_seed": {"type": "integer", "minimum": 0},
+        "exogenous_seed": {"type": "integer", "minimum": 0},
+        "pair_key": {"$ref": "#/$defs/sha256"},
+        "condition": {"enum": ["clean", "faulted"]},
+        "disposition": {"enum": ["live_request", "unsupported_contract"]},
+        "operator_id": {"anyOf": [{"$ref": "#/$defs/operatorId"}, {"type": "null"}]},
+        "severity_level": {"type": ["integer", "null"], "minimum": 1, "maximum": 5},
+        "operator_template_seed": {"type": ["integer", "null"], "minimum": 0},
+        "request_relpath": {"type": ["string", "null"], "pattern": "^requests/.+"},
+        "artifact_relpath": {"type": ["string", "null"], "pattern": "^artifacts/.+"},
+        "request_file_sha256": {"$ref": "#/$defs/nullableSha256"},
+        "trial_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "fault_manifest_sha256": {"$ref": "#/$defs/nullableSha256"},
+        "fault_manifest_relpath": {"type": ["string", "null"], "pattern": "^fault_manifests/.+"},
+        "unsupported_receipt_relpath": {"type": ["string", "null"], "pattern": "^unsupported_contracts/.+"},
+        "unsupported_receipt_sha256": {"$ref": "#/$defs/nullableSha256"}
+      }
+    }
+  }
+}

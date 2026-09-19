@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 from robotactile_benchmark.execution.contracts import (
@@ -16,12 +17,22 @@ from robotactile_benchmark.execution.loading import (
 from robotactile_benchmark.integrations.act.artifacts import (
     load_act_artifact_manifest,
 )
+from robotactile_benchmark.integrations.dream_tac.artifacts import (
+    load_dream_tac_artifact_manifest,
+)
 from robotactile_benchmark.integrations.n0_twam.artifacts import (
     load_n0_twam_artifact_manifest,
+)
+from robotactile_benchmark.integrations.n0_vtla.artifacts import (
+    load_n0_vtla_artifact_manifest,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
 N0_TWAM_COMMIT = "c43a2160dd31c449d92b28eab52c0e2f09e4738a"
+N0_VTLA_COMMIT = "03a0ce4d7091ca2354864796770715aa212601b7"
+DREAM_TAC_COMMIT = "14bab51d6862fd07124745c55cd395ea5caa9fd3"
+ACT_ARTIFACT_REPOSITORY = "byml/UniVTAC"
+ACT_ARTIFACT_REVISION = "172331dbbce95bc04c3e59b22f32dc72ba5561ae"
 REQUIRED = (
     "BENCHMARK_CARD.md",
     "CITATION.cff",
@@ -43,15 +54,26 @@ REQUIRED = (
     "requirements/visualization.lock.txt",
     "scripts/bootstrap_pip.sh",
     "scripts/README.md",
+    "scripts/act/README.md",
+    "scripts/act/install_official_artifacts.py",
+    "scripts/ftp1_policy/install_isaac_client.sh",
+    "scripts/ftp1_policy/README.md",
     "examples/act/README.md",
     "examples/act/artifact_manifest.example.json",
     "examples/act/request.json",
+    "examples/dream_tac/README.md",
+    "examples/dream_tac/artifact_manifest.example.json",
     "examples/n0_twam/README.md",
     "examples/n0_twam/artifact_manifest.example.json",
     "examples/n0_twam/request.json",
+    "examples/n0_vtla/README.md",
+    "examples/n0_vtla/artifact_manifest.example.json",
     "integrations/install_pinned_repo.sh",
+    "integrations/act_artifacts.lock.json",
     "integrations/install_act_runtime.sh",
+    "integrations/install_dream_tac.sh",
     "integrations/install_n0_twam.sh",
+    "integrations/install_n0_vtla.sh",
     "integrations/install_univtac.sh",
 )
 
@@ -85,6 +107,15 @@ def test_notice_and_examples_present_symmetric_model_boundaries() -> None:
     assert "N0-TWAM" in n0 and "PolicyAdapter" in n0
     assert "unsupported_contract" in n0
     assert N0_TWAM_COMMIT in notice
+    assert "N0-VTLA" in notice
+    assert N0_VTLA_COMMIT in notice
+    assert ACT_ARTIFACT_REPOSITORY in notice
+    assert ACT_ARTIFACT_REVISION in notice
+    assert "dataset card declares MIT" in notice
+    assert "integrations/act_artifacts.lock.json" in notice
+    assert "Upstream logs and metadata are reference material" in notice
+    assert "locally executed RoboTactile results" in notice
+    assert "does not currently identify an official public weight release" not in notice
 
 
 def test_public_model_examples_pass_runtime_structure_gates() -> None:
@@ -114,9 +145,22 @@ def test_public_model_examples_pass_runtime_structure_gates() -> None:
     n0_manifest = load_n0_twam_artifact_manifest(
         ROOT / "examples/n0_twam/artifact_manifest.example.json"
     )
+    dream_tac_manifest = load_dream_tac_artifact_manifest(
+        ROOT / "examples/dream_tac/artifact_manifest.example.json"
+    )
+    vtla_manifest = load_n0_vtla_artifact_manifest(
+        ROOT / "examples/n0_vtla/artifact_manifest.example.json"
+    )
     assert act_manifest.checkpoint_sha256 == "0" * 64
     assert n0_manifest.checkpoint_sha256 == "0" * 64
     assert n0_manifest.external_commit == N0_TWAM_COMMIT
+    assert dream_tac_manifest.external_commit == DREAM_TAC_COMMIT
+    assert dream_tac_manifest.use_tactile is True
+    assert dream_tac_manifest.casa_inference_contract == (
+        "upstream_http_gate_missing_v1"
+    )
+    assert vtla_manifest.checkpoint_sha256 == "0" * 64
+    assert vtla_manifest.external_commit == N0_VTLA_COMMIT
 
 
 def test_install_scripts_are_syntax_valid_and_contain_no_secret() -> None:
@@ -127,6 +171,101 @@ def test_install_scripts_are_syntax_valid_and_contain_no_secret() -> None:
         subprocess.run(("bash", "-n", str(path)), check=True)
         content = path.read_text(encoding="utf-8")
         assert re.search(r"(?i)(password|api[_-]?key|token)=", content) is None
+
+
+def test_ftp1_public_docs_install_only_the_isolated_isaac_client() -> None:
+    script = (ROOT / "scripts/ftp1_policy/install_isaac_client.sh").read_text(
+        encoding="utf-8"
+    )
+    guide = (ROOT / "docs/model_integrations.md").read_text(encoding="utf-8")
+    operational = (ROOT / "scripts/ftp1_policy/README.md").read_text(encoding="utf-8")
+
+    for document in (guide, operational):
+        assert "scripts/ftp1_policy/install_isaac_client.sh" in document
+        assert "msgpack==1.1.1" in document
+        assert "pyzmq==27.1.0" in document
+    assert "runtime/isaac-sim-4.5.0/python.sh" in script
+    assert "runtime/n0-twam" not in script
+    assert "runtime/ftp1-policy/bin/python" not in script
+
+
+def test_act_official_release_docs_are_pinned_and_evidence_bounded() -> None:
+    paths = (
+        "README.md",
+        "docs/installation.md",
+        "docs/external_dependencies.md",
+        "docs/model_integrations.md",
+        "scripts/act/README.md",
+    )
+    documents = {path: (ROOT / path).read_text(encoding="utf-8") for path in paths}
+    combined = "\n".join(documents.values())
+
+    for document in documents.values():
+        assert ACT_ARTIFACT_REPOSITORY in document
+        assert ACT_ARTIFACT_REVISION in document
+        assert "scripts/act/install_official_artifacts.py" in document
+
+    for token in (
+        "encoder.pth",
+        "policy_last.ckpt",
+        "dataset_stats.pkl",
+        "metadata.json",
+        "log.log",
+        "grasp_classify",
+        "insert_HDMI",
+        "insert_hole",
+        "insert_tube",
+        "lift_bottle",
+        "lift_can",
+        "pull_out_key",
+        "put_bottle_in_shelf",
+    ):
+        assert token in documents["scripts/act/README.md"]
+
+    assert "upstream_reference_only_no_local_execution" in combined
+    assert "integrations/act_artifacts.lock.json" in combined
+    assert "ACT-official" in combined
+    assert "ACT-train759" in combined
+    assert "frozen40" in combined
+    assert "Clean/Faulted" in combined
+    assert "matched no-touch" in combined
+    assert "only the `univtac`" in combined
+
+    obsolete = (
+        "No public ACT weight source is registered here",
+        "does not currently claim an official public ACT weight release",
+        "does not currently claim that an official public ACT checkpoint bundle",
+        "does not claim a public official ACT weight bundle",
+    )
+    assert all(token not in combined for token in obsolete)
+    assert (
+        re.search(
+            r"install_official_artifacts\.py\s+(?:\\\n\s*)?--root(?:\s|$)",
+            combined,
+        )
+        is None
+    )
+
+
+def test_act_official_artifact_installer_help_matches_public_docs() -> None:
+    installer = ROOT / "scripts/act/install_official_artifacts.py"
+    completed = subprocess.run(
+        (sys.executable, str(installer), "--help"),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    for option in (
+        "--artifact-root",
+        "--task",
+        "--profile",
+        "--lock-path",
+        "--include-reference",
+        "--dry-run",
+        "--plan",
+        "--receipt",
+    ):
+        assert option in completed.stdout
 
 
 def test_readme_links_to_public_release_guides() -> None:
@@ -192,7 +331,7 @@ def test_public_sources_contain_no_personal_deployment_root() -> None:
         path
         for path in ROOT.rglob("*")
         if path.is_file()
-        and path != Path(__file__)
+        and path.relative_to(ROOT).as_posix() != "tests/test_public_release_docs.py"
         and path.suffix in suffixes
         and not (
             {
@@ -201,8 +340,11 @@ def test_public_sources_contain_no_personal_deployment_root() -> None:
                 ".pytest_cache",
                 ".ruff_cache",
                 ".venv",
+                "data",
                 "deployment",
                 "dist",
+                "outputs",
+                "temp",
             }
             & set(path.parts)
         )

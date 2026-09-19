@@ -29,7 +29,6 @@ from robotactile_benchmark.matrix.io import canonical_matrix_json_bytes
 from robotactile_benchmark.reporting import ReportingSpec, matrix_adapter
 from robotactile_benchmark.trials import (
     Condition,
-    RestorationMode,
     TerminalStatus,
     TrialManifest,
     system_manifest_hash,
@@ -57,8 +56,6 @@ def _clean_trial() -> TrialManifest:
         action_spec="qpos8_next_step",
         fault_manifest_sha256=None,
         matched_no_touch_system_id=None,
-        restoration_index=None,
-        restoration_mode=None,
     )
 
 
@@ -91,8 +88,6 @@ def _primary_manifest():
             for operator_id in sorted(CORE_OPERATOR_IDS)
             for severity in range(1, 6)
         ),
-        restoration_index=60,
-        restoration_mode=RestorationMode.VALID_STREAM_RESUME,
         no_touch_system_id="univtac-act-vision-only",
         no_touch_checkpoint_sha256="e" * 64,
         no_touch_config_sha256="f" * 64,
@@ -164,15 +159,17 @@ def _materialize_primary(tmp_path: Path, *, receipt_only_failures: bool = False)
             and cell.operator_id == "A1_stream_absence"
             and cell.severity_level == 1
         ):
-            if cell.trial.condition is Condition.FAULTED:
-                return MatrixCellExecution.unsupported("tactile_required")
-            if cell.trial.condition is Condition.RESTORED:
-                return MatrixCellExecution.crash("executor_exception:test")
+            return MatrixCellExecution.unsupported("tactile_required")
+        if (
+            receipt_only_failures
+            and cell.operator_id == "T2_held_last_freeze"
+            and cell.severity_level == 1
+        ):
+            return MatrixCellExecution.crash("executor_exception:test")
         status = {
             Condition.CLEAN: TerminalStatus.SUCCESS,
             Condition.NO_TOUCH: TerminalStatus.TASK_FAILURE,
             Condition.FAULTED: TerminalStatus.TASK_FAILURE,
-            Condition.RESTORED: TerminalStatus.SUCCESS,
         }[cell.trial.condition]
         result = _trial_result(cell.trial, status)
         root = _digest(f"root:{cell.sha256}")
@@ -229,8 +226,8 @@ def test_matrix_outcomes_use_strict_artifact_results_and_content_addressed_paths
         output / "matrix_manifest.json", output, _spec()
     )
 
-    assert len(outcomes) == len(manifest.cells) == 142
-    assert len(loaded_paths) == 142
+    assert len(outcomes) == len(manifest.cells) == 72
+    assert len(loaded_paths) == 72
     assert all(path.parent == output / "artifacts" for path in loaded_paths)
     clean = next(item for item in outcomes if item.condition is Condition.CLEAN)
     no_touch = next(item for item in outcomes if item.condition is Condition.NO_TOUCH)
@@ -276,8 +273,7 @@ def test_focused_matrix_reporting_is_explicitly_unsupported(tmp_path: Path) -> N
     manifest = build_focused_phase_manifest(
         matrix_id="focused",
         clean=_clean_trial(),
-        grid_points=(MatrixGridPoint("contact-rise", fault, 60),),
-        restoration_mode=RestorationMode.VALID_STREAM_RESUME,
+        grid_points=(MatrixGridPoint("contact-rise", fault),),
         no_touch_system_id="univtac-act-vision-only",
         no_touch_checkpoint_sha256="e" * 64,
         no_touch_config_sha256="f" * 64,
@@ -291,7 +287,7 @@ def test_focused_matrix_reporting_is_explicitly_unsupported(tmp_path: Path) -> N
 
     with pytest.raises(
         ValueError,
-        match="focused matrix reporting requires registered comparison identity/recovery signal",
+        match="focused matrix reporting is not registered",
     ):
         matrix_adapter.load_matrix_outcomes(
             output / "matrix_manifest.json", output, _spec()
@@ -320,8 +316,8 @@ def test_receipt_only_unsupported_and_crash_are_preserved_without_cached_scores(
     crash = next(
         item
         for item in outcomes
-        if item.condition is Condition.RESTORED
-        and item.operator_id == "A1_stream_absence"
+        if item.condition is Condition.FAULTED
+        and item.operator_id == "T2_held_last_freeze"
         and item.severity_level == 1
     )
     summary = load_matrix_summary(output, manifest)
@@ -369,7 +365,7 @@ def test_report_writer_and_cli_emit_source_bound_bundle(
     )
 
     assert exported.manifest_sha256 == manifest.sha256
-    assert exported.outcome_count == 142
+    assert exported.outcome_count == 72
     assert exported.receipt.source_root_sha256 == exported.summary.source_root_sha256
     assert (report_output / "report_receipt.json").is_file()
 

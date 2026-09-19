@@ -152,7 +152,7 @@ receipt_matches \
 receipt_matches \
   "$ROBOTACTILE_RECEIPT" \
   "component=robotactile_isaac" \
-  "version=0.4.0" \
+  "version=0.6.0" \
   "status=installed" \
   "source_manifest_sha256=$CURRENT_SOURCE_MANIFEST_SHA256" || \
   die "RoboTactile Isaac receipt is incompatible"
@@ -283,7 +283,7 @@ expected = {
     "policy_loaded": False,
     "pythonhashseed": str(initial_seed),
     "reset_completed": True,
-    "robotactile_version": "0.4.0",
+    "robotactile_version": "0.6.0",
     "runtime_close_requested": True,
     "simulator_advanced_during_reset": True,
     "status": "passed",

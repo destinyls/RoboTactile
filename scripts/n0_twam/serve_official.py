@@ -35,6 +35,14 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--save-root", required=True)
     parser.add_argument("--debug-offload", action="store_true")
+    parser.add_argument("--diagnostic-input-trace-root", type=Path)
+    parser.add_argument("--diagnostic-input-trace-limit", type=int, default=32)
+    parser.add_argument("--diagnostic-input-capture-arrays", action="store_true")
+    parser.add_argument(
+        "--enable-observed-tactile-absence",
+        action="store_true",
+        help="enable the non-paper training-consistent tactile-drop overlay",
+    )
     parser.add_argument("--deployment-root", type=Path)
     parser.add_argument("--task")
     parser.add_argument("--session-id")
@@ -55,8 +63,41 @@ def _source_bound(args: argparse.Namespace) -> bool:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     source_bound = _source_bound(args)
+    if not 1 <= args.diagnostic_input_trace_limit <= 32:
+        raise ValueError("diagnostic input trace limit must be in [1, 32]")
+    if source_bound and args.diagnostic_input_trace_root is not None:
+        raise ValueError("source-bound paper serving forbids diagnostic input tracing")
+    if args.diagnostic_input_capture_arrays:
+        if source_bound:
+            raise ValueError(
+                "source-bound paper serving forbids diagnostic input arrays"
+            )
+        if args.diagnostic_input_trace_root is None:
+            raise ValueError(
+                "diagnostic input arrays require --diagnostic-input-trace-root"
+            )
     if source_bound and args.debug_offload:
         raise ValueError("source-bound paper serving forbids debug offload")
+    if source_bound and args.enable_observed_tactile_absence:
+        raise ValueError(
+            "source-bound paper serving forbids the diagnostic tactile-drop overlay"
+        )
+    if args.enable_observed_tactile_absence:
+        from robotactile_benchmark.integrations.n0_twam.tactile_absence_overlay import (
+            install_n0_observed_tactile_absence_overlay,
+        )
+
+        install_n0_observed_tactile_absence_overlay()
+    if args.diagnostic_input_trace_root is not None:
+        from robotactile_benchmark.integrations.n0_twam.input_probe import (
+            install_n0_input_probe,
+        )
+
+        install_n0_input_probe(
+            args.diagnostic_input_trace_root,
+            args.diagnostic_input_trace_limit,
+            capture_arrays=args.diagnostic_input_capture_arrays,
+        )
     config = TWAM_CONFIGS["multitask_server"]
     if args.debug_offload:
         config.enable_offload = True

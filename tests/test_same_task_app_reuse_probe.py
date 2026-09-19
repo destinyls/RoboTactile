@@ -129,6 +129,50 @@ def _install_fakes(
     return host, launches
 
 
+def _supervised_preclose_document() -> dict[str, object]:
+    process_id = 4242
+    document: dict[str, object] = {
+        "app_close_duration_s": None,
+        "app_close_status": "pending",
+        "app_lifecycle_stages": [
+            "app_launch_start",
+            "app_launch_complete",
+            "app_close_pending",
+        ],
+        "app_process_id": process_id,
+        "cleanup_errors": [],
+        "completed_runtime_count": 2,
+        "exit_code": None,
+        "failure": None,
+        "policy_loaded": False,
+        "receipt_stage": "preclose",
+        "runs": [
+            {"process_id": process_id, "status": "passed"},
+            {"process_id": process_id, "status": "passed"},
+        ],
+        "runtime_count": 2,
+        "same_process_confirmed": True,
+        "status": "runtimes_passed_app_close_pending",
+        "total_duration_s": 12.5,
+    }
+    document["content_sha256"] = module.canonical_hash(document)
+    return document
+
+
+def _supervised_argv(args: argparse.Namespace) -> list[str]:
+    return [
+        "--supervise-close",
+        "--upstream-root",
+        str(args.upstream_root),
+        "--runtime-root",
+        str(args.runtime_root),
+        "--output",
+        str(args.output),
+        "--task",
+        args.task,
+    ]
+
+
 def test_probe_defaults_to_two_distinct_seeds(tmp_path: Path) -> None:
     args = _arguments(tmp_path)
 
@@ -391,3 +435,118 @@ def test_probe_publishes_failed_receipt_for_abnormal_app_close(
     assert document["runtime_count"] == 2
     assert preclose["status"] == "runtimes_passed_app_close_pending"
     assert preclose["app_close_status"] == "pending"
+
+
+def test_supervisor_promotes_valid_preclose_after_zero_child_exit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    args = _arguments(tmp_path)
+    preclose_output = tmp_path / "probe.preclose.json"
+    commands: list[list[str]] = []
+
+    def run_child(command: list[str], *, check: bool) -> object:
+        commands.append(command)
+        assert check is False
+        preclose_output.write_text(
+            json.dumps(_supervised_preclose_document()), encoding="utf-8"
+        )
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(module.subprocess, "run", run_child)
+
+    assert module.main(_supervised_argv(args)) == 0
+
+    document = json.loads(args.output.read_text(encoding="utf-8"))
+    assert len(commands) == 1
+    assert "--supervise-close" not in commands[0]
+    assert document["status"] == "passed"
+    assert document["app_close_status"] == "system_exit_zero"
+    assert document["exit_code"] == 0
+    assert document["receipt_stage"] == "final"
+    assert document["app_close_duration_s"] >= 0.0
+    assert document["total_duration_s"] >= 12.5
+    assert document["app_lifecycle_stages"][-2:] == [
+        "app_close_start",
+        "app_close_system_exit_zero",
+    ]
+    content_sha256 = document.pop("content_sha256")
+    assert content_sha256 == module.canonical_hash(document)
+
+
+def test_supervisor_never_promotes_nonzero_child_exit_to_passed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    args = _arguments(tmp_path)
+    preclose_output = tmp_path / "probe.preclose.json"
+
+    def run_child(_command: list[str], *, check: bool) -> object:
+        assert check is False
+        preclose_output.write_text(
+            json.dumps(_supervised_preclose_document()), encoding="utf-8"
+        )
+        return SimpleNamespace(returncode=7)
+
+    monkeypatch.setattr(module.subprocess, "run", run_child)
+
+    assert module.main(_supervised_argv(args)) == 7
+
+    document = json.loads(args.output.read_text(encoding="utf-8"))
+    assert document["status"] == "failed"
+    assert document["app_close_status"] == "process_exit_nonzero"
+    assert document["exit_code"] == 7
+    assert document["failure"] == {
+        "error_message": (
+            "supervised child exited with code 7 before writing the final receipt"
+        ),
+        "error_type": "ChildProcessError",
+        "stage": "app_close",
+    }
+    assert document["app_lifecycle_stages"][-1] == ("app_close_process_exit_nonzero")
+
+
+def test_supervisor_rejects_invalid_preclose_without_finalizing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    args = _arguments(tmp_path)
+    preclose_output = tmp_path / "probe.preclose.json"
+
+    def run_child(_command: list[str], *, check: bool) -> object:
+        assert check is False
+        document = _supervised_preclose_document()
+        document["same_process_confirmed"] = False
+        document.pop("content_sha256")
+        document["content_sha256"] = module.canonical_hash(document)
+        preclose_output.write_text(json.dumps(document), encoding="utf-8")
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(module.subprocess, "run", run_child)
+
+    with pytest.raises(RuntimeError, match="invalid same_process_confirmed"):
+        module.main(_supervised_argv(args))
+
+    assert not args.output.exists()
+
+
+def test_supervisor_checks_final_no_clobber_before_starting_child(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    args = _arguments(tmp_path)
+    args.output.write_text("{}", encoding="utf-8")
+    child_started = False
+
+    def run_child(_command: list[str], *, check: bool) -> object:
+        nonlocal child_started
+        child_started = True
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(module.subprocess, "run", run_child)
+
+    with pytest.raises(FileExistsError, match="must not already exist"):
+        module.main(_supervised_argv(args))
+
+    assert child_started is False
+    assert args.output.read_text(encoding="utf-8") == "{}"

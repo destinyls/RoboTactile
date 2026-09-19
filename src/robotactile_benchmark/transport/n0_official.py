@@ -17,6 +17,13 @@ from robotactile_benchmark.contracts import Array, freeze_array
 NATIVE_ACTION_SHAPE = (20, 2, 12)
 
 
+def native_action_shape(action_per_frame: int = 12) -> tuple[int, int, int]:
+    """Validate the released or retrained action cadence explicitly."""
+    if type(action_per_frame) is not int or action_per_frame not in {4, 12}:
+        raise ValueError("N0 action_per_frame must be 4 or 12")
+    return (20, 2, action_per_frame)
+
+
 class OfficialN0CommitTransform(str, Enum):
     """Strictly enumerated transforms allowed between inference and KV commit."""
 
@@ -56,7 +63,8 @@ def _timing_only(value: object, operation: str) -> None:
 class OfficialN0Client:
     """One official reset/infer/grounding session with no automatic retries."""
 
-    def __init__(self, rpc: OfficialN0RPC) -> None:
+    def __init__(self, rpc: OfficialN0RPC, *, action_per_frame: int = 12) -> None:
+        self.native_action_shape = native_action_shape(action_per_frame)
         if not isinstance(rpc.get_server_metadata(), Mapping):
             raise TypeError("official N0 server metadata must be a mapping")
         self._rpc = rpc
@@ -93,6 +101,16 @@ class OfficialN0Client:
             raise RuntimeError("official N0 infer requires ready state")
         if observation.get("prompt") != self._reset_prompt:
             raise ValueError("official N0 infer prompt does not match reset")
+        absent_value = observation.get("tactile_cond_drop", False)
+        if type(absent_value) is not bool:
+            raise TypeError("official N0 tactile_cond_drop must be boolean")
+        if absent_value:
+            if "tactile" in observation:
+                raise ValueError(
+                    "observed tactile absence cannot carry tactile tensors"
+                )
+        elif "tactile" not in observation:
+            raise ValueError("official N0 tactile observation is missing")
         current_state = np.asarray(observation.get("current_state"), dtype=np.float32)
         if current_state.shape != (20,) or not np.isfinite(current_state).all():
             raise ValueError(
@@ -105,9 +123,12 @@ class OfficialN0Client:
             action = np.asarray(response["action"])
             if action.dtype != np.float32:
                 action = action.astype(np.float32)
-            if action.shape != NATIVE_ACTION_SHAPE or not np.isfinite(action).all():
+            if (
+                action.shape != self.native_action_shape
+                or not np.isfinite(action).all()
+            ):
                 raise ValueError(
-                    f"official N0 action must be finite float32 {NATIVE_ACTION_SHAPE}"
+                    f"official N0 action must be finite float32 {self.native_action_shape}"
                 )
         except Exception:
             self.state = OfficialN0ClientState.INDETERMINATE
@@ -121,12 +142,13 @@ class OfficialN0Client:
         self,
         *,
         video_keyframes: Sequence[Mapping[str, Array]],
-        tactile_keyframes: Sequence[Mapping[str, Array]],
+        tactile_keyframes: Optional[Sequence[Mapping[str, Array]]],
         inferred_action: Array,
         native_action: Array,
         action_transform: OfficialN0CommitTransform,
         current_state: Array,
         prompt: str,
+        observed_tactile_absent: bool = False,
     ) -> None:
         if (
             self.state is not OfficialN0ClientState.AWAITING_COMMIT
@@ -137,7 +159,7 @@ class OfficialN0Client:
         inferred = np.asarray(inferred_action)
         if (
             inferred.dtype != np.float32
-            or inferred.shape != NATIVE_ACTION_SHAPE
+            or inferred.shape != self.native_action_shape
             or not np.isfinite(inferred).all()
             or not np.array_equal(inferred, self._pending_action)
         ):
@@ -147,11 +169,11 @@ class OfficialN0Client:
         committed = np.asarray(native_action)
         if (
             committed.dtype != np.float32
-            or committed.shape != NATIVE_ACTION_SHAPE
+            or committed.shape != self.native_action_shape
             or not np.isfinite(committed).all()
         ):
             raise ValueError(
-                f"official N0 commit action must be finite float32 {NATIVE_ACTION_SHAPE}"
+                f"official N0 commit action must be finite float32 {self.native_action_shape}"
             )
         if prompt != self._reset_prompt:
             raise ValueError("official N0 commit prompt does not match reset")
@@ -170,17 +192,28 @@ class OfficialN0Client:
             raise ValueError(
                 "official N0 commit requires four or eight video keyframes"
             )
-        if len(tactile_keyframes) != len(video_keyframes):
+        if type(observed_tactile_absent) is not bool:
+            raise TypeError("observed_tactile_absent must be boolean")
+        if observed_tactile_absent:
+            if tactile_keyframes is not None:
+                raise ValueError("absent tactile commit cannot carry keyframes")
+        elif tactile_keyframes is None or len(tactile_keyframes) != len(
+            video_keyframes
+        ):
             raise ValueError("official N0 video/tactile keyframe counts must match")
         payload: dict[str, object] = {
             "obs": tuple(video_keyframes),
-            "tactile": tuple(tactile_keyframes),
             "state": committed,
             "current_state": state.tolist(),
             "compute_kv_cache": True,
             "imagine": False,
             "prompt": prompt,
         }
+        if observed_tactile_absent:
+            payload["tactile_cond_drop"] = True
+        else:
+            assert tactile_keyframes is not None
+            payload["tactile"] = tuple(tactile_keyframes)
         try:
             _timing_only(self._rpc.infer(payload), "commit")
         except Exception:

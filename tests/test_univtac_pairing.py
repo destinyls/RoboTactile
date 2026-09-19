@@ -162,3 +162,18 @@ def test_paired_session_rejects_context_drift_and_missing_callbacks() -> None:
     assert unavailable.value.code == "snapshot_callbacks_unavailable"
     no_snapshot.close_runtime()
     assert task.close_count == 1
+
+
+def test_trajectory_profile_requires_exact_trajectory_type() -> None:
+    config = build_univtac_backend_config("pull_out_key")
+    runtime, task = make_fake_runtime(config)
+
+    with pytest.raises(TypeError, match="exact UniVTACPreMoveTrajectory"):
+        UniVTACPairedBackendSession(
+            config,
+            runtime,
+            reset_trajectory=object(),  # type: ignore[arg-type]
+        )
+
+    runtime.close_runtime()
+    assert task.close_count == 1

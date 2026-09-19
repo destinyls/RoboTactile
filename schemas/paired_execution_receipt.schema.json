@@ -20,7 +20,7 @@
     "group_content_sha256": {"$ref": "#/$defs/sha256"},
     "reset_receipt": {"$ref": "#/$defs/reset_receipt"},
     "reset_receipt_sha256": {"$ref": "#/$defs/sha256"},
-    "semantic_version": {"const": "1.0"},
+    "semantic_version": {"const": "2.0"},
     "executions": {
       "type": "array",
       "minItems": 2,
@@ -124,7 +124,7 @@
         "witness_index"
       ],
       "properties": {
-        "condition": {"enum": ["clean", "faulted", "no_touch", "restored"]},
+        "condition": {"enum": ["clean", "faulted", "no_touch"]},
         "run_content_sha256": {"$ref": "#/$defs/sha256"},
         "result_sha256": {"$ref": "#/$defs/sha256"},
         "terminal_status": {

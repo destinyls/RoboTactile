@@ -139,8 +139,10 @@ two 120 Hz physics ticks, renders once, and stores one 60 Hz HDF5 row. Rendering
 after the intermediate tick changes RTX temporal accumulation and is rejected
 by the cadence gate.
 
-The benchmark explicitly selects TAA for N0 instead of inheriting an IsaacLab
-default. On the pinned headless stack, a controlled DLSS row-174 replay kept
+The benchmark explicitly selects TAA for every live UniVTAC policy instead of
+inheriting an IsaacLab default. This renderer contract is model-independent, so
+EE8 policies such as N0-TWAM and QPOS8 policies such as FTP-1 receive the same
+camera rendering. On the pinned headless stack, a controlled DLSS row-174 replay kept
 robot, object, and tactile state aligned but produced strong speckle artifacts
 and reduced Top/Wrist server-pixel PSNR to 23.33/15.98 dB. The matched TAA
 replay reached 36.85/36.07 dB. Renderer selection is therefore bound to measured
@@ -213,6 +215,30 @@ For unattended execution, `scripts/n0_twam/run_recorded_experiment.py` owns
 exactly one official server process, waits for protocol metadata, runs the same
 CLI once, terminates only the server it started, and writes a separate lifecycle
 receipt under `deployment/outputs/recorded-n0-runs/`.
+
+## Complete frozen40 tactile-causal calculation
+
+The cohort runner evaluates the 40 declared raw HDF5 episodes directly. It
+starts one task-specific N0 server at a time, reuses it for the five episodes of
+that task, and compares paired Clean and structural observed-tactile-absence
+predictions at each episode's deterministic strongest-contact anchor:
+
+```bash
+python scripts/n0_twam/run_frozen40_tactile_causal.py \
+  --root "$PWD/deployment" \
+  --data-root "$PWD/deployment/artifacts/datasets/univtac_frozen40" \
+  --split-manifest "$PWD/configs/protocols/univtac_frozen40_hdf5_v1.json" \
+  --gpus 0 \
+  --output "$PWD/deployment/outputs/recorded-n0/frozen40-tactile-causal-v1.json"
+```
+
+The loader consumes the released tactile field
+`tactile/{left,right}_gsmini/rgb_marker` and requires a complete 12-step EE8
+expert horizon. The output retains expert, Clean, and absence action chunks,
+source hashes, selected contact strengths, per-episode metrics, per-task means,
+the all-40 micro mean, and the ten-episode `grasp_classify`/`lift_can` primary
+subgroup. `success_rate_claimed=false` is mandatory because neither predicted
+chunk is executed in Isaac Sim.
 
 ## Align a live failure to expert demonstrations
 

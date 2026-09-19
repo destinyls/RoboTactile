@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robotactile.invalid/schemas/act_fault_campaign_unsupported_contract.schema.json",
+  "title": "RoboTactile Official ACT Unsupported Contract Receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "campaign_id", "task", "initial_seed", "exogenous_seed", "pair_key",
+    "operator_id", "severity_level", "operator_template_seed",
+    "fault_manifest_sha256", "trial_manifest_sha256", "terminal_status",
+    "reason_code", "live_request_generated", "simulator_execution_claimed",
+    "black_frame_substitution_used", "semantic_version"
+  ],
+  "properties": {
+    "campaign_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "task": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "initial_seed": {"type": "integer", "minimum": 0},
+    "exogenous_seed": {"type": "integer", "minimum": 0},
+    "pair_key": {"$ref": "#/$defs/sha256"},
+    "operator_id": {"enum": ["A1_stream_absence", "A2_frame_erasure"]},
+    "severity_level": {"type": "integer", "minimum": 1, "maximum": 5},
+    "operator_template_seed": {"type": "integer", "minimum": 0},
+    "fault_manifest_sha256": {"$ref": "#/$defs/sha256"},
+    "trial_manifest_sha256": {"$ref": "#/$defs/sha256"},
+    "terminal_status": {"const": "unsupported_contract"},
+    "reason_code": {"const": "act_univtac_requires_both_tactile_streams_v1"},
+    "live_request_generated": {"const": false},
+    "simulator_execution_claimed": {"const": false},
+    "black_frame_substitution_used": {"const": false},
+    "semantic_version": {"const": "1.0"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

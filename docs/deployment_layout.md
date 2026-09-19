@@ -47,19 +47,22 @@ RoboTactile/
     │   ├── UniVTAC/
     │   ├── WorldArena/
     │   ├── N0-TWAM/
+    │   ├── N0-VTLA/
+    │   ├── ftp1-policy/
     │   ├── IsaacLab/
     │   └── curobo/
     ├── runtime/
     │   ├── isaac-sim-4.5.0/
+    │   ├── ftp1-policy/
     │   ├── cache/ home/ locks/ tmp/
     │   └── omni-cache/ pip-cache/
     ├── artifacts/
-    │   ├── models/{act,n0_twam}/
+    │   ├── models/{act,ftp1_policy,n0_twam,n0_vtla}/
     │   ├── deployment/
     │   ├── preflight/
     │   ├── rest-references/
     │   └── live-univtac/
-    ├── requests/{calibration,four-condition,primary-matrix}/
+    ├── requests/{calibration,three-condition,primary-matrix}/
     ├── outputs/{matrices,reports}/
     └── logs/
 ```
@@ -68,17 +71,25 @@ RoboTactile/
 |---|---|---|
 | `sources/` | external installers | Exact detached Git checkouts; never imported into the main wheel |
 | `runtime/` | deployment scripts | Isaac, caches, isolated `HOME`, locks, and temporary staging |
-| `artifacts/models/` | user transfer/configure step | ACT and N0-TWAM files plus generated manifests/configs |
+| `artifacts/models/` | user transfer/configure step | ACT, FTP-1, N0-TWAM, and N0-VTLA files plus generated manifests/configs |
 | `artifacts/deployment/` | installers | Install, layout, and infrastructure-smoke receipts |
 | `artifacts/preflight/` | preflight CLI | No-allocation readiness receipts |
 | `artifacts/live-univtac/` | live runner | Content-addressed closed-loop artifacts |
-| `requests/` | generators | Immutable calibration, four-condition, and primary-matrix bundles |
+| `requests/` | generators | Immutable calibration, three-condition, and primary-matrix bundles |
 | `outputs/` | runner/reporter | Resumable matrix state and source-bound reports |
 | `logs/` | deployment scripts | Hash-bound command logs |
 
 Nothing under `deployment/` is tracked or included in the wheel/sdist.
 Checkpoints, datasets, simulator archives, credentials, outputs, and nested
 repositories must remain there or in another ignored absolute deployment root.
+
+The FTP-1 installer owns only `sources/ftp1-policy`,
+`runtime/ftp1-policy`, its install receipt/logs, and the user-selected
+`artifacts/models/ftp1_policy` checkpoint tree. It does not reuse or modify the
+Isaac, N0-TWAM, or N0-VTLA Python environments. A source checkout and runtime
+directory appearing in this diagram means their installer completed; layout
+initialization alone creates only the canonical writable directories and does
+not download third-party code or weights.
 
 ## Commands and defaults
 
@@ -94,7 +105,7 @@ robotactile deployment doctor --profile act-univtac
 robotactile deployment doctor --profile n0-univtac
 ```
 
-The calibration, four-condition, primary-matrix, preflight, live-matrix, and
+The calibration, three-condition, primary-matrix, preflight, live-matrix, and
 reporting CLIs use this layout when their path arguments are omitted. Existing
 explicit absolute paths remain supported and are never silently moved.
 

@@ -5,7 +5,19 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Dict, Tuple
 
-from robotactile_benchmark.constants import REST_REFERENCE_OPERATOR_IDS
+from robotactile_benchmark.constants import (
+    DIAGNOSTIC_STRESS_MAX_REGISTRY_ID,
+    DIAGNOSTIC_TACTILE_NULL_REGISTRY_ID,
+    OPTICAL_CONTACT_STRESS_REGISTRY_ID,
+    OPTICAL_DECISION_STRESS_REGISTRY_ID,
+    OPTICAL_MARKER_EXTREME_REGISTRY_ID,
+    OPTICAL_MARKER_REGISTRY_IDS,
+    OPTICAL_MARKER_STRESS_REGISTRY_ID,
+    SENSOR_FULLFRAME_STRESS_REGISTRY_ID,
+    SEVERITY_REGISTRY_ID,
+    THREE_DOSE_STRESS_REGISTRY_IDS,
+    operator_requires_rest_reference,
+)
 from robotactile_benchmark.contracts import canonical_hash, freeze_value, thaw_value
 from robotactile_benchmark.severity import severity_value
 
@@ -56,14 +68,52 @@ def _base_parameters(
     stop_index: int,
     sensor_slots: Tuple[str, ...],
     existing: Mapping[str, Any],
+    severity_registry: str,
 ) -> Dict[str, Any]:
-    dose = severity_value(operator_id, severity_level)
+    dose = severity_value(operator_id, severity_level, registry_id=severity_registry)
+    if severity_registry in THREE_DOSE_STRESS_REGISTRY_IDS and sensor_slots != (
+        "left",
+        "right",
+    ):
+        raise ValueError("three-dose stress profiles require both sensor slots")
     window_length = stop_index - start_index
     parameters: Dict[str, Any] = {
         "parameterization_version": PARAMETERIZATION_VERSION,
         "template_seed": operator_seed,
     }
-    if operator_id in REST_REFERENCE_OPERATOR_IDS:
+    temporal_schedule = existing.get("temporal_schedule")
+    full_episode = temporal_schedule == "full_episode_v1"
+    window_to_end = temporal_schedule == "window_to_end_v1"
+    if "temporal_schedule" in existing:
+        if not (full_episode or window_to_end):
+            raise ValueError("unsupported temporal_schedule")
+        temporal_operators = {
+            "T1_fixed_source_delay",
+            "T2_held_last_freeze",
+            "T3_inter_sensor_skew",
+        }
+        if full_episode and (
+            severity_registry not in OPTICAL_MARKER_REGISTRY_IDS
+            or operator_id not in temporal_operators
+        ):
+            raise ValueError("temporal_schedule requires an optical temporal operator")
+        if window_to_end and (
+            severity_registry
+            not in OPTICAL_MARKER_REGISTRY_IDS
+            | {SEVERITY_REGISTRY_ID, DIAGNOSTIC_STRESS_MAX_REGISTRY_ID}
+            or operator_id not in temporal_operators
+        ):
+            raise ValueError("window_to_end_v1 requires a temporal operator")
+        if full_episode and start_index != 0:
+            raise ValueError("full_episode_v1 temporal_schedule requires start_index=0")
+        if window_to_end and start_index == 0:
+            raise ValueError(
+                "window_to_end_v1 temporal_schedule requires start_index>0"
+            )
+        parameters["temporal_schedule"] = temporal_schedule
+    if operator_requires_rest_reference(
+        operator_id, severity_registry=severity_registry
+    ):
         rest_sha = existing.get("rest_reference_sha256")
         if not isinstance(rest_sha, str) or len(rest_sha) != 64:
             raise ValueError("rest_reference_sha256 must be a lowercase SHA256")
@@ -75,10 +125,32 @@ def _base_parameters(
         count = max(1, min(window_length, int(round(window_length * float(dose)))))
         parameters["affected_offsets"] = list(range(count))
     elif operator_id == "A2_frame_erasure":
+        if "a2_end_policy" in existing:
+            if existing["a2_end_policy"] != "episode_censored_v1":
+                raise ValueError("unsupported a2_end_policy")
+            parameters["a2_end_policy"] = "episode_censored_v1"
         count = max(1, min(window_length, int(round(window_length * float(dose)))))
+        if severity_registry in {
+            OPTICAL_DECISION_STRESS_REGISTRY_ID,
+            OPTICAL_MARKER_STRESS_REGISTRY_ID,
+            OPTICAL_MARKER_EXTREME_REGISTRY_ID,
+        }:
+            if window_length < 2:
+                raise ValueError(
+                    "optical stress A2 needs two observations for intermittency"
+                )
+            count = min(count, window_length - 1)
         parameters["erased_offsets"] = list(_a2_offsets(existing, window_length, count))
     elif operator_id == "F1_global_response_drift":
-        parameters.update(target_gain=float(dose), temporal_path="linear_ramp")
+        if severity_registry == DIAGNOSTIC_TACTILE_NULL_REGISTRY_ID:
+            parameters.update(
+                target_gain=0.0,
+                temporal_path="immediate_step",
+                response_domain="absolute_black_frame",
+                ablation_id="tactile_null_black_frame_v1",
+            )
+        else:
+            parameters.update(target_gain=float(dose), temporal_path="linear_ramp")
     elif operator_id == "F2_spatial_sensitivity_loss":
         parameters.update(
             retained_gain=float(dose),
@@ -144,12 +216,21 @@ def _base_parameters(
         )
     elif operator_id == "T1_fixed_source_delay":
         lag = int(dose)
-        source_map = [index - lag for index in range(start_index, stop_index)]
+        source_map = [
+            max(0, index - lag) if full_episode or window_to_end else index - lag
+            for index in range(start_index, stop_index)
+        ]
         if min(source_map) < 0:
             raise ValueError("T1 fault window must start after delay warm-up")
         parameters.update(lag_frames=lag, source_index_map=source_map)
+        if window_to_end:
+            parameters.update(startup_policy="hold_first", steady_state_start_index=lag)
     elif operator_id == "T2_held_last_freeze":
-        duration = min(window_length, int(dose))
+        duration = (
+            window_length
+            if window_to_end or severity_registry == DIAGNOSTIC_STRESS_MAX_REGISTRY_ID
+            else min(window_length, int(dose))
+        )
         held_index = max(0, start_index - 1)
         parameters.update(
             hold_duration_frames=duration,
@@ -157,6 +238,8 @@ def _base_parameters(
             source_index_map=[held_index] * duration
             + list(range(start_index + duration, stop_index)),
         )
+        if window_to_end:
+            parameters["hold_policy"] = "until_window_end"
     elif operator_id == "T3_inter_sensor_skew":
         delayed_slot = sensor_slots[-1]
         skew = int(dose)
@@ -172,6 +255,10 @@ def _base_parameters(
             skew_frames=skew,
             source_index_map=per_slot_source_map,
         )
+        if window_to_end:
+            parameters.update(
+                startup_policy="hold_first", steady_state_start_index=skew
+            )
     elif operator_id == "C1_sensor_identity_misrouting":
         count = max(1, min(window_length, int(round(window_length * float(dose)))))
         parameters.update(
@@ -188,6 +275,23 @@ def _base_parameters(
             interpolation="integer_copy",
             fill_mode="rest_reference",
         )
+    if severity_registry in OPTICAL_MARKER_REGISTRY_IDS:
+        from robotactile_benchmark.optical.parameters import extend_parameters
+
+        parameters = extend_parameters(
+            operator_id,
+            severity_level,
+            start_index,
+            stop_index,
+            sensor_slots,
+            existing,
+            parameters,
+            stress=severity_registry == OPTICAL_MARKER_STRESS_REGISTRY_ID,
+            extreme=severity_registry == OPTICAL_MARKER_EXTREME_REGISTRY_ID,
+            decision_stress=severity_registry == OPTICAL_DECISION_STRESS_REGISTRY_ID,
+            contact_stress=severity_registry == OPTICAL_CONTACT_STRESS_REGISTRY_ID,
+            fullframe_stress=severity_registry == SENSOR_FULLFRAME_STRESS_REGISTRY_ID,
+        )
     return parameters
 
 
@@ -199,6 +303,7 @@ def materialize_operator_parameters(
     stop_index: int,
     sensor_slots: Tuple[str, ...],
     supplied: Mapping[str, Any],
+    severity_registry: str = SEVERITY_REGISTRY_ID,
 ) -> Dict[str, Any]:
     """Fill and validate the complete versioned operator-instance contract."""
 
@@ -212,6 +317,7 @@ def materialize_operator_parameters(
         stop_index,
         sensor_slots,
         existing,
+        severity_registry,
     )
     descriptor = {**expected, "operator_id": operator_id}
     expected["instance_descriptor_sha256"] = canonical_hash(descriptor)
@@ -232,7 +338,7 @@ def materialize_operator_parameters(
 
 
 def static_parameter_view(parameters: Mapping[str, Any]) -> Dict[str, Any]:
-    """Remove window-dependent schedules for faulted/restored pairing."""
+    """Remove window-dependent schedules for faulted pairing."""
 
     schedule_keys = {"affected_offsets", "erased_offsets", "source_index_map"}
     return {
@@ -250,7 +356,15 @@ def rematerialization_inputs(
     """Return only caller-supplied inputs needed to build a fresh instance."""
 
     inputs: Dict[str, Any] = {}
-    if operator_id in REST_REFERENCE_OPERATOR_IDS:
+    if "spatial_calibration" in parameters:
+        inputs["spatial_calibration"] = thaw_value(parameters["spatial_calibration"])
+    if "a2_end_policy" in parameters:
+        inputs["a2_end_policy"] = parameters["a2_end_policy"]
+    if "temporal_schedule" in parameters:
+        inputs["temporal_schedule"] = parameters["temporal_schedule"]
+    if "sample_period_s" in parameters:
+        inputs["sample_period_s"] = parameters["sample_period_s"]
+    if "rest_reference_sha256" in parameters:
         inputs["rest_reference_sha256"] = parameters["rest_reference_sha256"]
     if operator_id == "C2_frame_misregistration":
         inputs["realization"] = parameters["realization"]

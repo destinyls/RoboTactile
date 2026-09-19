@@ -273,9 +273,9 @@ class MatrixCellReceipt:
 def _validate_fault_metadata(
     condition: Condition, operator_id: Optional[str], severity_level: Optional[int]
 ) -> None:
-    faulted = condition in {Condition.FAULTED, Condition.RESTORED}
+    faulted = condition is Condition.FAULTED
     if faulted != (operator_id is not None and severity_level is not None):
-        raise ValueError("fault metadata must exist exactly for faulted/restored cells")
+        raise ValueError("fault metadata must exist exactly for faulted cells")
     if operator_id is not None:
         require_nonempty(operator_id, "operator_id")
     if severity_level is not None:

@@ -1,15 +1,11 @@
-"""Primary-grid completeness and post-restoration coverage accounting."""
+"""Primary-grid completeness and terminal-state coverage accounting."""
 
 from __future__ import annotations
 
 from collections import Counter
-from statistics import mean, median
 
 from robotactile_benchmark.reporting.contracts import OutcomeRecord, ReportingSpec
-from robotactile_benchmark.reporting.summary_contracts import (
-    CoverageSummary,
-    RecoverySummary,
-)
+from robotactile_benchmark.reporting.summary_contracts import CoverageSummary
 
 BaselineKey = tuple[str, str]
 FaultKey = tuple[str, int]
@@ -80,24 +76,4 @@ def build_coverage_summary(
         primary_grid_complete=observed == expected,
         primary_score_complete=scored == expected,
         terminal_counts=tuple(sorted(terminal_counts.items())),
-    )
-
-
-def build_recovery_summary(records: tuple[OutcomeRecord, ...]) -> RecoverySummary:
-    """Summarize recovered lags while retaining unrecovered episodes."""
-
-    eligible = [record for record in records if record.recovery_eligible]
-    lags = [
-        record.recovery_lag_steps
-        for record in eligible
-        if record.recovery_lag_steps is not None
-    ]
-    if not eligible:
-        return RecoverySummary(0, 0, None, None, None)
-    return RecoverySummary(
-        eligible_count=len(eligible),
-        recovered_count=len(lags),
-        unrecovered_fraction=(len(eligible) - len(lags)) / len(eligible),
-        median_lag_steps=float(median(lags)) if lags else None,
-        mean_lag_steps=float(mean(lags)) if lags else None,
     )

@@ -1,0 +1,27 @@
+{
+  "schema_version": "robotactile-dream-tac-training-request-v1",
+  "accelerator_contract": "nvidia_cuda_only_v1",
+  "dream_tac_commit": "14bab51d6862fd07124745c55cd395ea5caa9fd3",
+  "donor_experiment": "cosmos_predict2_2b_480p_franka_cut_banana_20260321",
+  "phase": "p3_full",
+  "run_name": "dream-tac-univtac-p3-full-v1",
+  "dream_tac_root": "/absolute/RoboTactile/deployment/sources/Dream-Tac",
+  "python_executable": "/absolute/RoboTactile/deployment/runtime/dream-tac/bin/python",
+  "materialization_root": "/absolute/RoboTactile/deployment/artifacts/datasets/dream-tac-univtac",
+  "output_root": "/absolute/RoboTactile/deployment/outputs/dream-tac-training",
+  "source_manifest_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "materialization_receipt_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "t5_cache_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "base_checkpoint": {
+    "path": "/absolute/checkpoints/Cosmos-Predict2-2B-Video2World/model-480p-16fps.pt",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "resume_checkpoint": null,
+  "cuda_devices": [0, 1, 2, 3, 4, 5, 6, 7],
+  "nproc_per_node": 8,
+  "master_port": 12341,
+  "max_iter": 20000,
+  "save_iter": 1000,
+  "batch_size": 1,
+  "num_workers": 4
+}

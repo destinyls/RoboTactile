@@ -10,14 +10,25 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Final, Optional, Union, cast
 
+from robotactile_benchmark.backends.univtac_success_profiles import (
+    UniVTACSuccessProfile,
+    selected_success_predicate_id,
+)
 from robotactile_benchmark.closed_loop.contracts import (
     InitialStatePolicy,
     WallTimeoutRole,
 )
 from robotactile_benchmark.contracts import freeze_value
-from robotactile_benchmark.trials import Condition, RestorationMode
+from robotactile_benchmark.policies.n0_vtla_execution import n0_vtla_execution_steps
+from robotactile_benchmark.policies.tactile_availability import (
+    RGBShape,
+    TactileAvailabilityMode,
+    normalize_zero_shape,
+    validate_availability_config,
+)
+from robotactile_benchmark.trials import Condition
 
-LIVE_REQUEST_SEMANTIC_VERSION = "1.0"
+LIVE_REQUEST_SEMANTIC_VERSION = "2.0"
 UNQUALIFIED_EXECUTION_EVIDENCE = "unqualified_closed_loop_execution"
 ISAAC_DISABLE_HANG_DETECTOR_KIT_ARG: Final[str] = "--/app/hangDetector/enabled=false"
 _PRODUCTION_UNIVTAC_LAUNCHER_ARG_KEYS = frozenset(
@@ -32,7 +43,39 @@ class LivePolicyKind(str, Enum):
     """Policy families supported by the live execution orchestrator."""
 
     ACT = "act"
+    FTP1_POLICY = "ftp1_policy"
     N0 = "n0"
+    N0_VTLA = "n0_vtla"
+    DREAM_TAC = "dream_tac"
+
+
+def effective_univtac_control_hz(
+    policy_kind: LivePolicyKind,
+    retrained_control_hz: Optional[int],
+) -> Optional[int]:
+    """Resolve the policy-side control cadence used by the live backend.
+
+    Official UniVTAC ACT evaluation calls ``task.take_action`` once per model
+    output, and its qpos branch advances exactly one native 120 Hz simulator
+    step.  HDF5 observation spacing is a recording contract, not the ACT
+    deployment cadence.  External retrained policies continue to use their
+    explicitly bound cadence.
+    """
+
+    if not isinstance(policy_kind, LivePolicyKind):
+        raise TypeError("policy_kind must be a LivePolicyKind")
+    if policy_kind is LivePolicyKind.ACT:
+        if retrained_control_hz is not None:
+            raise ValueError("official ACT cannot declare a retrained control Hz")
+        return None
+    return retrained_control_hz
+
+
+class N0ObservedTactileMode(str, Enum):
+    """How the released N0 policy receives observed tactile conditioning."""
+
+    REQUIRED = "required_v1"
+    ABSENT = "observed_tactile_absent_v1"
 
 
 class ArtifactExportStatus(str, Enum):
@@ -155,20 +198,30 @@ class LiveUniVTACRunRequest:
     output_dir: Optional[Path]
     fault_manifest_path: Optional[Path]
     rest_references_path: Optional[Path]
-    restoration_index: Optional[int]
-    restoration_mode: Optional[RestorationMode]
     matched_no_touch_system_id: Optional[str]
     matched_no_touch_artifact_path: Optional[Path]
     act_device_name: Optional[str]
     simulator_device: Optional[str]
     launcher_args: Mapping[str, Any] = field(default_factory=dict)
+    success_profile_id: UniVTACSuccessProfile = UniVTACSuccessProfile.OFFICIAL_V1
     n0_source_commit: Optional[str] = None
     n0_normalizer_sha256: Optional[str] = None
     n0_serve_bundle_sha256: Optional[str] = None
     n0_prompt_manifest_sha256: Optional[str] = None
+    n0_observed_tactile_mode: N0ObservedTactileMode = N0ObservedTactileMode.REQUIRED
     initial_state_policy: InitialStatePolicy = InitialStatePolicy.OFFICIAL_REPRODUCTION
     wall_timeout_role: WallTimeoutRole = WallTimeoutRole.SCORING_BOUNDARY_V1
     semantic_version: str = LIVE_REQUEST_SEMANTIC_VERSION
+    n0_action_per_frame: int = 12
+    n0_prompt_override: Optional[str] = None
+    retrained_prompt: Optional[str] = None
+    retrained_control_hz: Optional[int] = None
+    retrained_tactile_payload: Optional[str] = None
+    tactile_availability_mode: TactileAvailabilityMode = (
+        TactileAvailabilityMode.REQUIRED
+    )
+    tactile_zero_shape: Optional[RGBShape] = None
+    n0_vtla_execution_profile: Optional[str] = None
 
     def __post_init__(self) -> None:
         if self.semantic_version != LIVE_REQUEST_SEMANTIC_VERSION:
@@ -187,14 +240,43 @@ class LiveUniVTACRunRequest:
             if isinstance(self.policy_kind, LivePolicyKind)
             else LivePolicyKind(self.policy_kind)
         )
-        restoration_mode = self.restoration_mode
-        if restoration_mode is not None and not isinstance(
-            restoration_mode, RestorationMode
-        ):
-            restoration_mode = RestorationMode(restoration_mode)
         object.__setattr__(self, "condition", condition)
         object.__setattr__(self, "policy_kind", policy_kind)
-        object.__setattr__(self, "restoration_mode", restoration_mode)
+        if self.n0_vtla_execution_profile is not None:
+            if policy_kind is not LivePolicyKind.N0_VTLA:
+                raise ValueError(
+                    "N0-VTLA execution profile cannot change another model"
+                )
+            n0_vtla_execution_steps(self.n0_vtla_execution_profile, self.task_id)
+            if self.retrained_control_hz != 10 or self.retrained_prompt is None:
+                raise ValueError("N0-VTLA 50x8 requires the retrained 10 Hz contract")
+        success_profile = (
+            self.success_profile_id
+            if isinstance(self.success_profile_id, UniVTACSuccessProfile)
+            else UniVTACSuccessProfile(self.success_profile_id)
+        )
+        selected_success_predicate_id(
+            task_id=self.task_id,
+            official_predicate_id="official_validation_only",
+            profile=success_profile,
+        )
+        object.__setattr__(self, "success_profile_id", success_profile)
+        tactile_mode = (
+            self.n0_observed_tactile_mode
+            if isinstance(self.n0_observed_tactile_mode, N0ObservedTactileMode)
+            else N0ObservedTactileMode(self.n0_observed_tactile_mode)
+        )
+        object.__setattr__(self, "n0_observed_tactile_mode", tactile_mode)
+        availability = TactileAvailabilityMode(self.tactile_availability_mode)
+        zero_shape = normalize_zero_shape(self.tactile_zero_shape)
+        validate_availability_config(availability, zero_shape, policy_kind.value)
+        if availability is not TactileAvailabilityMode.REQUIRED and (
+            condition is Condition.NO_TOUCH
+            or tactile_mode is not N0ObservedTactileMode.REQUIRED
+        ):
+            raise ValueError("availability protocols cannot mix with no-touch modes")
+        object.__setattr__(self, "tactile_availability_mode", availability)
+        object.__setattr__(self, "tactile_zero_shape", zero_shape)
         initial_state_policy = (
             self.initial_state_policy
             if isinstance(self.initial_state_policy, InitialStatePolicy)
@@ -277,9 +359,9 @@ class LiveUniVTACRunRequest:
             )
 
     def _validate_condition(self) -> None:
-        faulted = self.condition in {Condition.FAULTED, Condition.RESTORED}
+        faulted = self.condition is Condition.FAULTED
         if faulted and self.fault_manifest_path is None:
-            raise ValueError("faulted/restored condition requires a fault manifest")
+            raise ValueError("faulted condition requires a fault manifest")
         if self.condition is Condition.CLEAN and self.fault_manifest_path is not None:
             raise ValueError("clean condition cannot reference a fault manifest")
         if self.condition is Condition.NO_TOUCH and (
@@ -298,21 +380,64 @@ class LiveUniVTACRunRequest:
         ):
             raise ValueError("matched no-touch identity and artifact must be paired")
         if self.rest_references_path is not None and not faulted:
-            raise ValueError("rest references require a faulted/restored condition")
-        if self.condition is Condition.RESTORED:
-            if self.restoration_index is None or self.restoration_mode is None:
-                raise ValueError("restored condition requires restoration metadata")
-            object.__setattr__(
-                self,
-                "restoration_index",
-                _nonnegative_int(self.restoration_index, "restoration_index"),
-            )
-        elif self.restoration_index is not None or self.restoration_mode is not None:
-            raise ValueError(
-                "restoration metadata is only valid for restored condition"
-            )
+            raise ValueError("rest references require a faulted condition")
+        if (
+            self.n0_observed_tactile_mode is N0ObservedTactileMode.ABSENT
+            and not faulted
+        ):
+            raise ValueError("observed tactile absence requires a faulted condition")
 
     def _validate_policy(self) -> None:
+        retrained = (
+            self.retrained_prompt,
+            self.retrained_control_hz,
+            self.retrained_tactile_payload,
+        )
+        if any(value is not None for value in retrained):
+            if any(value is None for value in retrained):
+                raise ValueError(
+                    "retrained prompt, Hz and tactile route are inseparable"
+                )
+            if self.policy_kind not in {
+                LivePolicyKind.N0_VTLA,
+                LivePolicyKind.FTP1_POLICY,
+                LivePolicyKind.DREAM_TAC,
+            }:
+                raise ValueError(
+                    "generic retrained contract requires an external policy"
+                )
+            _nonempty(self.retrained_prompt, "retrained_prompt")
+            if type(
+                self.retrained_control_hz
+            ) is not int or self.retrained_control_hz not in (10, 60):
+                raise ValueError("retrained control Hz must be 10 or 60")
+            if self.retrained_tactile_payload not in ("rgb", "rgb_marker"):
+                raise ValueError("unknown retrained tactile route")
+        if self.policy_kind is LivePolicyKind.DREAM_TAC:
+            if self.retrained_control_hz != 10 or self.execute_action_steps != 20:
+                raise ValueError("retrained Dream-Tac requires 10 Hz and 20 actions")
+            if (
+                self.act_device_name is not None
+                or self.n0_action_per_frame != 12
+                or self.n0_prompt_override is not None
+            ):
+                raise ValueError("Dream-Tac cannot use ACT or N0-only options")
+            if self.n0_observed_tactile_mode is not N0ObservedTactileMode.REQUIRED:
+                raise ValueError("Dream-Tac requires both tactile streams")
+            self._validate_external_policy_identities("Dream-Tac")
+            return
+        if type(
+            self.n0_action_per_frame
+        ) is not int or self.n0_action_per_frame not in (4, 12):
+            raise ValueError("N0 action_per_frame must be 4 or 12")
+        if self.n0_prompt_override is not None:
+            _nonempty(self.n0_prompt_override, "n0_prompt_override")
+        if self.policy_kind is not LivePolicyKind.N0 and (
+            self.n0_action_per_frame != 12 or self.n0_prompt_override is not None
+        ):
+            raise ValueError("retrained N0 fields require policy_kind=n0")
+        if self.n0_action_per_frame == 4 and self.n0_prompt_override is None:
+            raise ValueError("retrained N0 requires its training task prompt")
         if self.policy_kind is LivePolicyKind.ACT:
             if (
                 self.initial_state_policy
@@ -337,16 +462,49 @@ class LiveUniVTACRunRequest:
                 )
             ):
                 raise ValueError("ACT request cannot carry N0 transport identities")
+            if self.n0_observed_tactile_mode is not N0ObservedTactileMode.REQUIRED:
+                raise ValueError("ACT request cannot select an N0 tactile mode")
             return
         if self.act_device_name is not None:
-            raise ValueError("N0 request cannot carry an ACT device")
-        if self.execute_action_steps != 24:
-            raise ValueError("official N0 execute_action_steps must equal 24")
+            raise ValueError("external-policy request cannot carry an ACT device")
+        if self.policy_kind is LivePolicyKind.FTP1_POLICY:
+            if self.execute_action_steps != 1:
+                raise ValueError(
+                    "official FTP-1 temporal-ensemble execution requires "
+                    "execute_action_steps=1"
+                )
+            if (
+                self.initial_state_policy
+                is not InitialStatePolicy.OFFICIAL_REPRODUCTION
+            ):
+                raise ValueError("FTP-1 requires official initial-state reproduction")
+            if self.n0_observed_tactile_mode is not N0ObservedTactileMode.REQUIRED:
+                raise ValueError("FTP-1 requires both observed tactile streams")
+            self._validate_external_policy_identities("FTP-1")
+            return
+        family = "N0-TWAM" if self.policy_kind is LivePolicyKind.N0 else "N0-VTLA"
+        required_action_steps = (
+            2 * self.n0_action_per_frame
+            if self.policy_kind is LivePolicyKind.N0
+            else n0_vtla_execution_steps(self.n0_vtla_execution_profile, self.task_id)
+        )
+        if self.execute_action_steps != required_action_steps:
+            raise ValueError(
+                f"official {family} execute_action_steps must equal "
+                f"{required_action_steps}"
+            )
+        self._validate_external_policy_identities(family)
+
+    def _validate_external_policy_identities(self, family: str) -> None:
+        """Validate legacy-named source identities shared by RPC integrations."""
+
         if (
             self.n0_source_commit is None
             or _COMMIT.fullmatch(self.n0_source_commit) is None
         ):
-            raise ValueError("N0 source commit must be lowercase 40-character hex")
+            raise ValueError(
+                f"{family} source commit must be lowercase 40-character hex"
+            )
         for name in (
             "n0_normalizer_sha256",
             "n0_serve_bundle_sha256",

@@ -17,6 +17,10 @@ from robotactile_benchmark.integrations.n0_twam.requests import (
     build_official_n0_clean_request,
     write_official_n0_clean_request,
 )
+from robotactile_benchmark.integrations.n0_twam.tactile_absence_overlay import (
+    N0_OBSERVED_TACTILE_ABSENCE_OVERLAY_ID,
+    install_n0_observed_tactile_absence_overlay,
+)
 from robotactile_benchmark.integrations.n0_twam.transport import (
     OfficialN0Client,
     OfficialN0ClientState,
@@ -33,6 +37,7 @@ from robotactile_benchmark.policies.n0_input_profile import (
 __all__ = [
     "N0TWAMArtifactManifest",
     "N0TWAMPolicyAdapter",
+    "N0_OBSERVED_TACTILE_ABSENCE_OVERLAY_ID",
     "GeneratedN0CleanRequest",
     "N0InputProfile",
     "N0SourceColorDomain",
@@ -46,6 +51,7 @@ __all__ = [
     "load_n0_twam_adapter",
     "load_n0_twam_artifact_manifest",
     "load_official_n0_rpc",
+    "install_n0_observed_tactile_absence_overlay",
     "validate_n0_twam_artifact",
     "write_official_n0_clean_request",
 ]

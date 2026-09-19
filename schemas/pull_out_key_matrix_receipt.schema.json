@@ -32,29 +32,27 @@
     },
     "fault_manifests": {
       "type": "object", "additionalProperties": false,
-      "required": ["persistent", "restored"],
+      "required": ["persistent"],
       "properties": {
-        "persistent": {"$ref": "#/$defs/sha256"},
-        "restored": {"$ref": "#/$defs/sha256"}
+        "persistent": {"$ref": "#/$defs/sha256"}
       }
     },
     "requests": {
       "type": "object", "additionalProperties": false,
-      "required": ["clean", "faulted", "no_touch", "restored"],
+      "required": ["clean", "faulted", "no_touch"],
       "properties": {
         "clean": {"$ref": "#/$defs/request"},
         "faulted": {"$ref": "#/$defs/request"},
-        "no_touch": {"$ref": "#/$defs/request"},
-        "restored": {"$ref": "#/$defs/request"}
+        "no_touch": {"$ref": "#/$defs/request"}
       }
     },
     "member_sha256": {
-      "type": "object", "minProperties": 9,
+      "type": "object", "minProperties": 7,
       "additionalProperties": {"$ref": "#/$defs/sha256"},
       "propertyNames": {"type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*\\.\\.).+$"}
     },
     "matrix_contract_sha256": {"$ref": "#/$defs/sha256"},
-    "semantic_version": {"const": "1.0"}
+    "semantic_version": {"const": "2.0"}
   },
   "$defs": {
     "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},

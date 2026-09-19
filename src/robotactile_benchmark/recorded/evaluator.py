@@ -168,7 +168,7 @@ def build_anchor_fault_manifest(
     )
 
 
-def _infer_once(
+def infer_recorded_once(
     factory: PolicyFactory,
     context: PolicyEpisodeContext,
     observation: ObservationRecord,
@@ -240,7 +240,9 @@ def run_recorded_n0_experiment(
         instruction=n0_training_prompt(episode.task_id),
         action_spec=EE8_ACTION_SPEC,
     )
-    clean = _infer_once(policy_factory, context, episode.anchor_record.observation)
+    clean = infer_recorded_once(
+        policy_factory, context, episode.anchor_record.observation
+    )
     clean_anchor, clean_full, clean_future, _ = _metrics(
         clean, episode.expert_actions, None
     )
@@ -260,7 +262,7 @@ def run_recorded_n0_experiment(
             for slot in ("left", "right")
         ):
             raise ValueError("F6 release anchor must be release for both sensors")
-        release_clean = _infer_once(
+        release_clean = infer_recorded_once(
             policy_factory, context, release_episode.anchor_record.observation
         )
     results: list[RecordedConditionResult] = [
@@ -336,7 +338,7 @@ def run_recorded_n0_experiment(
                     f"fault delivery failed validation: {condition_id}: "
                     f"{replay.validation.failure_codes}"
                 )
-            prediction = _infer_once(
+            prediction = infer_recorded_once(
                 policy_factory,
                 context,
                 replay.records[condition_episode.anchor_index].observation,

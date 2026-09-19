@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/destinyls/RoboTactile/schemas/act_artifacts_lock.schema.json",
+  "title": "RoboTactile official UniVTAC ACT artifact lock",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_family",
+    "files",
+    "repository_id",
+    "repository_type",
+    "revision",
+    "schema_version",
+    "semantic_version"
+  ],
+  "properties": {
+    "artifact_family": {
+      "const": "official_univtac_act_hf_release"
+    },
+    "files": {
+      "type": "array",
+      "minItems": 25,
+      "maxItems": 25,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "profile",
+          "remote_path",
+          "sha256",
+          "size_bytes",
+          "task_id"
+        ],
+        "properties": {
+          "kind": {
+            "enum": ["encoder", "policy", "stats"]
+          },
+          "profile": {
+            "type": ["string", "null"],
+            "enum": ["univtac", "vision_only", null]
+          },
+          "remote_path": {
+            "type": "string",
+            "pattern": "^checkpoints/[A-Za-z0-9_./-]+$"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "task_id": {
+            "type": ["string", "null"],
+            "enum": [
+              "grasp_classify",
+              "insert_HDMI",
+              "insert_hole",
+              "insert_tube",
+              "lift_bottle",
+              "lift_can",
+              "pull_out_key",
+              "put_bottle_in_shelf",
+              null
+            ]
+          }
+        }
+      }
+    },
+    "repository_id": {
+      "const": "byml/UniVTAC"
+    },
+    "repository_type": {
+      "const": "dataset"
+    },
+    "revision": {
+      "const": "172331dbbce95bc04c3e59b22f32dc72ba5561ae"
+    },
+    "schema_version": {
+      "const": "robotactile-act-artifacts-lock-v1"
+    },
+    "semantic_version": {
+      "const": "1.0"
+    }
+  }
+}

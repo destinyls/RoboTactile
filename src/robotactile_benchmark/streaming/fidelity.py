@@ -78,6 +78,13 @@ def _transform_current(
 ) -> Array:
     operator_id = manifest.operator_id
     if operator_id == "F1_global_response_drift":
+        if manifest.parameters["temporal_path"] == "immediate_step":
+            if manifest.parameters.get("response_domain") == "absolute_black_frame":
+                return np.zeros_like(payload)
+            baseline = normalize(baseline_for(slot_id, manifest, rest_references))
+            current = normalize(payload)
+            target_gain = float(manifest.parameters["target_gain"])
+            return clip_like(payload, baseline + target_gain * (current - baseline))
         target_gain = float(manifest.parameters["target_gain"])
         span = max(1, manifest.stop_index - manifest.start_index - 1)
         progress = (index - manifest.start_index) / float(span)

@@ -7,6 +7,9 @@ import argparse
 import json
 from pathlib import Path
 
+from robotactile_benchmark.backends.univtac_contracts import (
+    resolve_univtac_full_horizon_budget,
+)
 from robotactile_benchmark.closed_loop.contracts import (
     InitialStatePolicy,
     WallTimeoutRole,
@@ -38,8 +41,16 @@ def main() -> int:
     )
     parser.add_argument("--initial-seed", type=int, required=True)
     parser.add_argument("--exogenous-seed", type=int, required=True)
-    parser.add_argument("--max-control-cycles", type=int, default=300)
-    parser.add_argument("--max-observation-steps", type=int, default=301)
+    parser.add_argument(
+        "--max-control-cycles",
+        type=int,
+        help="defaults to the selected task's frozen action horizon",
+    )
+    parser.add_argument(
+        "--max-observation-steps",
+        type=int,
+        help="defaults to max-control-cycles + 1",
+    )
     parser.add_argument(
         "--wall-timeout-s",
         type=float,
@@ -62,6 +73,12 @@ def main() -> int:
     parser.add_argument("--trial-set", type=Path)
     parser.add_argument("--live-output", type=Path)
     args = parser.parse_args()
+
+    max_control_cycles, max_observation_steps = resolve_univtac_full_horizon_budget(
+        args.task,
+        max_control_cycles=args.max_control_cycles,
+        max_observation_steps=args.max_observation_steps,
+    )
 
     layout = DeploymentLayout(resolve_deployment_root(args.root))
     initialize_deployment_layout(layout)
@@ -89,8 +106,8 @@ def main() -> int:
         task_id=args.task,
         initial_seed=args.initial_seed,
         exogenous_seed=args.exogenous_seed,
-        max_control_cycles=args.max_control_cycles,
-        max_observation_steps=args.max_observation_steps,
+        max_control_cycles=max_control_cycles,
+        max_observation_steps=max_observation_steps,
     )
     if args.dataset_sha256 is not None and args.dataset_sha256 != trial_set.sha256:
         raise SystemExit(
@@ -98,7 +115,7 @@ def main() -> int:
         )
     watchdog_timeout_s = derive_n0_infrastructure_watchdog_timeout(
         requested_floor_s=args.wall_timeout_s,
-        action_horizon=args.max_control_cycles,
+        action_horizon=max_control_cycles,
         seconds_per_action=args.watchdog_seconds_per_action,
     )
     request = build_official_n0_clean_request(
@@ -107,8 +124,8 @@ def main() -> int:
         dataset_sha256=trial_set.sha256,
         initial_seed=args.initial_seed,
         exogenous_seed=args.exogenous_seed,
-        max_control_cycles=args.max_control_cycles,
-        max_observation_steps=args.max_observation_steps,
+        max_control_cycles=max_control_cycles,
+        max_observation_steps=max_observation_steps,
         wall_timeout_s=watchdog_timeout_s,
         simulator_device=args.simulator_device,
         live_output_dir=live_output,

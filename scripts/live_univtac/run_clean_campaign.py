@@ -19,6 +19,7 @@ from robotactile_benchmark.backends.univtac_contracts import (
     N0_STOCK_EE_ACTION_EXECUTION_CONTRACT,
     N0_STOCK_EE_NATIVE_STEP_CONTRACT,
     N0_TRAINING_60HZ_ACTION_EXECUTION_CONTRACT,
+    load_univtac_task_registry,
     validate_n0_ee_action_execution_contract,
 )
 from robotactile_benchmark.clean_baseline import (
@@ -73,6 +74,9 @@ from robotactile_benchmark.execution.same_task_worker_protocol import (
     SAME_TASK_WORKER_SEMANTIC_VERSION,
     SameTaskWorkerRequest,
     compute_request_id,
+)
+from robotactile_benchmark.integrations.n0_twam.official_protocol import (
+    validate_official_n0_clean_claim_request,
 )
 from robotactile_benchmark.trials import Condition
 
@@ -846,6 +850,18 @@ def run_campaign(args: argparse.Namespace) -> tuple[dict[str, object], int]:
     selected = tuple(item for item in entries if item.task == args.task)
     if not selected:
         raise ValueError("selected task is absent from the frozen campaign")
+    if manifest.protocol_id in {
+        CleanCampaignProtocol.PILOT,
+        CleanCampaignProtocol.PAPER,
+    }:
+        action_horizon = load_univtac_task_registry().task(args.task).action_horizon
+        for entry in selected:
+            request_path, _ = _validate_entry(layout.root, entry)
+            request = load_live_univtac_request(request_path)
+            validate_official_n0_clean_claim_request(
+                request,
+                action_horizon=action_horizon,
+            )
     if args.max_new_trials is not None and args.max_new_trials < 0:
         raise ValueError("max_new_trials must be non-negative")
     isaac_python = (

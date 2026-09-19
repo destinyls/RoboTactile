@@ -61,7 +61,6 @@ from robotactile_benchmark.policies.univtac_official_act_loading import (
 )
 from robotactile_benchmark.trials import (
     Condition,
-    RestorationMode,
     TrialManifest,
     system_manifest_hash,
 )
@@ -140,8 +139,6 @@ def _clean_trial(
         action_spec=ACTION_SPEC,
         fault_manifest_sha256=None,
         matched_no_touch_system_id=None,
-        restoration_index=None,
-        restoration_mode=None,
     )
 
 
@@ -230,8 +227,6 @@ def _write_bundle(staging: Path, spec: PrimaryMatrixGenerationSpec) -> None:
         ),
         clean=_clean_trial(spec, tactile),
         fault_manifests=_fault_manifests(spec, rest.references.sha256),
-        restoration_index=spec.restoration_index,
-        restoration_mode=RestorationMode.VALID_STREAM_RESUME,
         no_touch_system_id=spec.no_touch_system_id,
         no_touch_checkpoint_sha256=no_touch.checkpoint_sha256,
         no_touch_config_sha256=no_touch.config_sha256,

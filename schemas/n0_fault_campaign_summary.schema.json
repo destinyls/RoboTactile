@@ -1,0 +1,195 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robotactile.invalid/schemas/n0_fault_campaign_summary.schema.json",
+  "title": "RoboTactile N0FaultCampaignSummary",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "spec", "source_root_sha256", "outcomes", "tasks", "operator_cells",
+    "axes", "severity_curves", "worst_cell", "macro_clean_success_rate",
+    "macro_fault_success_rate", "macro_degradation", "macro_retention",
+    "degradation_interval", "statistically_complete", "completeness_blockers",
+    "semantic_version"
+  ],
+  "properties": {
+    "spec": {"$ref": "#/$defs/spec"},
+    "source_root_sha256": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {"$ref": "#/$defs/sha256"}
+    },
+    "outcomes": {"$ref": "#/$defs/outcomes"},
+    "tasks": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/task"}},
+    "operator_cells": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/cell"}},
+    "axes": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/axis"}},
+    "severity_curves": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/curve"}},
+    "worst_cell": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["operator_id", "severity_level"],
+          "properties": {
+            "operator_id": {"$ref": "#/$defs/operator"},
+            "severity_level": {"$ref": "#/$defs/severity"}
+          }
+        }
+      ]
+    },
+    "macro_clean_success_rate": {"$ref": "#/$defs/nullable_rate"},
+    "macro_fault_success_rate": {"$ref": "#/$defs/nullable_rate"},
+    "macro_degradation": {"type": ["number", "null"]},
+    "macro_retention": {"$ref": "#/$defs/nullable_retention"},
+    "degradation_interval": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/interval"}]},
+    "statistically_complete": {"type": "boolean"},
+    "completeness_blockers": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "semantic_version": {"const": "1.0"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "rate": {"type": "number", "minimum": 0, "maximum": 1},
+    "nullable_rate": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+    "nullable_retention": {"type": ["number", "null"], "minimum": 0},
+    "severity": {"type": "integer", "minimum": 1, "maximum": 5},
+    "axis_name": {"enum": ["availability", "fidelity", "temporal", "context"]},
+    "operator": {"enum": [
+      "A1_stream_absence", "A2_frame_erasure", "F1_global_response_drift",
+      "F2_spatial_sensitivity_loss", "F3_persistent_surface_artifact",
+      "F4_local_nonresponsive_patch", "F5_contact_shape_distortion",
+      "F6_history_residual_imprint", "F7_high_load_saturation",
+      "T1_fixed_source_delay", "T2_held_last_freeze", "T3_inter_sensor_skew",
+      "C1_sensor_identity_misrouting", "C2_frame_misregistration"
+    ]},
+    "spec": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "system_id", "supported_operator_ids", "contract_operator_ids",
+        "severity_levels", "bootstrap_seed", "bootstrap_resamples",
+        "confidence_level", "severity_registry", "semantic_version"
+      ],
+      "properties": {
+        "system_id": {"type": "string", "minLength": 1},
+        "supported_operator_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/operator"}},
+        "contract_operator_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/operator"}},
+        "severity_levels": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/severity"}},
+        "bootstrap_seed": {"type": "integer", "minimum": 0},
+        "bootstrap_resamples": {"const": 10000},
+        "confidence_level": {"const": 0.95},
+        "severity_registry": {
+          "enum": [
+            "provisional_engineering_v2",
+            "diagnostic_stress_max_v1",
+            "diagnostic_tactile_null_black_v1"
+          ]
+        },
+        "semantic_version": {"const": "1.0"}
+      }
+    },
+    "outcomes": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "requested_count", "model_success_count", "model_failure_count",
+        "infrastructure_failure_count", "validator_failure_count",
+        "unsupported_contract_count", "other_ineligible_count", "score_denominator"
+      ],
+      "properties": {
+        "requested_count": {"type": "integer", "minimum": 0},
+        "model_success_count": {"type": "integer", "minimum": 0},
+        "model_failure_count": {"type": "integer", "minimum": 0},
+        "infrastructure_failure_count": {"type": "integer", "minimum": 0},
+        "validator_failure_count": {"type": "integer", "minimum": 0},
+        "unsupported_contract_count": {"type": "integer", "minimum": 0},
+        "other_ineligible_count": {"type": "integer", "minimum": 0},
+        "score_denominator": {"type": "integer", "minimum": 0}
+      }
+    },
+    "task": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "task", "clean_outcome_count", "clean_success_rate",
+        "eligible_fault_pair_count", "scored_cell_count", "fault_success_rate",
+        "degradation", "retention"
+      ],
+      "properties": {
+        "task": {"type": "string", "minLength": 1},
+        "clean_outcome_count": {"type": "integer", "minimum": 0},
+        "clean_success_rate": {"$ref": "#/$defs/nullable_rate"},
+        "eligible_fault_pair_count": {"type": "integer", "minimum": 0},
+        "scored_cell_count": {"type": "integer", "minimum": 0},
+        "fault_success_rate": {"$ref": "#/$defs/nullable_rate"},
+        "degradation": {"type": ["number", "null"]},
+        "retention": {"$ref": "#/$defs/nullable_retention"}
+      }
+    },
+    "cell": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "operator_id", "axis", "severity_level", "native_dose", "native_unit",
+        "requested_count", "eligible_pair_count", "clean_success_rate",
+        "fault_success_rate", "degradation", "retention", "degradation_interval",
+        "mcnemar_p_value", "holm_adjusted_p_value", "statistics_status", "outcomes"
+      ],
+      "properties": {
+        "operator_id": {"$ref": "#/$defs/operator"},
+        "axis": {"$ref": "#/$defs/axis_name"},
+        "severity_level": {"$ref": "#/$defs/severity"},
+        "native_dose": {"type": "number"},
+        "native_unit": {"type": "string", "minLength": 1},
+        "requested_count": {"type": "integer", "minimum": 0},
+        "eligible_pair_count": {"type": "integer", "minimum": 0},
+        "clean_success_rate": {"$ref": "#/$defs/nullable_rate"},
+        "fault_success_rate": {"$ref": "#/$defs/nullable_rate"},
+        "degradation": {"type": ["number", "null"]},
+        "retention": {"$ref": "#/$defs/nullable_retention"},
+        "degradation_interval": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/interval"}]},
+        "mcnemar_p_value": {"$ref": "#/$defs/nullable_rate"},
+        "holm_adjusted_p_value": {"$ref": "#/$defs/nullable_rate"},
+        "statistics_status": {"enum": ["available", "missing", "unavailable_no_eligible_pairs"]},
+        "outcomes": {"$ref": "#/$defs/outcomes"}
+      }
+    },
+    "axis": {
+      "type": "object", "additionalProperties": false,
+      "required": ["axis", "operator_count", "scored_cell_count", "fault_success_rate", "degradation", "retention"],
+      "properties": {
+        "axis": {"$ref": "#/$defs/axis_name"},
+        "operator_count": {"type": "integer", "minimum": 1},
+        "scored_cell_count": {"type": "integer", "minimum": 0},
+        "fault_success_rate": {"$ref": "#/$defs/nullable_rate"},
+        "degradation": {"type": ["number", "null"]},
+        "retention": {"$ref": "#/$defs/nullable_retention"}
+      }
+    },
+    "point": {
+      "type": "object", "additionalProperties": false,
+      "required": ["severity_level", "eligible_pair_count", "fault_success_rate", "degradation", "retention"],
+      "properties": {
+        "severity_level": {"$ref": "#/$defs/severity"},
+        "eligible_pair_count": {"type": "integer", "minimum": 0},
+        "fault_success_rate": {"$ref": "#/$defs/nullable_rate"},
+        "degradation": {"type": ["number", "null"]},
+        "retention": {"$ref": "#/$defs/nullable_retention"}
+      }
+    },
+    "curve": {
+      "type": "object", "additionalProperties": false,
+      "required": ["operator_id", "points", "fault_success_rate_auc", "degradation_auc", "auc_status"],
+      "properties": {
+        "operator_id": {"$ref": "#/$defs/operator"},
+        "points": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/point"}},
+        "fault_success_rate_auc": {"$ref": "#/$defs/nullable_rate"},
+        "degradation_auc": {"type": ["number", "null"]},
+        "auc_status": {"enum": ["available", "fewer_than_two_levels", "incomplete_curve"]}
+      }
+    },
+    "interval": {
+      "type": "object", "additionalProperties": false,
+      "required": ["estimate", "lower", "upper", "confidence_level", "valid_resamples", "task_count", "pair_count"],
+      "properties": {
+        "estimate": {"type": "number"}, "lower": {"type": "number"}, "upper": {"type": "number"},
+        "confidence_level": {"const": 0.95}, "valid_resamples": {"const": 10000},
+        "task_count": {"type": "integer", "minimum": 1},
+        "pair_count": {"type": "integer", "minimum": 1}
+      }
+    }
+  }
+}

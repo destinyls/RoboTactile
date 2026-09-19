@@ -1,0 +1,58 @@
+{
+  "schema_version": "robotactile-dream-tac-hcu-distributed-request-v4",
+  "accelerator_contract": "hygon_hcu_hip_2node_16rank_v1",
+  "dream_tac_commit": "14bab51d6862fd07124745c55cd395ea5caa9fd3",
+  "launch_mode": "formal",
+  "run_name": "dream-tac-train759-2n16-formal-v1",
+  "robotactile_root": "/mnt/data/task/path/to/RoboTactile",
+  "dream_tac_host_root": "/mnt/data/task/path/to/Dream-Tac-HCU-overlay",
+  "franka_dataset_sha256": "937fc592c86dfef512cc048d622daba8edcd98b7df1b4ca853c6819a73942b99",
+  "franka_dataset_loading": "lazy_random_access_frames_v1",
+  "fsdp_mesh_mode": "global_1d_shard_v1",
+  "fsdp_helper_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+  "dtensor_helper_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+  "runtime_host_root": "/mnt/data/task/path/to/hcu-runtime-overlay",
+  "output_root": "/mnt/data/task/path/to/dream-tac-runs",
+  "nodes": [
+    "192.0.2.107",
+    "192.0.2.108"
+  ],
+  "ssh_user": "root",
+  "ssh_port": 36000,
+  "master_addr": "192.0.2.107",
+  "master_port": 29640,
+  "network_interface": "bond1",
+  "nproc_per_node": 8,
+  "visible_devices": "0,1,5,4,2,3,7,6",
+  "fsdp_shard_size": 16,
+  "max_iter": 20000,
+  "save_iter": 500,
+  "batch_size": 1,
+  "num_workers": 2,
+  "grad_accum_iter": 1,
+  "dataset_split": "train759",
+  "tasks": [
+    "grasp_classify",
+    "insert_HDMI",
+    "insert_hole",
+    "insert_tube",
+    "lift_bottle",
+    "lift_can",
+    "pull_out_key",
+    "put_bottle_in_shelf"
+  ],
+  "optimizer_step_request": {
+    "path": "/mnt/data/task/path/to/requests/dream-tac-hcu-one-step-logfinite-v11.json",
+    "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "optimizer_step_result": {
+    "path": "/mnt/data/task/path/to/optimizer_step_launch_result.json",
+    "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+  },
+  "container_image": "docker-registry-sh.tencentcloudcr.com/hg/hg_wm:v3.5",
+  "container_image_id": "sha256:09822e7616a3f9794284341aee19e1dfd531c2d2cb58168a40b14fcf818fdf9a",
+  "rccl_plugin": {
+    "path": "/opt/hpc/software/app/rccl/shca_rdma_plugins/v8/lib/librccl-net-shca.so.0.0.0",
+    "sha256": "20a0a2a10a6e6a6a55212990634f6de8d79cc0553a315d6a48ff110b114694d0"
+  }
+}

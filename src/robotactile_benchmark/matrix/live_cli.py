@@ -53,7 +53,6 @@ def add_live_matrix_subcommands(
     generate.add_argument("--exogenous-seed", type=int, required=True)
     generate.add_argument("--operator-seed-base", type=int, default=20260821)
     generate.add_argument("--fault-start-index", type=int, default=16)
-    generate.add_argument("--restoration-index", type=int, required=True)
     generate.add_argument("--fault-stop-index", type=int)
     generate.add_argument("--max-control-cycles", type=int)
     generate.add_argument("--max-observation-steps", type=int)
@@ -158,7 +157,6 @@ def handle_live_matrix_command(args: argparse.Namespace) -> Optional[dict[str, o
         exogenous_seed=args.exogenous_seed,
         operator_seed_base=args.operator_seed_base,
         fault_start_index=args.fault_start_index,
-        restoration_index=args.restoration_index,
         fault_stop_index=fault_stop,
         max_control_cycles=max_cycles,
         max_observation_steps=max_observations,

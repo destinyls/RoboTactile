@@ -8,6 +8,10 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Optional
 
+from robotactile_benchmark.act_fault_campaign.cli import (
+    add_act_fault_campaign_subcommands,
+    handle_act_fault_campaign_command,
+)
 from robotactile_benchmark.calibration.cli_support import (
     add_calibration_request_parser,
 )
@@ -41,6 +45,10 @@ from robotactile_benchmark.manifests import FaultManifest, Observability
 from robotactile_benchmark.matrix.live_cli import (
     add_live_matrix_subcommands,
     handle_live_matrix_command,
+)
+from robotactile_benchmark.n0_fault_campaign.cli import (
+    add_n0_fault_campaign_subcommands,
+    handle_n0_fault_campaign_command,
 )
 from robotactile_benchmark.operators import EXPECTED_OPERATOR_IDS, list_operator_ids
 from robotactile_benchmark.protocol_alignment.cli import (
@@ -133,11 +141,35 @@ def _parser() -> argparse.ArgumentParser:
     add_recorded_n0_subcommand(subparsers)
     add_expert_alignment_subcommand(subparsers)
     add_protocol_alignment_subcommand(subparsers)
+    add_n0_fault_campaign_subcommands(subparsers)
+    add_act_fault_campaign_subcommands(subparsers)
     return parser
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = _parser().parse_args(argv)
+    act_fault_result = handle_act_fault_campaign_command(args)
+    if act_fault_result is not None:
+        print(
+            json.dumps(
+                act_fault_result,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+        )
+        return 0
+    n0_fault_result = handle_n0_fault_campaign_command(args)
+    if n0_fault_result is not None:
+        print(
+            json.dumps(
+                n0_fault_result,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+        )
+        return 0
     protocol_alignment_result = handle_protocol_alignment_command(args)
     if protocol_alignment_result is not None:
         protocol_payload, exit_code = protocol_alignment_result

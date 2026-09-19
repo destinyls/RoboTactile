@@ -11,16 +11,15 @@
     "base_system_manifest_sha256", "initial_seed", "exogenous_seed",
     "max_control_cycles", "max_observation_steps", "execute_action_steps",
     "wall_timeout_s", "upstream_root", "runtime_dir", "output_dir",
-    "fault_manifest_path", "rest_references_path", "restoration_index",
-    "restoration_mode", "matched_no_touch_system_id",
+    "fault_manifest_path", "rest_references_path", "matched_no_touch_system_id",
     "matched_no_touch_artifact_path", "act_device_name", "simulator_device",
     "launcher_args", "n0_source_commit", "n0_normalizer_sha256",
     "n0_serve_bundle_sha256", "n0_prompt_manifest_sha256", "semantic_version"
   ],
   "properties": {
     "task_id": {"type": "string", "minLength": 1},
-    "condition": {"enum": ["clean", "faulted", "no_touch", "restored"]},
-    "policy_kind": {"enum": ["act", "n0"]},
+    "condition": {"enum": ["clean", "faulted", "no_touch"]},
+    "policy_kind": {"enum": ["act", "ftp1_policy", "n0", "n0_vtla", "dream_tac"]},
     "base_system_id": {"type": "string", "minLength": 1},
     "dataset_sha256": {"$ref": "#/$defs/sha256"},
     "checkpoint_sha256": {"$ref": "#/$defs/sha256"},
@@ -38,11 +37,6 @@
     "output_dir": {"$ref": "#/$defs/nullable_path"},
     "fault_manifest_path": {"$ref": "#/$defs/nullable_path"},
     "rest_references_path": {"$ref": "#/$defs/nullable_path"},
-    "restoration_index": {"type": ["integer", "null"], "minimum": 0},
-    "restoration_mode": {
-      "type": ["string", "null"],
-      "enum": ["valid_stream_resume", "maintenance_or_replacement", null]
-    },
     "matched_no_touch_system_id": {"type": ["string", "null"], "minLength": 1},
     "matched_no_touch_artifact_path": {"$ref": "#/$defs/nullable_path"},
     "act_device_name": {"type": ["string", "null"], "minLength": 1},
@@ -67,7 +61,23 @@
     "n0_normalizer_sha256": {"$ref": "#/$defs/nullable_sha256"},
     "n0_serve_bundle_sha256": {"$ref": "#/$defs/nullable_sha256"},
     "n0_prompt_manifest_sha256": {"$ref": "#/$defs/nullable_sha256"},
-    "semantic_version": {"const": "1.0"}
+    "n0_action_per_frame": {"enum": [4, 12]},
+    "n0_prompt_override": {"type": "string", "minLength": 1},
+    "retrained_prompt": {"type": "string", "minLength": 1},
+    "retrained_control_hz": {"enum": [10, 60]},
+    "retrained_tactile_payload": {"enum": ["rgb", "rgb_marker"]},
+    "tactile_availability_mode": {"enum": ["native_missing_v1", "zero_fill_v1"]},
+    "n0_vtla_execution_profile": {"const": "receding_horizon_50x8_v1"},
+    "tactile_zero_shape": {
+      "type": "array", "minItems": 3, "maxItems": 3,
+      "prefixItems": [{"type": "integer", "minimum": 1}, {"type": "integer", "minimum": 1}, {"const": 3}],
+      "items": false
+    },
+    "n0_observed_tactile_mode": {
+      "const": "observed_tactile_absent_v1"
+    },
+    "success_profile_id": {"const": "insert_hole_strict_v1"},
+    "semantic_version": {"const": "2.0"}
   },
   "$defs": {
     "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
@@ -76,6 +86,36 @@
     "nullable_path": {"type": ["string", "null"], "minLength": 1}
   },
   "allOf": [
+    {
+      "if": {"required": ["tactile_availability_mode"]},
+      "then": {"properties": {"condition": {"enum": ["clean", "faulted"]}, "n0_observed_tactile_mode": false}}
+    },
+    {
+      "if": {"properties": {"tactile_availability_mode": {"const": "native_missing_v1"}}, "required": ["tactile_availability_mode"]},
+      "then": {"properties": {"policy_kind": {"const": "n0_vtla"}, "tactile_zero_shape": false}}
+    },
+    {
+      "if": {"properties": {"tactile_availability_mode": {"const": "zero_fill_v1"}}, "required": ["tactile_availability_mode"]},
+      "then": {"required": ["tactile_zero_shape"], "properties": {"policy_kind": {"enum": ["n0", "n0_vtla", "ftp1_policy", "dream_tac"]}}}
+    },
+    {
+      "if": {"required": ["tactile_zero_shape"]},
+      "then": {"required": ["tactile_availability_mode"], "properties": {"tactile_availability_mode": {"const": "zero_fill_v1"}}}
+    },
+    {
+      "if": {"anyOf": [{"required": ["retrained_prompt"]}, {"required": ["retrained_control_hz"]}, {"required": ["retrained_tactile_payload"]}]},
+      "then": {
+        "required": ["retrained_prompt", "retrained_control_hz", "retrained_tactile_payload"],
+        "properties": {"policy_kind": {"enum": ["n0_vtla", "ftp1_policy", "dream_tac"]}}
+      }
+    },
+    {
+      "if": {"properties": {"policy_kind": {"const": "dream_tac"}}, "required": ["policy_kind"]},
+      "then": {
+        "required": ["retrained_prompt", "retrained_control_hz", "retrained_tactile_payload"],
+        "properties": {"execute_action_steps": {"const": 20}, "retrained_control_hz": {"const": 10}, "n0_observed_tactile_mode": false}
+      }
+    },
     {
       "if": {"properties": {"policy_kind": {"const": "act"}}, "required": ["policy_kind"]},
       "then": {
@@ -87,12 +127,12 @@
           "n0_source_commit": {"const": null},
           "n0_normalizer_sha256": {"const": null},
           "n0_serve_bundle_sha256": {"const": null},
-          "n0_prompt_manifest_sha256": {"const": null}
+          "n0_prompt_manifest_sha256": {"const": null},
+          "n0_observed_tactile_mode": false
         }
       },
       "else": {
         "properties": {
-          "execute_action_steps": {"const": 24},
           "act_device_name": {"const": null},
           "n0_source_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
           "n0_normalizer_sha256": {"$ref": "#/$defs/sha256"},
@@ -102,10 +142,66 @@
       }
     },
     {
+      "if": {
+        "properties": {"policy_kind": {"const": "ftp1_policy"}},
+        "required": ["policy_kind"]
+      },
+      "then": {
+        "properties": {
+          "execute_action_steps": {"const": 1},
+          "initial_state_policy": false,
+          "n0_observed_tactile_mode": false
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"policy_kind": {"const": "n0"}},
+        "required": ["policy_kind"]
+      },
+      "then": {
+        "if": {"properties": {"n0_action_per_frame": {"const": 4}}, "required": ["n0_action_per_frame"]},
+        "then": {"required": ["n0_prompt_override"], "properties": {"execute_action_steps": {"const": 8}}},
+        "else": {"properties": {"execute_action_steps": {"const": 24}}}
+      }
+    },
+    {
+      "if": {
+        "properties": {"policy_kind": {"const": "n0_vtla"}},
+        "required": ["policy_kind"],
+        "not": {"required": ["n0_vtla_execution_profile"]}
+      },
+      "then": {
+        "properties": {"execute_action_steps": {"const": 50}}
+      }
+    },
+    {
+      "if": {"required": ["n0_vtla_execution_profile"]},
+      "then": {
+        "required": ["retrained_prompt", "retrained_control_hz", "retrained_tactile_payload"],
+        "properties": {
+          "policy_kind": {"const": "n0_vtla"},
+          "task_id": {"const": "put_bottle_in_shelf"},
+          "execute_action_steps": {"const": 8},
+          "retrained_control_hz": {"const": 10}
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["n0_observed_tactile_mode"]
+      },
+      "then": {
+        "properties": {
+          "policy_kind": {"const": "n0"},
+          "condition": {"const": "faulted"}
+        }
+      }
+    },
+    {
       "if": {"properties": {"condition": {"const": "clean"}}, "required": ["condition"]},
       "then": {"properties": {
         "fault_manifest_path": {"const": null}, "rest_references_path": {"const": null},
-        "restoration_index": {"const": null}, "restoration_mode": {"const": null},
         "matched_no_touch_system_id": {"const": null},
         "matched_no_touch_artifact_path": {"const": null}
       }}
@@ -114,17 +210,6 @@
       "if": {"properties": {"condition": {"const": "faulted"}}, "required": ["condition"]},
       "then": {"properties": {
         "fault_manifest_path": {"$ref": "#/$defs/path"},
-        "restoration_index": {"const": null}, "restoration_mode": {"const": null},
-        "matched_no_touch_system_id": {"const": null},
-        "matched_no_touch_artifact_path": {"const": null}
-      }}
-    },
-    {
-      "if": {"properties": {"condition": {"const": "restored"}}, "required": ["condition"]},
-      "then": {"properties": {
-        "fault_manifest_path": {"$ref": "#/$defs/path"},
-        "restoration_index": {"type": "integer", "minimum": 0},
-        "restoration_mode": {"enum": ["valid_stream_resume", "maintenance_or_replacement"]},
         "matched_no_touch_system_id": {"const": null},
         "matched_no_touch_artifact_path": {"const": null}
       }}
@@ -133,10 +218,19 @@
       "if": {"properties": {"condition": {"const": "no_touch"}}, "required": ["condition"]},
       "then": {"properties": {
         "fault_manifest_path": {"const": null}, "rest_references_path": {"const": null},
-        "restoration_index": {"const": null}, "restoration_mode": {"const": null},
         "matched_no_touch_system_id": {"type": "string", "minLength": 1},
         "matched_no_touch_artifact_path": {"$ref": "#/$defs/path"}
       }}
+    },
+    {
+      "if": {"required": ["success_profile_id"]},
+      "then": {
+        "properties": {"task_id": {"const": "insert_hole"}}
+      }
+    },
+    {
+      "if": {"anyOf": [{"required": ["n0_action_per_frame"]}, {"required": ["n0_prompt_override"]}]},
+      "then": {"properties": {"policy_kind": {"const": "n0"}}}
     }
   ]
 }

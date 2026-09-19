@@ -1,0 +1,37 @@
+{
+  "protocol_id": "univtac_insert_hole_dual_success_v1",
+  "semantic_version": "1.0",
+  "task_id": "insert_hole",
+  "official": {
+    "profile_id": "official_v1",
+    "predicate_id": "univtac-upstream-05bcd3ed.insert_hole.check_success.v1",
+    "source": "UniVTAC envs/insert_hole.py at 05bcd3edb92237107efa40105292a24f1a9fd761",
+    "xy_axis_error_m_lt": 0.01,
+    "insertion_depth_m_gt": 0.04,
+    "alignment_dot_gt": 0.99,
+    "inhand_z_drift_m_lt": 0.04,
+    "stable_hold_steps_gte": 1
+  },
+  "strict": {
+    "profile_id": "insert_hole_strict_v1",
+    "predicate_id": "insert_hole_strict_v1",
+    "xy_radial_error_m_lt": 0.005,
+    "insertion_depth_m_gt": 0.05,
+    "alignment_dot_gt": 0.999,
+    "inhand_z_drift_m_lt": 0.025,
+    "stable_hold_s_gte": 0.25,
+    "simulator_hz": 120,
+    "stable_hold_steps_gte": 30
+  },
+  "aggregation": {
+    "primary_profile_id": "official_v1",
+    "primary_metric_name": "insert_hole_official_sr",
+    "official_metric_name": "insert_hole_official_sr",
+    "strict_metric_name": "insert_hole_strict_v1_sr",
+    "strict_metric_role": "diagnostic_only",
+    "strict_affects_official_outcome": false,
+    "mix_profiles_in_one_denominator": false,
+    "same_trials_and_seeds_required_for_comparison": true
+  },
+  "claim_boundary": "Official UniVTAC SR is the only primary benchmark metric and the only insert_hole result eligible for headline reporting, ranking, or the paper main table. Strict SR is diagnostic-only and must not replace, alter, or be mixed with the official outcome or denominator."
+}

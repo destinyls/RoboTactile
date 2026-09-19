@@ -20,7 +20,7 @@ from scripts.live_univtac.probe_n0_teacher_forced_alignment_isaac import (
 )
 
 
-def test_teacher_forced_probe_defaults_to_first_hdf5_row() -> None:
+def test_teacher_forced_probe_defaults_to_complete_expert_trajectory() -> None:
     args = _parser().parse_args(
         [
             "--upstream-root",
@@ -36,7 +36,7 @@ def test_teacher_forced_probe_defaults_to_first_hdf5_row() -> None:
 
     _validate_args(args)
 
-    assert args.hdf5_index == 0
+    assert args.hdf5_index is None
     assert args.replay_stride == 1
     assert args.initial_seed == 90
     assert args.antialiasing_mode == "TAA"

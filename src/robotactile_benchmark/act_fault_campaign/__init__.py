@@ -1,0 +1,111 @@
+"""Official UniVTAC ACT Clean/Faulted robustness campaign API."""
+
+from robotactile_benchmark.act_fault_campaign.contracts import (
+    ACT_FAULT_CAMPAIGN_GENERATION_SEMANTIC_VERSION,
+    ACT_FAULT_CAMPAIGN_SEMANTIC_VERSION,
+    ACT_FAULT_TEMPLATE_SEED_DERIVATION,
+    ACT_SUPPORTED_OPERATOR_IDS,
+    ACT_UNSUPPORTED_CONTRACT_SEMANTIC_VERSION,
+    ACT_UNSUPPORTED_OPERATOR_IDS,
+    ACTFaultCampaignCellSpec,
+    ACTFaultCampaignError,
+    ACTFaultCampaignManifest,
+    ACTFaultCellDisposition,
+    ACTUnsupportedContractSpec,
+)
+from robotactile_benchmark.act_fault_campaign.generation import (
+    ACT_FAULT_GENERATION_SPEC_VERSION,
+    ACTFaultCampaignGenerationSpec,
+    derive_operator_template_seed,
+    generate_act_fault_campaign_bundle,
+)
+from robotactile_benchmark.act_fault_campaign.io import (
+    ACTFaultCampaignGenerationReceipt,
+    LoadedACTFaultCampaign,
+    load_act_fault_campaign_bundle,
+)
+from robotactile_benchmark.act_fault_campaign.reporting import (
+    ACT_FAULT_REPORT_SEMANTIC_VERSION,
+    ACTFaultCampaignReport,
+    ACTFaultDispositionBreakdown,
+    ACTFaultOperatorCellReport,
+    build_act_fault_campaign_report,
+)
+from robotactile_benchmark.act_fault_campaign.reset_reference import (
+    DEFAULT_ACT_RESET_QPOS_ATOL,
+    MAX_ACT_RESET_QPOS_ATOL,
+    ACTResetReferenceArtifactError,
+    act_reset_reference_relpath,
+    build_act_reset_reference_from_artifact,
+    load_act_reset_reference,
+    write_act_reset_reference,
+)
+from robotactile_benchmark.act_fault_campaign.reset_trajectory import (
+    ACTResetTrajectoryArtifactError,
+    act_reset_trajectory_relpath,
+    build_act_trajectory_replay_reference,
+    load_act_reset_trajectory,
+    write_act_reset_trajectory,
+)
+from robotactile_benchmark.act_fault_campaign.reset_trajectory_calibration import (
+    capture_act_reset_trajectory,
+)
+from robotactile_benchmark.act_fault_campaign.runner import (
+    ACT_FAULT_TASK_RUN_EVIDENCE_LEVEL,
+    ACT_FAULT_TASK_RUN_SEMANTIC_VERSION,
+    COMPLETE_RESUME_MODE,
+    FRESH_RESUME_MODE,
+    PARTIAL_RESUME_MODE,
+    ACTCleanBaselineUnqualifiedError,
+    ACTFaultTaskRunReceipt,
+    run_act_fault_task,
+    select_live_task_cells,
+)
+
+__all__ = [
+    "ACT_FAULT_CAMPAIGN_GENERATION_SEMANTIC_VERSION",
+    "ACT_FAULT_CAMPAIGN_SEMANTIC_VERSION",
+    "ACT_FAULT_GENERATION_SPEC_VERSION",
+    "ACT_FAULT_REPORT_SEMANTIC_VERSION",
+    "ACT_FAULT_TEMPLATE_SEED_DERIVATION",
+    "ACT_FAULT_TASK_RUN_EVIDENCE_LEVEL",
+    "ACT_FAULT_TASK_RUN_SEMANTIC_VERSION",
+    "ACT_SUPPORTED_OPERATOR_IDS",
+    "ACT_UNSUPPORTED_CONTRACT_SEMANTIC_VERSION",
+    "ACT_UNSUPPORTED_OPERATOR_IDS",
+    "ACTFaultCampaignCellSpec",
+    "ACTFaultCampaignError",
+    "ACTFaultCampaignGenerationReceipt",
+    "ACTFaultCampaignGenerationSpec",
+    "ACTFaultCampaignManifest",
+    "ACTFaultCampaignReport",
+    "ACTFaultCellDisposition",
+    "ACTCleanBaselineUnqualifiedError",
+    "ACTFaultDispositionBreakdown",
+    "ACTFaultOperatorCellReport",
+    "ACTFaultTaskRunReceipt",
+    "ACTResetReferenceArtifactError",
+    "ACTResetTrajectoryArtifactError",
+    "ACTUnsupportedContractSpec",
+    "COMPLETE_RESUME_MODE",
+    "DEFAULT_ACT_RESET_QPOS_ATOL",
+    "MAX_ACT_RESET_QPOS_ATOL",
+    "FRESH_RESUME_MODE",
+    "LoadedACTFaultCampaign",
+    "PARTIAL_RESUME_MODE",
+    "derive_operator_template_seed",
+    "act_reset_reference_relpath",
+    "act_reset_trajectory_relpath",
+    "build_act_reset_reference_from_artifact",
+    "build_act_trajectory_replay_reference",
+    "build_act_fault_campaign_report",
+    "capture_act_reset_trajectory",
+    "generate_act_fault_campaign_bundle",
+    "load_act_fault_campaign_bundle",
+    "load_act_reset_reference",
+    "load_act_reset_trajectory",
+    "run_act_fault_task",
+    "select_live_task_cells",
+    "write_act_reset_reference",
+    "write_act_reset_trajectory",
+]

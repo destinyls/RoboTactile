@@ -1,4 +1,4 @@
-"""First-class ACT and N0-TWAM integration registry."""
+"""First-class external model integration registry."""
 
 from robotactile_benchmark.integrations.contracts import (
     ModelIntegrationCapabilities,

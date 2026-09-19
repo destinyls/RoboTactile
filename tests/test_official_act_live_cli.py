@@ -67,8 +67,6 @@ def _request(root: Path, condition: Condition) -> LiveUniVTACRunRequest:
         output_dir=root / "artifact",
         fault_manifest_path=None,
         rest_references_path=None,
-        restoration_index=None,
-        restoration_mode=None,
         matched_no_touch_system_id=("official-vision-only-act" if no_touch else None),
         matched_no_touch_artifact_path=(
             root / "checkpoints" / "pull_out_key" / profile / "policy_last.ckpt"
@@ -127,7 +125,6 @@ class OfficialACTLiveBindingTests(unittest.TestCase):
             for condition, expected in (
                 (Condition.CLEAN, OfficialACTProfile.UNIVTAC),
                 (Condition.FAULTED, OfficialACTProfile.UNIVTAC),
-                (Condition.RESTORED, OfficialACTProfile.UNIVTAC),
                 (Condition.NO_TOUCH, OfficialACTProfile.VISION_ONLY),
             ):
                 self.assertIs(official_act_profile(condition), expected)
@@ -166,6 +163,31 @@ class OfficialACTLiveBindingTests(unittest.TestCase):
 
 
 class OfficialACTLiveCLITests(unittest.TestCase):
+    def test_mixed_profile_pair_rejects_one_shared_config(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            clean_path = root / "clean.json"
+            no_touch_path = root / "no_touch.json"
+            _write_request(clean_path, _request(root / "clean", Condition.CLEAN))
+            _write_request(
+                no_touch_path,
+                _request(root / "no_touch", Condition.NO_TOUCH),
+            )
+
+            with self.assertRaisesRegex(ValueError, "per-profile configs"):
+                main(
+                    [
+                        "live-univtac-paired-run",
+                        "--requests",
+                        str(clean_path),
+                        str(no_touch_path),
+                        "--receipt",
+                        str(root / "receipt.json"),
+                        "--config",
+                        str(root / "one-config.json"),
+                    ]
+                )
+
     def test_cli_executes_exports_reloads_and_prints_one_canonical_line(self) -> None:
         for condition, expected_profile in (
             (Condition.CLEAN, OfficialACTProfile.UNIVTAC),

@@ -33,9 +33,12 @@ from robotactile_benchmark.execution.capture_profiles import LiveCaptureProfile
 from robotactile_benchmark.execution.contracts import (
     production_univtac_launcher_args,
 )
+from robotactile_benchmark.execution.live_artifacts_contracts import (
+    LIVE_REQUEST_IDENTITY_SEMANTIC_VERSION,
+)
 from robotactile_benchmark.fixtures import make_synthetic_episode
 from robotactile_benchmark.manifests import FaultManifest, Observability
-from robotactile_benchmark.trials import Condition, RestorationMode
+from robotactile_benchmark.trials import Condition
 
 
 def _canonical(value: object) -> bytes:
@@ -89,12 +92,6 @@ def _request(root: Path, condition: Condition) -> LiveUniVTACRunRequest:
         output_dir=None,
         fault_manifest_path=fault_path,
         rest_references_path=None,
-        restoration_index=3 if condition is Condition.RESTORED else None,
-        restoration_mode=(
-            RestorationMode.VALID_STREAM_RESUME
-            if condition is Condition.RESTORED
-            else None
-        ),
         matched_no_touch_system_id=None,
         matched_no_touch_artifact_path=None,
         act_device_name="cpu",
@@ -171,6 +168,58 @@ def _repin_member(bundle: Path, relative: str, raw: bytes) -> None:
 
 
 class LiveUniVTACArtifactRoundTripTests(unittest.TestCase):
+    def test_terminal_a2_erasure_exports_and_reopens_strict_invalid(self) -> None:
+        self._terminal_a2_round_trip(censored=False)
+
+    def test_terminal_a2_censoring_exports_and_reopens_explicit_metrics(self) -> None:
+        self._terminal_a2_round_trip(censored=True)
+
+    def _terminal_a2_round_trip(self, *, censored: bool) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            request = _request(root, Condition.FAULTED)
+            manifest = FaultManifest(
+                operator_id="A2_frame_erasure",
+                severity_level=3,
+                operator_seed=23,
+                start_index=4,
+                stop_index=5,
+                sensor_slots=("left",),
+                observability=Observability.DECLARED,
+                parameters={"a2_end_policy": "episode_censored_v1"} if censored else {},
+            )
+            assert request.fault_manifest_path is not None
+            request.fault_manifest_path.write_bytes(_canonical(manifest.to_dict()))
+            loaded = load_live_univtac_run(request)
+            evidence = run_closed_loop_trial_with_evidence(
+                loaded.trial,
+                loaded.run_spec,
+                DeterministicFakeBackend(
+                    make_synthetic_episode(length=10),
+                    success_predicate_id=loaded.run_spec.success_predicate_id,
+                ),
+                DeterministicFakePolicy.for_trial(loaded.trial),
+                fault_manifest=loaded.fault_manifest,
+            )
+            assert evidence.finalization is not None
+            report = evidence.finalization.validation
+            assert report is not None
+            if censored:
+                self.assertTrue(report.passed)
+                self.assertEqual(report.metrics["a2_resume_status"], "right_censored")
+                self.assertTrue(evidence.result.score_eligible)
+            else:
+                self.assertIn("A2_RESUME_MISSING", report.failure_codes)
+                self.assertFalse(report.passed)
+                self.assertFalse(evidence.result.score_eligible)
+
+            output = root / "terminal-a2-bundle"
+            write_live_univtac_artifact(output, loaded, evidence)
+            reopened = load_live_univtac_artifact(output)
+            assert reopened.evidence.finalization is not None
+            self.assertEqual(reopened.evidence.finalization.validation, report)
+            self.assertEqual(reopened.evidence.result, evidence.result)
+
     def test_n0_ee_artifact_round_trip_preserves_backend_identity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -196,13 +245,12 @@ class LiveUniVTACArtifactRoundTripTests(unittest.TestCase):
             self.assertEqual(reopened.root_receipt.semantic_version, "1.1")
             self.assertTrue((output / "transition_trace.json").is_file())
 
-    def test_clean_faulted_restored_round_trip_is_typed_and_byte_identical(
+    def test_clean_and_faulted_round_trip_is_typed_and_byte_identical(
         self,
     ) -> None:
         for condition in (
             Condition.CLEAN,
             Condition.FAULTED,
-            Condition.RESTORED,
         ):
             with (
                 self.subTest(condition=condition),
@@ -223,6 +271,10 @@ class LiveUniVTACArtifactRoundTripTests(unittest.TestCase):
                 )
                 self.assertFalse(reopened.root_receipt.simulator_qualification_claimed)
                 self.assertEqual(reopened.run_content_sha256, loaded.content_sha256)
+                self.assertEqual(
+                    reopened.request_identity["semantic_version"],
+                    LIVE_REQUEST_IDENTITY_SEMANTIC_VERSION,
+                )
                 self.assertEqual(reopened.trial, loaded.trial)
                 self.assertEqual(reopened.run_spec, loaded.run_spec)
                 self.assertEqual(reopened.fault_manifest, loaded.fault_manifest)
@@ -350,6 +402,19 @@ class LiveUniVTACArtifactTamperTests(unittest.TestCase):
             bundle = self._bundle(Path(tmp))
             (bundle / "escape").symlink_to(bundle / "root_receipt.json")
             with self.assertRaises(LiveArtifactValidationError):
+                load_live_univtac_artifact(bundle)
+
+    def test_v1_restored_era_request_identity_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = self._bundle(Path(tmp))
+            identity_path = bundle / "request_identity.json"
+            identity = json.loads(identity_path.read_text(encoding="utf-8"))
+            identity["semantic_version"] = "1.0"
+            _repin_member(bundle, "request_identity.json", _canonical(identity))
+
+            with self.assertRaisesRegex(
+                LiveArtifactValidationError, "request identity version"
+            ):
                 load_live_univtac_artifact(bundle)
 
     def test_descriptor_and_payload_provenance_tampering_fail_closed(self) -> None:

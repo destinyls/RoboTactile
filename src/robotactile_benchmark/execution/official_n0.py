@@ -5,13 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
-from typing import Optional, Sequence, Tuple
+from typing import Callable, Optional, Sequence, Tuple
 
 from robotactile_benchmark.closed_loop.interfaces import ClosedLoopPolicy
 from robotactile_benchmark.execution.capture_profiles import LiveCaptureProfile
 from robotactile_benchmark.execution.contracts import (
     ArtifactExportStatus,
-    LivePolicyKind,
     LiveUniVTACRunRequest,
 )
 from robotactile_benchmark.execution.isaac_runtime_attestation import (
@@ -42,6 +41,10 @@ from robotactile_benchmark.execution.paired_live_univtac import (
 )
 from robotactile_benchmark.integrations.n0_twam.artifacts import (
     N0TWAMArtifactManifest,
+)
+from robotactile_benchmark.integrations.n0_twam.official_protocol import (
+    OFFICIAL_N0_ACTION_PER_FRAME,
+    validate_official_n0_release_request,
 )
 from robotactile_benchmark.integrations.provenance import (
     load_integration_lock,
@@ -100,8 +103,7 @@ def build_official_n0_live_binding(
 
     if type(request) is not LiveUniVTACRunRequest:
         raise TypeError("request must be an exact LiveUniVTACRunRequest")
-    if request.policy_kind is not LivePolicyKind.N0:
-        raise ValueError("official N0 execution requires policy_kind=n0")
+    validate_official_n0_release_request(request)
     if request.output_dir is None:
         raise ValueError("official N0 execution requires request.output_dir")
     if manifest.task_id != request.task_id:
@@ -147,6 +149,7 @@ def make_official_n0_policy_factory(
     def factory(loaded: LoadedLiveUniVTACRun) -> ClosedLoopPolicy:
         if loaded.request.task_id != binding.manifest.task_id:
             raise ValueError("loaded task does not match N0 binding")
+        validate_official_n0_release_request(loaded.request)
 
         def client_factory() -> OfficialN0Client:
             rpc = load_official_n0_rpc(
@@ -155,12 +158,17 @@ def make_official_n0_policy_factory(
                 port=binding.port,
                 api_key=binding.api_key,
             )
-            return OfficialN0Client(rpc)
+            return OfficialN0Client(
+                rpc,
+                action_per_frame=OFFICIAL_N0_ACTION_PER_FRAME,
+            )
 
         return OfficialN0Policy(
             loaded.policy_identity,
             client_factory,
             input_profile=N0_LIVE_UNIVTAC_INPUT_PROFILE,
+            action_per_frame=OFFICIAL_N0_ACTION_PER_FRAME,
+            observed_tactile_mode=loaded.request.n0_observed_tactile_mode,
         )
 
     return factory
@@ -261,6 +269,9 @@ def execute_official_n0_paired_live_runs(
     session_factory: PairedBackendSessionFactory = (
         default_paired_backend_session_factory
     ),
+    action_execution_contract: Optional[str] = None,
+    capture_profile: LiveCaptureProfile = LiveCaptureProfile.PAPER_FULL,
+    pre_close_publisher: Optional[Callable[[OfficialN0PairedLiveResult], None]] = None,
 ) -> OfficialN0PairedLiveResult:
     """Execute matched N0 conditions through one simulator snapshot session."""
 
@@ -283,18 +294,69 @@ def execute_official_n0_paired_live_runs(
     def policy_factory(loaded: LoadedLiveUniVTACRun) -> ClosedLoopPolicy:
         return make_official_n0_policy_factory(by_request[id(loaded.request)])(loaded)
 
+    selected_capture = LiveCaptureProfile(capture_profile)
+    artifact_exporter: LiveArtifactExporter = (
+        write_live_univtac_artifact
+        if selected_capture.is_full_trace
+        else partial(
+            write_live_univtac_artifact,
+            capture_profile=selected_capture,
+        )
+    )
+    selected_session_factory = session_factory
+    if session_factory is default_paired_backend_session_factory:
+        selected_session_factory = partial(
+            default_paired_backend_session_factory,
+            n0_action_execution_contract=action_execution_contract,
+        )
+    published: list[OfficialN0PairedLiveResult] = []
+
+    def publish_before_close(
+        paired_result: PairedLiveUniVTACExecutionResult,
+    ) -> None:
+        official_result = OfficialN0PairedLiveResult(
+            paired=paired_result,
+            artifacts=_load_verified_paired_artifacts(
+                request_tuple,
+                selected_capture,
+            ),
+        )
+        if pre_close_publisher is not None:
+            pre_close_publisher(official_result)
+        published.append(official_result)
+
     paired = execute_paired_live_univtac_runs(
         request_tuple,
-        session_factory=session_factory,
+        session_factory=selected_session_factory,
         policy_factory=policy_factory,
-        artifact_exporter=write_live_univtac_artifact,
+        artifact_exporter=artifact_exporter,
+        pre_close_publisher=(
+            publish_before_close if pre_close_publisher is not None else None
+        ),
     )
+    if published:
+        if len(published) != 1 or published[0].paired != paired:
+            raise RuntimeError("paired N0 pre-close publication mismatch")
+        return published[0]
+    return OfficialN0PairedLiveResult(
+        paired=paired,
+        artifacts=_load_verified_paired_artifacts(request_tuple, selected_capture),
+    )
+
+
+def _load_verified_paired_artifacts(
+    requests: Sequence[LiveUniVTACRunRequest],
+    capture_profile: LiveCaptureProfile,
+) -> Tuple[LoadedLiveUniVTACArtifact, ...]:
     artifacts = []
-    for request in request_tuple:
+    for request in requests:
         if request.output_dir is None:
             raise ValueError("paired official N0 request requires output_dir")
-        artifacts.append(load_live_univtac_artifact(request.output_dir))
-    return OfficialN0PairedLiveResult(paired=paired, artifacts=tuple(artifacts))
+        artifact = load_live_univtac_artifact(request.output_dir)
+        if artifact.capture_profile is not capture_profile:
+            raise RuntimeError("paired N0 artifact capture profile mismatch")
+        artifacts.append(artifact)
+    return tuple(artifacts)
 
 
 __all__ = [

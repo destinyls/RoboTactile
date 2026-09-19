@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robotactile.invalid/schemas/ftp1_policy_artifact_manifest.schema.json",
+  "title": "RoboTactile FTP-1 policy artifact manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "action_dim",
+    "action_horizon",
+    "action_rep",
+    "bundle_root",
+    "camera_route",
+    "checkpoint_name",
+    "checkpoint_repository",
+    "checkpoint_revision",
+    "checkpoint_root",
+    "checkpoint_step",
+    "chunk_first_n",
+    "chunk_index_offset",
+    "color_contract",
+    "domain_name",
+    "external_commit",
+    "gemma_terms_uri",
+    "hpt_gelsight_path",
+    "hpt_gelsight_sha256",
+    "hpt_shared_path",
+    "hpt_shared_sha256",
+    "model_config_path",
+    "model_config_sha256",
+    "model_path",
+    "model_sha256",
+    "normalization_files",
+    "normalization_root",
+    "normalization_tree_sha256",
+    "prompt",
+    "schema_version",
+    "tactile_config_path",
+    "tactile_config_sha256",
+    "task_id",
+    "temporal_ensemble_k",
+    "train_config_path",
+    "train_config_sha256",
+    "use_tactile",
+    "weight_license_status"
+  ],
+  "properties": {
+    "action_dim": {"const": 120},
+    "action_horizon": {"const": 32},
+    "action_rep": {"const": "mix"},
+    "bundle_root": {"type": "string", "minLength": 1},
+    "camera_route": {"enum": ["all", "head"]},
+    "checkpoint_name": {
+      "enum": [
+        "FTP1_UniVTAC_insert_hole_expert_gsmall_ftp1",
+        "FTP1_UniVTAC_insert_tube_expert_gsmall_ftp1",
+        "FTP1_UniVTAC_lift_bottle_expert_gsmall_ftp1",
+        "FTP1_UniVTAC_lift_can_expert_gsmall_ftp1",
+        "FTP1_UniVTAC_pull_out_key_expert_gsmall_ftp1",
+        "FTP1_UniVTAC_put_bottle_expert_gsmall_ftp1"
+      ]
+    },
+    "checkpoint_repository": {"const": "MJJJJ1064/ftp1_univtac_finetune"},
+    "checkpoint_revision": {"const": "620ac69b4fffd2341300cfef1b1d224d56710ed3"},
+    "checkpoint_root": {"type": "string", "minLength": 1},
+    "checkpoint_step": {"const": 19999},
+    "chunk_first_n": {"const": 20},
+    "chunk_index_offset": {"const": 1},
+    "color_contract": {"const": "upstream_passthrough_v1"},
+    "domain_name": {
+      "enum": [
+        "UniVTAC_insert_hole",
+        "UniVTAC_insert_tube",
+        "UniVTAC_lift_bottle",
+        "UniVTAC_lift_can",
+        "UniVTAC_pull_out_key",
+        "UniVTAC_put_bottle"
+      ]
+    },
+    "external_commit": {"const": "89fa681d6c014cce28300946b7526db808e0b1c1"},
+    "gemma_terms_uri": {"const": "https://ai.google.dev/gemma/terms"},
+    "hpt_gelsight_path": {"type": "string", "minLength": 1},
+    "hpt_gelsight_sha256": {"$ref": "#/$defs/sha256"},
+    "hpt_shared_path": {"type": "string", "minLength": 1},
+    "hpt_shared_sha256": {"$ref": "#/$defs/sha256"},
+    "model_config_path": {"type": "string", "minLength": 1},
+    "model_config_sha256": {"$ref": "#/$defs/sha256"},
+    "model_path": {"type": "string", "minLength": 1},
+    "model_sha256": {"$ref": "#/$defs/sha256"},
+    "normalization_files": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/fileIdentity"}
+    },
+    "normalization_root": {"type": "string", "minLength": 1},
+    "normalization_tree_sha256": {"$ref": "#/$defs/sha256"},
+    "prompt": {
+      "enum": [
+        "insert the stick to the hole.",
+        "insert the tube to the fixed slot.",
+        "grasp the bottle and lift it vertically, keeping its final base within 5 cm of the wall.",
+        "grasp the can and lifts it vertically without slippage.",
+        "pull out the key.",
+        "grasp the bottle, then position it into the shelf cavity."
+      ]
+    },
+    "schema_version": {"const": "robotactile-ftp1-policy-artifact-v1"},
+    "tactile_config_path": {"type": "string", "minLength": 1},
+    "tactile_config_sha256": {"$ref": "#/$defs/sha256"},
+    "task_id": {
+      "enum": [
+        "insert_hole",
+        "insert_tube",
+        "lift_bottle",
+        "lift_can",
+        "pull_out_key",
+        "put_bottle_in_shelf"
+      ]
+    },
+    "temporal_ensemble_k": {"const": 0.01},
+    "train_config_path": {"type": "string", "minLength": 1},
+    "train_config_sha256": {"$ref": "#/$defs/sha256"},
+    "use_tactile": {"const": true},
+    "weight_license_status": {"const": "upstream_unspecified"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "fileIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}

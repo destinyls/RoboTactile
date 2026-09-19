@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate one immutable four-condition pull-out-key live request matrix."""
+"""Generate one immutable three-condition pull-out-key live request matrix."""
 
 from __future__ import annotations
 
@@ -13,7 +13,11 @@ from pathlib import Path
 from typing import Any, Optional
 
 from pull_out_key_matrix_io import file_sha256, publish_tree, tree_hashes, write_json
-from pull_out_key_matrix_values import artifact_document, trial_set_document
+from pull_out_key_matrix_values import (
+    PULL_OUT_KEY_MATRIX_SEMANTIC_VERSION,
+    artifact_document,
+    trial_set_document,
+)
 from pull_out_key_rest_reference import (
     RestReferenceBinding,
     copy_rest_reference,
@@ -40,6 +44,7 @@ from robotactile_benchmark.execution import (
     load_live_univtac_run,
 )
 from robotactile_benchmark.execution.contracts import (
+    LIVE_REQUEST_SEMANTIC_VERSION,
     production_univtac_launcher_args,
 )
 from robotactile_benchmark.manifests import FaultManifest, Observability
@@ -49,7 +54,6 @@ from robotactile_benchmark.policies.univtac_official_act_loading import (
 )
 from robotactile_benchmark.trials import (
     Condition,
-    RestorationMode,
     build_paired_trial_grid,
     system_manifest_hash,
 )
@@ -79,7 +83,6 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--severity", type=int, choices=range(1, 6), default=3)
     parser.add_argument("--operator-seed", type=int, default=20260821)
     parser.add_argument("--fault-start", type=int, default=16)
-    parser.add_argument("--restoration-index", type=int, default=180)
     parser.add_argument("--rest-reference-artifact", type=Path)
     parser.add_argument("--wall-timeout-s", type=float, default=1800.0)
     parser.add_argument("--output", type=Path)
@@ -110,14 +113,12 @@ def _artifact_manifest(
     )
 
 
-def _faults(
+def _fault(
     args: argparse.Namespace,
     rest_binding: Optional[RestReferenceBinding],
-) -> tuple[FaultManifest, FaultManifest]:
-    if not 0 <= args.fault_start < args.restoration_index < MAX_OBSERVATION_STEPS:
-        raise ValueError(
-            "fault/restoration window must satisfy 0 <= start < restoration < 301"
-        )
+) -> FaultManifest:
+    if not 0 <= args.fault_start < MAX_OBSERVATION_STEPS:
+        raise ValueError("fault window must satisfy 0 <= start < 301")
     common = {
         "operator_id": args.operator,
         "severity_level": args.severity,
@@ -127,9 +128,7 @@ def _faults(
         "observability": Observability.BLIND,
         "parameters": fault_parameters(args.operator, rest_binding),
     }
-    persistent = FaultManifest(stop_index=MAX_OBSERVATION_STEPS, **common)
-    restored = FaultManifest(stop_index=args.restoration_index, **common)
-    return persistent, restored
+    return FaultManifest(stop_index=MAX_OBSERVATION_STEPS, **common)
 
 
 def _request_document(
@@ -145,11 +144,10 @@ def _request_document(
     initial_seed: int,
     exogenous_seed: int,
     wall_timeout_s: float,
-    restoration_index: int,
     rest_binding: Optional[RestReferenceBinding],
 ) -> dict[str, Any]:
     no_touch = condition is Condition.NO_TOUCH
-    faulted = condition in {Condition.FAULTED, Condition.RESTORED}
+    faulted = condition is Condition.FAULTED
     profile = vision if no_touch else tactile
     return {
         "task_id": TASK_ID,
@@ -174,19 +172,9 @@ def _request_document(
             deployment_root / "artifacts/live-univtac" / matrix_id / condition.value
         ),
         "fault_manifest_path": (
-            f"../fault_manifests/{'restored' if condition is Condition.RESTORED else 'persistent'}.json"
-            if faulted
-            else None
+            "../fault_manifests/persistent.json" if faulted else None
         ),
         "rest_references_path": request_rest_reference_path(faulted, rest_binding),
-        "restoration_index": restoration_index
-        if condition is Condition.RESTORED
-        else None,
-        "restoration_mode": (
-            RestorationMode.VALID_STREAM_RESUME.value
-            if condition is Condition.RESTORED
-            else None
-        ),
         "matched_no_touch_system_id": NO_TOUCH_SYSTEM_ID if no_touch else None,
         "matched_no_touch_artifact_path": (
             str(vision.checkpoint_path) if no_touch else None
@@ -198,7 +186,7 @@ def _request_document(
         "n0_normalizer_sha256": None,
         "n0_serve_bundle_sha256": None,
         "n0_prompt_manifest_sha256": None,
-        "semantic_version": "1.0",
+        "semantic_version": LIVE_REQUEST_SEMANTIC_VERSION,
     }
 
 
@@ -229,7 +217,7 @@ def _generate(args: argparse.Namespace) -> dict[str, Any]:
         args.operator,
         TASK_ID,
     )
-    persistent, restored = _faults(args, rest_binding)
+    persistent = _fault(args, rest_binding)
     trial_set = trial_set_document(
         initial_seed=args.initial_seed,
         exogenous_seed=args.exogenous_seed,
@@ -253,25 +241,22 @@ def _generate(args: argparse.Namespace) -> dict[str, Any]:
         "tactile_artifact": canonical_hash(artifact_document(tactile)),
         "vision_only_artifact": canonical_hash(artifact_document(vision)),
         "persistent_fault": persistent.sha256,
-        "restored_fault": restored.sha256,
-        "restoration_index": args.restoration_index,
         "rest_reference_artifact_root_sha256": (
             None if rest_binding is None else rest_binding.loaded.root_receipt_sha256
         ),
-        "semantic_version": "1.0",
+        "semantic_version": PULL_OUT_KEY_MATRIX_SEMANTIC_VERSION,
     }
     matrix_id = f"pull_out_key-{canonical_hash(matrix_contract)[:16]}"
     output = (
         _absolute(args.output)
         if args.output is not None
-        else (layout.requests / "four-condition" / matrix_id)
+        else (layout.requests / "three-condition" / matrix_id)
     )
     output.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=f".{matrix_id}.staging-", dir=output.parent))
     try:
         write_json(staging / "trial_set_manifest.json", trial_set)
         write_json(staging / "fault_manifests/persistent.json", persistent.to_dict())
-        write_json(staging / "fault_manifests/restored.json", restored.to_dict())
         if rest_binding is not None:
             copy_rest_reference(staging, rest_binding)
         write_json(
@@ -294,7 +279,6 @@ def _generate(args: argparse.Namespace) -> dict[str, Any]:
                 initial_seed=args.initial_seed,
                 exogenous_seed=args.exogenous_seed,
                 wall_timeout_s=args.wall_timeout_s,
-                restoration_index=args.restoration_index,
                 rest_binding=rest_binding,
             )
             request_documents[condition] = document
@@ -308,9 +292,6 @@ def _generate(args: argparse.Namespace) -> dict[str, Any]:
         grid = build_paired_trial_grid(
             clean=loaded[Condition.CLEAN].trial,
             faulted_manifest=persistent,
-            restored_manifest=restored,
-            restoration_index=args.restoration_index,
-            restoration_mode=RestorationMode.VALID_STREAM_RESUME,
             no_touch_system_id=NO_TOUCH_SYSTEM_ID,
             no_touch_checkpoint_sha256=vision.checkpoint_sha256,
             no_touch_config_sha256=vision.config_sha256,
@@ -356,7 +337,6 @@ def _generate(args: argparse.Namespace) -> dict[str, Any]:
             },
             "fault_manifests": {
                 "persistent": persistent.sha256,
-                "restored": restored.sha256,
             },
             "rest_reference_artifact": rest_reference_receipt(rest_binding),
             "requests": {
@@ -371,7 +351,7 @@ def _generate(args: argparse.Namespace) -> dict[str, Any]:
             },
             "member_sha256": member_hashes,
             "matrix_contract_sha256": canonical_hash(matrix_contract),
-            "semantic_version": "1.0",
+            "semantic_version": PULL_OUT_KEY_MATRIX_SEMANTIC_VERSION,
         }
         write_json(staging / "matrix_receipt.json", receipt)
         status = publish_tree(staging, output)

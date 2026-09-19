@@ -13,6 +13,9 @@ from robotactile_benchmark.backends.univtac_contracts import (
     REGISTRY_ID,
     UPSTREAM_COMMIT,
 )
+from robotactile_benchmark.backends.univtac_success_profiles import (
+    UniVTACSuccessProfile,
+)
 from robotactile_benchmark.closed_loop.artifact_io import (
     canonical_json_bytes,
     sha256_bytes,
@@ -175,6 +178,7 @@ def build_official_n0_clean_request(
     live_output_dir: Path,
     initial_state_policy: InitialStatePolicy = InitialStatePolicy.OFFICIAL_REPRODUCTION,
     wall_timeout_role: WallTimeoutRole = WallTimeoutRole.SCORING_BOUNDARY_V1,
+    success_profile_id: UniVTACSuccessProfile = UniVTACSuccessProfile.OFFICIAL_V1,
 ) -> LiveUniVTACRunRequest:
     """Bind official source/weight identities into one clean live request."""
 
@@ -213,13 +217,12 @@ def build_official_n0_clean_request(
         output_dir=Path(live_output_dir).absolute(),
         fault_manifest_path=None,
         rest_references_path=None,
-        restoration_index=None,
-        restoration_mode=None,
         matched_no_touch_system_id=None,
         matched_no_touch_artifact_path=None,
         act_device_name=None,
         simulator_device=simulator_device,
         launcher_args=production_univtac_launcher_args(),
+        success_profile_id=success_profile_id,
         n0_source_commit=manifest.external_commit,
         n0_normalizer_sha256=manifest.normalizer_sha256,
         n0_serve_bundle_sha256=manifest.serve_bundle_sha256,

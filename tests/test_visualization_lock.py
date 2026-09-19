@@ -46,4 +46,4 @@ def test_visualization_docs_use_reproducible_noneditable_install() -> None:
     assert "--no-deps --no-build-isolation ." in combined
     assert "pip install -e" not in combined
     assert "robotactile_benchmark-*.whl" not in requirements_doc
-    assert "robotactile_benchmark-0.4.0-py3-none-any.whl" in requirements_doc
+    assert "robotactile_benchmark-0.6.0-py3-none-any.whl" in requirements_doc

@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from scripts.live_univtac.capture_observation_parity_isaac import (
+    _parser,
     _sha256_file,
     _validate_args,
     _write_bundle,
@@ -29,6 +30,26 @@ def test_capture_arguments_reject_invalid_render_count() -> None:
     _validate_args(_args())
     with pytest.raises(ValueError, match="static_render_count"):
         _validate_args(_args(static_render_count=0))
+
+
+def test_capture_defaults_to_shared_n0_twam_renderer() -> None:
+    defaults = _parser().parse_args(
+        [
+            "--upstream-root",
+            "/upstream",
+            "--runtime-dir",
+            "/runtime",
+            "--output-dir",
+            "/output",
+            "--initial-seed",
+            "90",
+            "--exogenous-seed",
+            "29",
+        ]
+    )
+
+    assert defaults.rendering_mode == "balanced"
+    assert defaults.antialiasing_mode == "TAA"
 
 
 def test_source_manifest_is_content_hashed(tmp_path: Path) -> None:

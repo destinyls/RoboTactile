@@ -111,8 +111,6 @@ def write_clean_request(
         output_dir=artifact_path,
         fault_manifest_path=None,
         rest_references_path=None,
-        restoration_index=None,
-        restoration_mode=None,
         matched_no_touch_system_id=None,
         matched_no_touch_artifact_path=None,
         act_device_name="cpu" if policy_kind is LivePolicyKind.ACT else None,

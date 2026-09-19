@@ -1,0 +1,23 @@
+{
+  "registry_id": "diagnostic_stress_max_v1",
+  "semantic_version": "1.0",
+  "calibration_status": "destructive implementation-limit diagnostic; outside paper S1-S5 claims",
+  "cross_operator_comparable": false,
+  "level": 5,
+  "paths": {
+    "A1_stream_absence": {"unit": "affected_window_fraction", "value": 1.0},
+    "A2_frame_erasure": {"unit": "erased_frame_fraction", "value": 1.0},
+    "F1_global_response_drift": {"unit": "retained_global_gain", "value": 0.0},
+    "F2_spatial_sensitivity_loss": {"unit": "retained_regional_gain", "value": 0.0},
+    "F3_persistent_surface_artifact": {"unit": "scar_dose", "value": 12},
+    "F4_local_nonresponsive_patch": {"unit": "failed_area_dose", "value": 12},
+    "F5_contact_shape_distortion": {"unit": "peak_warp_displacement_pixels", "value": 20},
+    "F6_history_residual_imprint": {"unit": "history_mix", "value": 0.95},
+    "F7_high_load_saturation": {"unit": "response_knee_dose", "value": 0.05},
+    "T1_fixed_source_delay": {"unit": "lag_frames", "value": 16},
+    "T2_held_last_freeze": {"unit": "held_window_fraction", "value": 1.0},
+    "T3_inter_sensor_skew": {"unit": "source_index_gap", "value": 16},
+    "C1_sensor_identity_misrouting": {"unit": "misrouted_window_fraction", "value": 1.0},
+    "C2_frame_misregistration": {"unit": "reprojection_displacement_pixels", "value": 30}
+  }
+}

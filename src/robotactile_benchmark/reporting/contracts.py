@@ -12,7 +12,7 @@ from robotactile_benchmark.constants import CORE_OPERATOR_IDS
 from robotactile_benchmark.contracts import canonical_hash
 from robotactile_benchmark.trials import Condition, TerminalStatus
 
-REPORTING_SEMANTIC_VERSION = "1.0"
+REPORTING_SEMANTIC_VERSION = "2.0"
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _SCORE_INELIGIBLE = frozenset(
     {TerminalStatus.UNSUPPORTED_CONTRACT, TerminalStatus.VALIDATOR_REJECTED}
@@ -164,8 +164,6 @@ class OutcomeRecord:
     source_root_sha256: str
     operator_id: Optional[str] = None
     severity_level: Optional[int] = None
-    recovery_eligible: bool = False
-    recovery_lag_steps: Optional[int] = None
     semantic_version: str = REPORTING_SEMANTIC_VERSION
 
     def __post_init__(self) -> None:
@@ -193,28 +191,16 @@ class OutcomeRecord:
             raise ValueError("ineligible outcomes cannot contain a success score")
         elif self.terminal_status not in _SCORE_INELIGIBLE:
             raise ValueError("unscored outcome must preserve an ineligible status")
-        fault_condition = self.condition in {Condition.FAULTED, Condition.RESTORED}
+        fault_condition = self.condition is Condition.FAULTED
         if fault_condition:
             if self.operator_id not in CORE_OPERATOR_IDS:
-                raise ValueError("faulted/restored outcome requires a core operator")
+                raise ValueError("faulted outcome requires a core operator")
             severity = require_integer(self.severity_level, "severity_level", minimum=1)
             if severity > 5:
                 raise ValueError("severity_level must be in [1, 5]")
             object.__setattr__(self, "severity_level", severity)
         elif self.operator_id is not None or self.severity_level is not None:
             raise ValueError("baseline outcomes cannot include fault metadata")
-        if type(self.recovery_eligible) is not bool:
-            raise TypeError("recovery_eligible must be bool")
-        if self.recovery_eligible and self.condition is not Condition.RESTORED:
-            raise ValueError("recovery is only defined for restored outcomes")
-        if self.recovery_lag_steps is not None:
-            if not self.recovery_eligible:
-                raise ValueError("recovery lag requires an eligible recovery outcome")
-            object.__setattr__(
-                self,
-                "recovery_lag_steps",
-                require_integer(self.recovery_lag_steps, "recovery_lag_steps"),
-            )
         if self.semantic_version != REPORTING_SEMANTIC_VERSION:
             raise ValueError("unsupported outcome semantic version")
 

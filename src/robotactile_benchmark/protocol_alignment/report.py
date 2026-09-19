@@ -8,6 +8,7 @@ from typing import Optional, Tuple
 
 from robotactile_benchmark.backends.univtac_contracts import (
     FIXED_NATIVE_STEP_CONTRACT,
+    N0_DECIMATION,
     N0_FIXED_ENDPOINT_ACTION_EXECUTION_CONTRACT,
     N0_PHYSICS_STEPS_PER_ACTION,
     N0_STOCK_EE_ACTION_EXECUTION_CONTRACT,
@@ -116,16 +117,20 @@ def _cadence_status(
         if action_execution != TRAINING_60HZ_ACTION_EXECUTION:
             return GateStatus.FAIL
         sim_hz = initial.get("sim_hz")
+        decimation = initial.get("decimation")
         camera_delivery_hz = initial.get("camera_delivery_hz")
         if (
             isinstance(sim_hz, bool)
             or not isinstance(sim_hz, (int, float))
+            or isinstance(decimation, bool)
+            or not isinstance(decimation, int)
             or isinstance(camera_delivery_hz, bool)
             or not isinstance(camera_delivery_hz, (int, float))
         ):
             return GateStatus.UNKNOWN
         if (
             float(sim_hz) != float(SIM_HZ)
+            or decimation != N0_DECIMATION
             or expected != N0_PHYSICS_STEPS_PER_ACTION
             or float(camera_delivery_hz) != TRAINING_ACTION_DELIVERY_HZ
         ):

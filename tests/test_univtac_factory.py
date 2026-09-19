@@ -25,11 +25,14 @@ from robotactile_benchmark.backends.univtac_factory import (
     _close_runtime_component,
     _install_constrained_placement_compatibility,
     _install_grasp_approach_compatibility,
+    _install_grasp_initialization_for_action_spec,
     _install_task_seed_hook,
     _n0_training_cadence_diagnostic_requested,
     _prepare_process_determinism,
     _resolve_n0_action_execution_contract,
     _resolved_antialiasing_mode,
+    _resolved_launcher_args,
+    _resolved_reset_time_limit_s,
     _seed_torch_process,
     _validated_antialiasing_mode,
     _validated_initial_seed,
@@ -43,6 +46,53 @@ from robotactile_benchmark.backends.univtac_lifecycle import (
 
 
 class UniVTACFactoryTests(unittest.TestCase):
+    def test_official_qpos_policy_keeps_released_grasp_reset(self) -> None:
+        task = object()
+        config = types.SimpleNamespace(
+            action_spec=QPOS8_ACTION_SPEC,
+            task=types.SimpleNamespace(task_id="grasp_classify"),
+        )
+
+        with patch(
+            "robotactile_benchmark.backends.univtac_factory."
+            "install_grasp_initialization_compatibility"
+        ) as install:
+            self.assertFalse(
+                _install_grasp_initialization_for_action_spec(task, config)
+            )
+
+        install.assert_not_called()
+
+    def test_ee_policy_retains_stable_grasp_initialization(self) -> None:
+        task = object()
+        config = types.SimpleNamespace(
+            action_spec=EE8_ACTION_SPEC,
+            task=types.SimpleNamespace(task_id="grasp_classify"),
+        )
+
+        with patch(
+            "robotactile_benchmark.backends.univtac_factory."
+            "install_grasp_initialization_compatibility",
+            return_value=True,
+        ) as install:
+            self.assertTrue(_install_grasp_initialization_for_action_spec(task, config))
+
+        install.assert_called_once_with(task, "grasp_classify")
+
+    def test_reset_watchdog_override_only_allows_a_longer_limit(self) -> None:
+        variable = "ROBOTACTILE_UNIVTAC_RESET_TIME_LIMIT_S"
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(_resolved_reset_time_limit_s(120.0), 120.0)
+        with patch.dict(os.environ, {variable: "600"}, clear=True):
+            self.assertEqual(_resolved_reset_time_limit_s(120.0), 600.0)
+        for value in ("invalid", "nan", "0", "119"):
+            with (
+                self.subTest(value=value),
+                patch.dict(os.environ, {variable: value}, clear=True),
+                self.assertRaises(UniVTACContractError),
+            ):
+                _resolved_reset_time_limit_s(120.0)
+
     def test_n0_training_cadence_requires_explicit_boolean_opt_in(self) -> None:
         variable = "ROBOTACTILE_N0_TRAINING_CADENCE_DIAGNOSTIC"
         with patch.dict(os.environ, {}, clear=True):
@@ -430,7 +480,9 @@ class UniVTACFactoryTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(UniVTACContractError):
                 _validated_antialiasing_mode(value)  # type: ignore[arg-type]
 
-    def test_n0_defaults_to_empirically_matched_taa_renderer(self) -> None:
+    def test_all_action_specs_default_to_empirically_matched_taa_renderer(
+        self,
+    ) -> None:
         n0_config = build_univtac_backend_config(
             "lift_bottle", action_spec=EE8_ACTION_SPEC
         )
@@ -440,7 +492,27 @@ class UniVTACFactoryTests(unittest.TestCase):
 
         self.assertEqual(_resolved_antialiasing_mode(n0_config, None), "TAA")
         self.assertEqual(_resolved_antialiasing_mode(n0_config, "DLSS"), "DLSS")
-        self.assertIsNone(_resolved_antialiasing_mode(act_config, None))
+        self.assertEqual(_resolved_antialiasing_mode(act_config, None), "TAA")
+        self.assertEqual(_resolved_antialiasing_mode(act_config, "FXAA"), "FXAA")
+
+    def test_launcher_defaults_to_n0_twam_balanced_renderer(self) -> None:
+        self.assertEqual(
+            _resolved_launcher_args(None),
+            {"headless": True, "rendering_mode": "balanced"},
+        )
+        self.assertEqual(
+            _resolved_launcher_args(
+                {"enable_cameras": True, "rendering_mode": "quality"}
+            ),
+            {
+                "enable_cameras": True,
+                "headless": True,
+                "rendering_mode": "quality",
+            },
+        )
+        for value in (None, "fast", True):
+            with self.subTest(value=value), self.assertRaises(UniVTACContractError):
+                _resolved_launcher_args({"rendering_mode": value})
 
     def test_process_and_torch_determinism_are_seeded(self) -> None:
         events: list[object] = []
@@ -584,7 +656,7 @@ print(json.dumps(blocked))
         class FakeAppLauncher:
             def __init__(self, args: argparse.Namespace) -> None:
                 self.app = FakeApp()
-                events.append(f"launcher:start:{args.headless}")
+                events.append(f"launcher:start:{args.headless}:{args.rendering_mode}")
 
         class FakeExtensionManager:
             def __init__(self) -> None:
@@ -621,6 +693,7 @@ print(json.dumps(blocked))
         class FakeTaskCfg:
             def __init__(self) -> None:
                 self.step_lim = config.task.action_horizon
+                self.reset_time_limit = 120.0
                 self.decimation = 99
                 self.obs_data_type = {}
                 self.save_frequency = 1
@@ -688,7 +761,7 @@ print(json.dumps(blocked))
             events.append(f"import:{name}")
             if name == "isaaclab.app":
                 return fake_isaac
-            self.assertIn("launcher:start:True", events)
+            self.assertIn("launcher:start:True:balanced", events)
             if name == "carb":
                 return fake_carb
             if name == "omni.kit.app":
@@ -742,7 +815,7 @@ print(json.dumps(blocked))
                     stage_observer=lifecycle_stages.append,
                 )
 
-        launcher_index = events.index("launcher:start:True")
+        launcher_index = events.index("launcher:start:True:balanced")
         setting_index = events.index(f"setting:get:{HANG_DETECTOR_SETTING_PATH}")
         signal_index = events.index("signals:installed")
         extension_index = events.index("extension:enable:omni.ui")
@@ -786,6 +859,7 @@ print(json.dumps(blocked))
         self.assertEqual(task.cfg.sim.render.antialiasing_mode, "TAA")
         self.assertEqual(task.cfg.scene.num_envs, 1)
         self.assertEqual(task.cfg.seed, 17)
+        self.assertEqual(task.cfg.reset_time_limit, 120.0)
         self.assertEqual(runtime.construction_seed, 17)
         self.assertEqual(
             task.cfg.obs_data_type,

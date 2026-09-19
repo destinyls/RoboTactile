@@ -142,8 +142,6 @@ def materialize_live_matrix_request(
         output_dir=_absolute_path(output_dir, "output_dir"),
         fault_manifest_path=resources.fault_manifest_path,
         rest_references_path=resources.rest_references_path,
-        restoration_index=trial.restoration_index,
-        restoration_mode=trial.restoration_mode,
         matched_no_touch_system_id=trial.matched_no_touch_system_id,
         matched_no_touch_artifact_path=(
             resources.matched_no_touch_artifact_path
@@ -174,7 +172,7 @@ def materialize_live_matrix_request(
 def _validate_resources(
     condition: Condition, resources: LiveMatrixCellResources
 ) -> None:
-    faulted = condition in {Condition.FAULTED, Condition.RESTORED}
+    faulted = condition is Condition.FAULTED
     if faulted != (resources.fault_manifest_path is not None):
         raise ValueError("resolved fault manifest does not match matrix condition")
     if condition is Condition.NO_TOUCH:
@@ -185,4 +183,4 @@ def _validate_resources(
     elif resources.matched_no_touch_artifact_path is not None:
         raise ValueError("tactile cells cannot use a matched no-touch artifact")
     if not faulted and resources.rest_references_path is not None:
-        raise ValueError("rest references require a faulted/restored cell")
+        raise ValueError("rest references require a faulted cell")

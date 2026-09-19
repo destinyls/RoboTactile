@@ -4,12 +4,18 @@ from __future__ import annotations
 
 import importlib.util
 import platform
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Optional, Protocol
 
 from robotactile_benchmark.backends.univtac_factory import launch_univtac_runtime
 from robotactile_benchmark.backends.univtac_isaac import UniVTACIsaacBackend
+from robotactile_benchmark.backends.univtac_rest_calibration import (
+    ACT_EMPTY_GRIPPER_CALIBRATION_CONTRACT,
+    N0_EMPTY_GRIPPER_CALIBRATION_CONTRACT,
+    install_act_empty_gripper_rest_calibration,
+    install_n0_empty_gripper_rest_calibration,
+)
 from robotactile_benchmark.closed_loop.capture import ClosedLoopExecutionEvidence
 from robotactile_benchmark.closed_loop.interfaces import (
     ClosedLoopPolicy,
@@ -31,12 +37,11 @@ from robotactile_benchmark.execution.loading import (
     LoadedLiveUniVTACRun,
     load_live_univtac_run,
 )
-from robotactile_benchmark.policies.act_loading import (
-    load_matched_no_touch_policy,
-    load_strict_act_policy,
+from robotactile_benchmark.policies.tactile_availability import (
+    TactileAvailabilityMode,
+    ZeroFillTactilePolicy,
 )
 from robotactile_benchmark.transport.n0_client import N0Transport
-from robotactile_benchmark.trials import Condition
 
 LIVE_ARTIFACT_EVIDENCE_LEVEL = "unqualified_live_univtac_execution_v1"
 
@@ -57,6 +62,40 @@ class N0TransportFactory(Protocol):
     """Deprecated custom gateway hook retained for request API compatibility."""
 
     def __call__(self) -> N0Transport: ...
+
+
+def _make_live_policy(
+    loaded: LoadedLiveUniVTACRun,
+    policy_factory: Optional[LivePolicyFactory],
+    n0_transport_factory: Optional[N0TransportFactory],
+) -> ClosedLoopPolicy:
+    """Use the same declared zero-fill compatibility policy across model families."""
+    wrap_zero = (
+        loaded.request.tactile_availability_mode is TactileAvailabilityMode.ZERO_FILL
+        and loaded.request.policy_kind is not LivePolicyKind.N0_VTLA
+    )
+    inner_loaded = (
+        replace(
+            loaded,
+            policy_identity=replace(
+                loaded.policy_identity, supports_structural_absence=False
+            ),
+        )
+        if wrap_zero
+        else loaded
+    )
+    policy = (
+        policy_factory(inner_loaded)
+        if policy_factory is not None
+        else default_live_policy_factory(
+            inner_loaded, n0_transport_factory=n0_transport_factory
+        )
+    )
+    if wrap_zero:
+        shape = loaded.request.tactile_zero_shape
+        assert shape is not None
+        return ZeroFillTactilePolicy(loaded.policy_identity, policy, shape)
+    return policy
 
 
 class LiveArtifactExporter(Protocol):
@@ -177,6 +216,7 @@ def default_live_backend_factory(
     *,
     lifecycle_journal: Optional[LifecycleStageJournal] = None,
     n0_action_execution_contract: Optional[str] = None,
+    calibration_contract: Optional[str] = None,
 ) -> UniVTACIsaacBackend:
     """Launch AppLauncher-first, then transfer runtime ownership to the backend."""
 
@@ -197,7 +237,32 @@ def default_live_backend_factory(
         ),
     )
     try:
-        return UniVTACIsaacBackend(loaded.backend_config, runtime)
+        if calibration_contract is not None:
+            if calibration_contract == N0_EMPTY_GRIPPER_CALIBRATION_CONTRACT:
+                if loaded.request.policy_kind is not LivePolicyKind.N0:
+                    raise ValueError(
+                        "N0 empty-gripper calibration requires policy_kind=n0"
+                    )
+                install_n0_empty_gripper_rest_calibration(
+                    runtime.task,
+                    loaded.backend_config,
+                )
+            elif calibration_contract == ACT_EMPTY_GRIPPER_CALIBRATION_CONTRACT:
+                if loaded.request.policy_kind is not LivePolicyKind.ACT:
+                    raise ValueError(
+                        "ACT empty-gripper calibration requires policy_kind=act"
+                    )
+                install_act_empty_gripper_rest_calibration(
+                    runtime.task,
+                    loaded.backend_config,
+                )
+            else:
+                raise ValueError("unknown live calibration contract")
+        return UniVTACIsaacBackend(
+            loaded.backend_config,
+            runtime,
+            success_predicate_id=loaded.run_spec.success_predicate_id,
+        )
     except Exception:
         runtime.close_runtime()
         raise
@@ -208,20 +273,13 @@ def default_live_policy_factory(
     *,
     n0_transport_factory: Optional[N0TransportFactory] = None,
 ) -> ClosedLoopPolicy:
-    """Load qualified ACT or construct a lazy typed N0 client boundary."""
+    """Fail closed until a source- and artifact-bound factory is supplied."""
 
     request = loaded.request
-    if request.policy_kind is LivePolicyKind.ACT:
-        if request.act_device_name is None:
-            raise ValueError("ACT request lost its device identity")
-        return load_strict_act_policy(
-            loaded.policy_identity,
-            task=request.task_id,
-            device_name=request.act_device_name,
-        )
     raise LiveExecutionUnavailableError(
-        "n0_official_policy_factory_required",
-        "official N0 execution requires the manifest-bound policy factory",
+        "official_policy_factory_required",
+        f"official {request.policy_kind.value} execution requires the "
+        "manifest-bound policy factory",
     )
 
 
@@ -263,13 +321,7 @@ def execute_live_univtac_run(
         if lifecycle_journal is not None:
             lifecycle_journal.record("backend_ready")
             lifecycle_journal.record("policy_construction")
-        policy = (
-            policy_factory(loaded)
-            if policy_factory is not None
-            else default_live_policy_factory(
-                loaded, n0_transport_factory=n0_transport_factory
-            )
-        )
+        policy = _make_live_policy(loaded, policy_factory, n0_transport_factory)
     except Exception:
         if backend is not None:
             if lifecycle_journal is not None:
@@ -314,12 +366,20 @@ def _preflight_capabilities(
     policy_factory: Optional[LivePolicyFactory],
     n0_transport_factory: Optional[N0TransportFactory],
 ) -> None:
-    if request.condition is Condition.NO_TOUCH and policy_factory is None:
-        load_matched_no_touch_policy(request.matched_no_touch_artifact_path)
-    if request.policy_kind is LivePolicyKind.N0 and policy_factory is None:
+    if (
+        request.policy_kind
+        in {
+            LivePolicyKind.ACT,
+            LivePolicyKind.N0,
+            LivePolicyKind.N0_VTLA,
+            LivePolicyKind.FTP1_POLICY,
+            LivePolicyKind.DREAM_TAC,
+        }
+        and policy_factory is None
+    ):
         raise LiveExecutionUnavailableError(
-            "n0_official_policy_factory_required",
-            "official N0 execution requires the manifest-bound policy factory",
+            "official_policy_factory_required",
+            "official policy execution requires a manifest-bound policy factory",
         )
 
 

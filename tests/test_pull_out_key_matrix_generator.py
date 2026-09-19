@@ -85,7 +85,7 @@ def _file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def test_generator_emits_loadable_matched_four_condition_matrix() -> None:
+def test_generator_emits_loadable_matched_three_condition_matrix() -> None:
     """Catches a control checkpoint leaking into the shared pair identity."""
 
     with tempfile.TemporaryDirectory() as directory:
@@ -116,7 +116,7 @@ def test_generator_emits_loadable_matched_four_condition_matrix() -> None:
         assert {
             request.base_system_manifest_sha256 for request in requests.values()
         } == {base_hash}
-        for condition in (Condition.CLEAN, Condition.FAULTED, Condition.RESTORED):
+        for condition in (Condition.CLEAN, Condition.FAULTED):
             assert requests[condition].checkpoint_sha256 == TACTILE_CHECKPOINT
             assert requests[condition].config_sha256 == TACTILE_CONFIG
         no_touch = requests[Condition.NO_TOUCH]
@@ -144,6 +144,8 @@ def test_generator_freezes_trial_identity_fault_windows_and_live_devices() -> No
 
         trial_set = output / "trial_set_manifest.json"
         receipt = _json(output / "matrix_receipt.json")
+        assert receipt["semantic_version"] == "2.0"
+        assert _json(trial_set)["semantic_version"] == "2.0"
         dataset_identity = receipt["dataset_identity"]
         assert isinstance(dataset_identity, dict)
         assert dataset_identity["identity_kind"] == (
@@ -170,21 +172,17 @@ def test_generator_freezes_trial_identity_fault_windows_and_live_devices() -> No
         persistent = FaultManifest.from_dict(
             _json(output / "fault_manifests/persistent.json")
         )
-        restored = FaultManifest.from_dict(
-            _json(output / "fault_manifests/restored.json")
-        )
         assert persistent.operator_id == "T1_fixed_source_delay"
         assert persistent.severity_level == 3
         assert persistent.start_index == 16
         assert persistent.stop_index == 301
-        assert restored.stop_index == 180
         assert persistent.parameters["lag_frames"] == 4
-        assert restored.parameters["lag_frames"] == 4
 
         requests = [
             load_live_univtac_request(output / "requests" / f"{value.value}.json")
             for value in Condition
         ]
+        assert {request.semantic_version for request in requests} == {"2.0"}
         assert {request.dataset_sha256 for request in requests} == {
             _file_sha256(trial_set)
         }
@@ -196,8 +194,8 @@ def test_generator_freezes_trial_identity_fault_windows_and_live_devices() -> No
             dict(request.launcher_args) == production_univtac_launcher_args()
             for request in requests
         )
-        assert len({request.output_dir for request in requests}) == 4
-        assert len({request.runtime_dir for request in requests}) == 4
+        assert len({request.output_dir for request in requests}) == 3
+        assert len({request.runtime_dir for request in requests}) == 3
 
 
 def test_generator_is_idempotent_and_refuses_different_content() -> None:

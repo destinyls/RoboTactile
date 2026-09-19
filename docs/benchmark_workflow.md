@@ -1,10 +1,10 @@
 # Reproducible benchmark workflow
 
-This document connects N0 Clean request generation, ACT robustness-matrix
-orchestration, and paper reporting without changing evidence levels. The
-current public primary-matrix generator is ACT-only; it must not be presented
-as an N0 fault-campaign entry point. Commands are run from the RoboTactile
-repository root.
+This document connects N0 Clean request generation, N0 and FTP-1 Clean/Faulted
+robustness, ACT robustness-matrix orchestration, and reporting without changing
+evidence levels. N0, FTP-1, and ACT use separate public campaign contracts: the
+ACT primary matrix must not be used as an N0 or FTP-1 entry point. Commands are
+run from the RoboTactile repository root.
 
 Prepare and activate the hash-locked core environment before running the
 source-tree commands below:
@@ -26,24 +26,29 @@ See [Deployment layout](deployment_layout.md),
 [Model integrations](model_integrations.md) for ownership, pins, and config
 generation.
 
-## Two different matrices
+## Distinct campaign and matrix contracts
 
-The repository uses the word *matrix* for two related but non-interchangeable
-artifacts:
+The repository exposes four related but non-interchangeable artifacts:
 
-- the `pull_out_key` request set contains four matched requests for one
-  operator/severity/restoration point;
+- an N0 fault-campaign bundle contains one Clean request per frozen pair,
+  Clean/Faulted requests for its supported operator cells, and typed receipts
+  for contract cells that cannot execute;
+- an FTP-1 robustness group contains one Clean request, 12 payload-preserving
+  Faulted requests, A1/A2 N/A records, and one ordered same-snapshot plan;
+- the `pull_out_key` request set contains three matched requests for one
+  operator/severity point;
 - `MatrixManifest(kind=primary_14x5_blind)` contains 70 operator-severity
-  comparisons and 142 unique executions: one shared clean baseline, one shared
-  no-touch baseline, 70 persistent-fault cells, and 70 restored cells.
+  comparisons and 72 unique executions: one shared clean baseline, one shared
+  no-touch baseline, and 70 persistent-fault cells.
 
-`matrix_receipt.json` from the generator proves only that four requests and
-their identities were generated. `matrix_summary.json` from `run_matrix`
-proves that every requested primary cell reached an explicit terminal state.
+`generation_receipt.json` proves only that an N0 request
+bundle was materialized. `matrix_receipt.json` likewise proves only that the
+ACT requests and identities were generated. A run receipt or report must be
+loaded separately before making any execution claim.
 
 ## Frozen clean-only campaigns
 
-A clean baseline is frozen independently of the four-condition matrix. One
+A clean baseline is frozen independently of the three-condition matrix. One
 clean episode may later be paired with all fault conditions sharing its trial
 identity; it is not rerun once per operator or severity. Build the authoritative
 manifest from already generated canonical requests. For large campaigns,
@@ -285,6 +290,496 @@ Requests that omit `wall_timeout_role` retain the historical
 `scoring_boundary_v1` behavior solely for artifact compatibility. They are not
 valid inputs for a newly generated official N0 Clean campaign.
 
+## N0-TWAM Clean/Faulted robust campaign (P0-P3)
+
+This is the public N0 robustness path. It is deliberately separate from the
+ACT primary matrix and accepts only canonical N0 Clean requests as its frozen
+pair sources. Generation performs no simulator work. Execution strict-loads
+the generated bundle, restores one canonical simulator snapshot for the pair,
+runs Clean first, and then runs the executable Faulted cells without changing
+the trial identity. Existing artifact or receipt directories are never
+overwritten.
+
+### P0: frozen applicability and execution contracts
+
+The N0 campaign keeps all 14 paper operator IDs in its contract inventory, but
+only the following 12 have a live N0 delivery contract:
+
+- Fidelity: `F1_global_response_drift`,
+  `F2_spatial_sensitivity_loss`, `F3_persistent_surface_artifact`,
+  `F4_local_nonresponsive_patch`, `F5_contact_shape_distortion`,
+  `F6_history_residual_imprint`, and `F7_high_load_saturation`;
+- Temporal: `T1_fixed_source_delay`, `T2_held_last_freeze`, and
+  `T3_inter_sensor_skew`;
+- Context: `C1_sensor_identity_misrouting` and
+  `C2_frame_misregistration`.
+
+`A1_stream_absence` and `A2_frame_erasure` are explicit
+`unsupported_contract` cells for the released N0 integration. N0 requires both
+tactile streams at its input boundary, so the generator writes a typed
+unsupported receipt, generates no live request for that cell, and claims no
+simulator execution. It never converts absence into a black, resting, or
+duplicated image. These receipts remain visible in completeness accounting but
+are excluded from score-eligible Faulted outcomes.
+
+For F1, F2, F3, F4, F6, and registered-pixel C2, every selected task must bind
+one separately measured rest-reference artifact. The generator rejects missing,
+extra, task-mismatched, modified, or symlinked references. One
+`operator_template_seed` is derived per frozen pair/operator and is reused
+across severities, so an S1/S5 comparison changes dose rather than spatial or
+temporal placement.
+
+Live delivery also depends on task phase, not only model input compatibility:
+
+- F6 requires a delivered contact imprint and a later release sample in the
+  affected window;
+- F7 requires a delivered high-load/detail sample in the affected window.
+
+Freeze these phase requirements from Clean/contact diagnostics before the
+Faulted outcomes are inspected. If a task does not contain a required phase,
+repeat `--operator` to generate only the preregistered applicable subset. The
+strict validator records a missed phase as `SIGNATURE_NOT_DELIVERED` (and a
+more specific failure code); reporting keeps the cell outside the score
+denominator. It is neither a model failure nor evidence of robustness. Never
+drop an operator merely because its Faulted episode failed the task.
+
+N0 fault execution should explicitly bind:
+
+```text
+action_execution_contract = robotactile_n0_training_60hz_ee_v1
+```
+
+This is the released training-aligned absolute EE8 contract: cuRobo produces a
+feasible final joint target, the simulator advances two 120 Hz physics ticks,
+and one 60 Hz observation endpoint is rendered. The other registered EE paths
+are diagnostics and must not be mixed into one comparison.
+
+Capture volume is orthogonal to action execution:
+
+| `--capture-profile` | Persisted evidence | Intended use |
+|---|---|---|
+| `metrics_only_v1` | outcome, actions, terminal state, diagnostics, and hashes | P1 gate and broad P3 diagnostics |
+| `preview_v1` | metrics plus at most 64 deterministic keyframes | P2 visual pilot |
+| `paper_full_v1` | complete RGB/tactile/proprio/action trace | qualified claim preparation |
+
+The fault-pair CLI defaults to `paper_full_v1`; the commands below select the
+smaller diagnostic profiles explicitly. Compact capture does not alter the
+score, but `metrics_only_v1` cannot be used to create a video. Every current
+pair-run receipt remains
+`unqualified_paired_n0_fault_execution_v1` with
+`simulator_qualification_claimed=false`; request generation or a local report
+does not promote it to paper evidence.
+
+### P1: all-8 Clean gate
+
+First run exactly one diagnostic Clean episode for each frozen UniVTAC task.
+This detects task/reset/action/observation misalignment before faults are added:
+
+```bash
+python scripts/n0_twam/generate_clean_campaign_requests.py \
+  --root "$DEPLOY_ROOT" \
+  --campaign-id n0-clean-all8-p1-v1 \
+  --protocol diagnostic_v1 \
+  --master-seed 20260828 \
+  --trials-per-task 1
+
+python scripts/n0_twam/run_clean_campaign_all_tasks.py \
+  --root "$DEPLOY_ROOT" \
+  --manifest "$DEPLOY_ROOT/requests/clean-campaigns/n0-clean-all8-p1-v1/campaign_manifest.json" \
+  --execution-profile quick \
+  --gpus 0 \
+  --run-id n0-clean-all8-p1-v1 \
+  --max-new-trials-per-task 1
+
+robotactile clean-campaign-report \
+  --root "$DEPLOY_ROOT" \
+  --manifest "$DEPLOY_ROOT/requests/clean-campaigns/n0-clean-all8-p1-v1/campaign_manifest.json"
+```
+
+The P1 infrastructure gate requires eight valid task outcomes, no missing
+task, and no protocol-invalid or infrastructure-classified episode. The
+observed Clean success count and rate are reported as measured; model failures
+are not rerun to raise the rate and this one-episode-per-task diagnostic is not
+a paper estimate. Choose and record the P2 task/pair only after this gate. The
+example below uses `insert_tube`; if a different task is preregistered, replace
+all task-bound paths consistently.
+
+### P2: one frozen-pair L3 pilot
+
+Select the P1 Clean request and a calibration-only rest reference. The fault
+window must be fixed from the task horizon before observing Faulted outcomes:
+
+```bash
+export N0_TASK=insert_tube
+export N0_INTEGRATION_CONFIG="$DEPLOY_ROOT/artifacts/models/n0_twam/configs/$N0_TASK/integration_config.json"
+export N0_SOURCE_ROOT="$DEPLOY_ROOT/sources/N0-TWAM"
+export N0_BASE_CLEAN_REQUEST="$DEPLOY_ROOT/requests/clean-campaigns/n0-clean-all8-p1-v1/trials/$N0_TASK/0000/request.json"
+export N0_REST_REFERENCE="$DEPLOY_ROOT/artifacts/rest-references/$N0_TASK-empty-gripper-v1"
+export FAULT_START_INDEX='<preregistered-inclusive-control-index>'
+export FAULT_STOP_INDEX='<preregistered-exclusive-control-index>'
+export P2_ROOT="$DEPLOY_ROOT/requests/fault-campaigns/n0-$N0_TASK-l3-p2-v1"
+```
+
+Start the task-specific official N0 server in a separately owned
+terminal/process group:
+
+```bash
+bash scripts/n0_twam/serve_univtac.sh \
+  --root "$DEPLOY_ROOT" \
+  --task "$N0_TASK" \
+  --gpus 0 \
+  --port 29601
+```
+
+Then capture a measured empty-gripper reference using seeds reserved for the
+calibration split:
+
+```bash
+"$ISAAC_SIM_PATH/python.sh" scripts/n0_twam/run_rest_calibration.py \
+  --root "$DEPLOY_ROOT" \
+  --base-clean-request "$N0_BASE_CLEAN_REQUEST" \
+  --integration-config "$N0_INTEGRATION_CONFIG" \
+  --n0-source-root "$N0_SOURCE_ROOT" \
+  --n0-host 127.0.0.1 \
+  --n0-port 29601 \
+  --initial-seed 900001 \
+  --exogenous-seed 900002 \
+  --request-output "$DEPLOY_ROOT/requests/calibration/$N0_TASK-empty-gripper-v1/request.json" \
+  --live-output "$DEPLOY_ROOT/artifacts/live-univtac/calibration/$N0_TASK-empty-gripper-v1" \
+  --rest-output "$N0_REST_REFERENCE"
+```
+
+The command preserves the official constructor/reset until the task `pre_move`
+boundary, then holds the undeformed empty gripper while sampling at the native
+60 Hz endpoint cadence. Its receipt states `model_actions_applied=false` and
+`formal_evaluation_reset_modified=false`. This artifact is calibration
+evidence only and has no task success outcome.
+
+Generate the immutable P2 bundle after the rest artifact is finalized:
+
+```bash
+robotactile generate-n0-fault-campaign \
+  --output "$P2_ROOT" \
+  --campaign-id "n0-$N0_TASK-l3-p2-v1" \
+  --base-clean-request "$N0_BASE_CLEAN_REQUEST" \
+  --severity 3 \
+  --operator-seed-master 20260828 \
+  --fault-start-index "$FAULT_START_INDEX" \
+  --fault-stop-index "$FAULT_STOP_INDEX" \
+  --rest-reference "$N0_TASK=$N0_REST_REFERENCE"
+```
+
+The default operator selection creates one Clean live request, 12 L3 Faulted
+live requests, and two unsupported receipts.
+
+For a new seed-variable early-onset protocol, replace the fixed
+`--fault-start-index` argument with `--fault-onset-mode early_random_onset_v1`
+and `--fault-onset-max-index 8`, and set `--fault-stop-index` to the base request's
+`max_observation_steps`. The generated manifest freezes one nonzero onset per
+task/exogenous seed, shared by every operator and severity for that pair; its
+index lies in the first third of the planned horizon and no later than frame 8.
+T1/T3 causally hold frame 0 until enough history exists, then achieve the
+specified lag/skew. T2 freezes from onset through the end of the window.
+This is a distinct protocol from fixed/full-episode onset: use a new campaign
+ID and report actual active/changed observations and action-query exposure.
+An exceptionally short episode may finish before onset; do not relabel or rerun
+that outcome as if exposure had occurred. Tactile-null/structural-absence
+ablations remain fixed full-horizon protocols and reject randomized onset.
+
+Then run the generated pair once from Isaac Python and report it from the core
+environment:
+
+```bash
+"$ISAAC_SIM_PATH/python.sh" -m robotactile_benchmark.cli \
+  run-n0-fault-campaign \
+  --campaign-root "$P2_ROOT" \
+  --integration-config "$N0_INTEGRATION_CONFIG" \
+  --n0-source-root "$N0_SOURCE_ROOT" \
+  --n0-host 127.0.0.1 \
+  --n0-port 29601 \
+  --capture-profile preview_v1 \
+  --action-execution-contract robotactile_n0_training_60hz_ee_v1
+
+robotactile report-n0-fault-campaign \
+  --campaign-root "$P2_ROOT" \
+  --output "$DEPLOY_ROOT/outputs/reports/n0-$N0_TASK-l3-p2-v1" \
+  --bootstrap-seed 20260828
+```
+
+The pair runner executes all live cells selected in that immutable bundle; it
+does not cherry-pick one operator after seeing an outcome. With one pair, the
+report is a diagnostic table. Its deterministic bootstrap and exact paired-test
+outputs do not make the sample statistically sufficient for a paper claim;
+missing or ineligible pairs remain explicit.
+
+### P3: S1/S5 bracket on the same frozen pair
+
+Use the exact same `N0_BASE_CLEAN_REQUEST`, task, pair identity, fault window,
+rest reference, and action contract. Generate a new no-clobber bundle containing
+only the two bracket severities. For the example `insert_tube` trace below,
+the phase gate excludes F6 and F7 while retaining the ten operators whose
+signatures were delivered; other tasks must freeze their own applicable set:
+
+```bash
+export P3_ROOT="$DEPLOY_ROOT/requests/fault-campaigns/n0-$N0_TASK-s1-s5-p3-v1"
+
+robotactile generate-n0-fault-campaign \
+  --output "$P3_ROOT" \
+  --campaign-id "n0-$N0_TASK-s1-s5-p3-v1" \
+  --base-clean-request "$N0_BASE_CLEAN_REQUEST" \
+  --severity 1 \
+  --severity 5 \
+  --operator C1_sensor_identity_misrouting \
+  --operator C2_frame_misregistration \
+  --operator F1_global_response_drift \
+  --operator F2_spatial_sensitivity_loss \
+  --operator F3_persistent_surface_artifact \
+  --operator F4_local_nonresponsive_patch \
+  --operator F5_contact_shape_distortion \
+  --operator T1_fixed_source_delay \
+  --operator T2_held_last_freeze \
+  --operator T3_inter_sensor_skew \
+  --operator-seed-master 20260828 \
+  --fault-start-index "$FAULT_START_INDEX" \
+  --fault-stop-index "$FAULT_STOP_INDEX" \
+  --rest-reference "$N0_TASK=$N0_REST_REFERENCE"
+
+"$ISAAC_SIM_PATH/python.sh" -m robotactile_benchmark.cli \
+  run-n0-fault-campaign \
+  --campaign-root "$P3_ROOT" \
+  --integration-config "$N0_INTEGRATION_CONFIG" \
+  --n0-source-root "$N0_SOURCE_ROOT" \
+  --n0-host 127.0.0.1 \
+  --n0-port 29601 \
+  --capture-profile metrics_only_v1 \
+  --action-execution-contract robotactile_n0_training_60hz_ee_v1
+
+robotactile report-n0-fault-campaign \
+  --campaign-root "$P3_ROOT" \
+  --output "$DEPLOY_ROOT/outputs/reports/n0-$N0_TASK-s1-s5-p3-v1" \
+  --bootstrap-seed 20260828
+```
+
+This example produces one Clean plus 20 executable Faulted runs. In general,
+an explicitly selected set of `N` live operators at S1/S5 produces `1 + 2N`
+live cells. Omitting `--operator` instead expands the complete contract
+inventory: one Clean, 24 executable Faulted runs, and four A1/A2 unsupported
+receipts. Reporting uses `degradation = Clean SR - Faulted SR` and
+`retention = Faulted SR / Clean SR`; retention is not clipped and can exceed
+one when a Faulted cell happens to improve the binary outcome. The generated
+report bundle contains `summary.json`, `per_task.csv`, `operator_cells.csv`,
+and `report_receipt.json`, each bound to the strict source artifact hashes.
+P0-P3 establish an auditable diagnostic path; they do not state that a GPU run
+has already occurred or that the sample size is publication-ready.
+
+### Black-frame tactile-null model-reliance gate
+
+Run this gate before tuning any destructive operator. The
+`diagnostic_tactile_null_black_v1` registry is restricted to one full-window,
+two-sensor realization and cannot be used as a paper severity registry. Set
+`--fault-start-index 0`; set `--fault-stop-index` exactly equal to the base
+request's `max_observation_steps`. This diagnostic intentionally does not
+consume a rest-reference artifact.
+
+The paired runner executes the ordinary Clean request first and the same
+N0-TWAM checkpoint with all-zero black tactile frames second, retaining one
+Isaac process and enforcing exact reset equivalence. RGB, proprioception,
+instruction, task predicate, and action execution are unchanged. The delivery
+validator independently reconstructs zero arrays with the source payload's
+shape and dtype and requires `black_frame_max_abs_value == 0`.
+
+Interpret the report's `macro_fault_success_rate` as tactile-null SR only when
+`spec.severity_registry == "diagnostic_tactile_null_black_v1"`; the CLI also exposes
+the explicit alias `tactile_null_success_rate`. This is a model-reliance
+diagnostic, not the matched vision-only policy condition and not a paper
+S1--S5 robustness result.
+
+### Tensor-free observed-tactile-absence diagnostic
+
+Black images preserve the tactile tensor branch and may remain a recognizable
+input pattern. For the stronger structural test, launch the same pinned N0
+server with `--enable-observed-tactile-absence`, then generate a campaign with
+`--diagnostic-observed-tactile-absence`. The generator accepts only A1, S5,
+both sensor slots, `start_index=0`, and `stop_index=max_observation_steps`.
+
+The benchmark delivery removes both payloads. The policy/client omit the
+`tactile` field during infer and KV commit, while the server overlay passes
+`tactile_cond_drop=true` into a zero-tactile-token model path matching the
+training implementation. The mode is frozen at the first post-reset request;
+switching modes inside an episode is rejected. Clean runs on the
+overlay-enabled server call the original upstream implementation unchanged.
+
+Report this condition as `observed_tactile_absent_v1`. It is neither the
+black-frame diagnostic nor evidence for the published retrained `w/o observed`
+ablation. A paired one-seed result is useful to verify model dependence, but is
+not a paper-level success-rate estimate.
+
+### Destructive stress-max diagnostic across tasks
+
+The formal `provisional_engineering_v2` S5 values remain immutable. To test
+whether an apparently robust policy is simply insensitive to weak injections,
+use the separately versioned, non-paper `diagnostic_stress_max_v1` profile:
+
+```bash
+robotactile generate-n0-fault-campaign \
+  --output "$STRESS_ROOT" \
+  --campaign-id "n0-all8-stress-max-v1" \
+  --base-clean-request "$TASK_1_REQUEST" \
+  --base-clean-request "$TASK_2_REQUEST" \
+  --diagnostic-stress-max \
+  --severity 5 \
+  --operator-seed-master 20260829 \
+  --fault-start-index 16 \
+  --fault-stop-index 300 \
+  --rest-reference "task_1=$TASK_1_REST" \
+  --rest-reference "task_2=$TASK_2_REST"
+```
+
+Repeat the request and rest-reference bindings for every selected task. The
+profile uses implementation-limit doses and preserves the ordinary manifest,
+validator, no-clobber, and reporting contracts. Unsupported A1/A2 remain typed
+`unsupported_contract`; phase-inapplicable F6/F7 remain validator-ineligible.
+Therefore the report must separate requested, executable, eligible, model
+failure, infrastructure failure, and validator failure counts. This profile is
+useful for pipeline sensitivity diagnosis, not for paper S1--S5 claims.
+
+## FTP-1 Clean/Faulted robustness workflow
+
+FTP-1 uses its own first-class `PolicyAdapter` and official ZMQ worker. It does
+not reuse the ACT matched vision-only system or the N0 websocket/KV-cache
+contract. The pinned release has six task checkpoints and requires two tactile
+tensors. Its formal executable fault set is therefore:
+
+```text
+F1 F2 F3 F4 F5 F6 F7 T1 T2 T3 C1 C2
+```
+
+A1 structural stream absence and A2 frame erasure are N/A for this fixed
+model-input contract. They remain visible in the plan rather than being
+converted to black, rest, held-last, or duplicated images. This preserves the
+meaning of Availability faults and prevents a payload-preserving perturbation
+from being mislabeled as absence.
+
+### 1. Freeze source, task artifacts, and rest evidence
+
+Install and configure exactly one released task before materializing requests:
+
+```bash
+export FTP1_TASK=insert_hole
+export FTP1_CONFIG="$DEPLOY_ROOT/artifacts/models/ftp1_policy/configs/$FTP1_TASK/integration_config.json"
+
+bash scripts/ftp1_policy/install_official_runtime.sh --root "$DEPLOY_ROOT"
+robotactile integrations configure ftp1-policy \
+  --root "$DEPLOY_ROOT" --task "$FTP1_TASK"
+robotactile integrations doctor \
+  --model ftp1_policy --root "$DEPLOY_ROOT" --task "$FTP1_TASK" \
+  --config "$FTP1_CONFIG"
+```
+
+The checkpoint must already be downloaded from
+`MJJJJ1064/ftp1_univtac_finetune` at revision
+`620ac69b4fffd2341300cfef1b1d224d56710ed3`. The source must be the pinned
+`michaelyuancb/ftp1-policy` commit
+`89fa681d6c014cce28300946b7526db808e0b1c1`. See
+[Model integrations](model_integrations.md#ftp-1-integration) for task-specific
+download paths and the worker command.
+
+F1, F2, F3, F4, F6, and registered-pixel C2 require a task-bound certified rest
+reference. Generate it from a separate calibration trace, not the evaluation
+Clean episode, and bind the resulting JSON artifact to the group. F5/F7 also
+remain subject to contact/high-load applicability validation; F6 additionally
+needs a real contact-to-release phase. A validator-ineligible cell is not a
+model failure and is not silently counted in SR.
+
+### 2. Materialize one immutable matched group
+
+The following diagnostic profile selects the strongest separately registered
+engineering doses. It does not modify or stand in for a paper S1--S5 registry:
+
+```bash
+export FTP1_GROUP="$DEPLOY_ROOT/requests/ftp1-policy/$FTP1_TASK/diagnostic-stress-max-v1"
+export FTP1_REST='<absolute certified rest-reference artifact root>'
+export DATASET_SHA256='<exact 64-hex dataset identity>'
+
+python scripts/ftp1_policy/prepare_robustness_group.py \
+  --root "$DEPLOY_ROOT" \
+  --config "$FTP1_CONFIG" \
+  --task "$FTP1_TASK" \
+  --severity-profile diagnostic_stress_max \
+  --dataset-sha256 "$DATASET_SHA256" \
+  --initial-seed 3000000 \
+  --exogenous-seed 3000000 \
+  --max-control-cycles 255 \
+  --max-observation-steps 256 \
+  --wall-timeout-s 1800 \
+  --device cuda:0 \
+  --rest-reference "$FTP1_REST" \
+  --output-root "$FTP1_GROUP"
+```
+
+Generation is no-clobber and allocates no simulator. It writes a source-bound
+plan receipt, the Clean request, one fault manifest and request for every
+executable operator, and explicit A1/A2 N/A entries. The plan owns the exact
+ordered request list; do not create an apparently equivalent list by editing
+JSON. For a paper protocol, replace the diagnostic profile with the
+preregistered severity profile and freeze the full task/seed grid before the
+first run.
+
+### 3. Execute Clean and Faulted from one snapshot
+
+Start the task-specific FTP-1 worker first. Read the exact paths from the plan,
+then invoke one paired runner from Isaac's Python with Clean first and all 12
+generated Faulted request paths in the exact plan order:
+
+```bash
+export FTP1_PLAN="$FTP1_GROUP/robustness_plan_receipt.json"
+FTP1_REQUESTS=()
+while IFS= read -r relative_path; do
+  FTP1_REQUESTS+=("$FTP1_GROUP/$relative_path")
+done < <(python -c 'import json,sys; [print(x) for x in json.load(open(sys.argv[1]))["paired_run"]["request_paths"]]' "$FTP1_PLAN")
+export FTP1_PAIRED_RECEIPT="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["paired_run"]["receipt_path"])' "$FTP1_PLAN")"
+
+"$ISAAC_SIM_PATH/python.sh" -m robotactile_benchmark.cli \
+  live-univtac-paired-run \
+  --root "$DEPLOY_ROOT" \
+  --config "$FTP1_CONFIG" \
+  --requests "${FTP1_REQUESTS[@]}" \
+  --receipt "$FTP1_PAIRED_RECEIPT" \
+  --capture-profile metrics_only_v1 \
+  --ftp1-source-root "$DEPLOY_ROOT/sources/ftp1-policy" \
+  --ftp1-endpoint tcp://127.0.0.1:5561
+```
+
+The runner performs a single canonical reset, snapshots the full
+simulator state, restores that snapshot before every condition, and checks the
+pre-delivery multimodal witness. It never reuses the policy's temporal state:
+each condition resets FTP-1 while preserving the same simulator initial state.
+
+At every observation FTP-1 reinfers, skips raw chunk index 0, admits the next
+20 predictions to its `K=0.01` temporal ensemble, and returns one absolute
+qpos8 action. Consequently T1--T3 are injected causally into the actual online
+observation stream rather than applied afterward to a saved trajectory.
+
+### 4. Read and report the result boundary
+
+Retain the plan receipt, fault manifests, canonical requests, paired execution
+receipt, and every strict live artifact. At minimum report:
+
+- Clean terminal status and `score_success`;
+- each Faulted terminal status and `score_success`;
+- validator eligibility and delivered-dose evidence per operator;
+- Clean-minus-Faulted paired outcome, separately from infrastructure errors;
+- task, seed, severity profile, source commit, checkpoint revision, and all
+  bound SHA-256 identities.
+
+One matched group is a pipeline diagnostic, not a statistically meaningful
+Success Rate. **CODE** means the integration and deterministic contracts pass;
+**OFFLINE** means the worker loaded and inferred without Isaac; **CLOSED-LOOP**
+means a strict Isaac artifact actually executed and terminated. A paper claim
+requires a preregistered multi-seed denominator, qualification, complete cells,
+and source-bound aggregation. Until those artifacts exist, the correct result
+is “integration implemented; live metric pending,” not 100% or 0% SR.
+
 ## 0. Build a rest-reference calibration artifact when required
 
 F1, F2, F3, F4, F6, and registered-pixel C2 require a frozen no-contact RGB
@@ -336,7 +831,7 @@ This command emits
 test or an unqualified live trace into physical or Isaac-qualified evidence. The
 source root hash must remain externally pinned.
 
-## 1. Generate a four-condition live request set
+## 1. Generate a three-condition live request set
 
 Record the hashes independently before invoking the generator:
 
@@ -350,8 +845,7 @@ python scripts/live_univtac/generate_pull_out_key_matrix.py \
   --exogenous-seed 29 \
   --operator T1_fixed_source_delay \
   --severity 3 \
-  --fault-start 16 \
-  --restoration-index 180
+  --fault-start 16
 ```
 
 For a rest-reference operator, pass the strict artifact directory explicitly:
@@ -369,30 +863,28 @@ contains:
 ```text
 trial_set_manifest.json
 fault_manifests/persistent.json
-fault_manifests/restored.json
 policy_artifacts/univtac.json
 policy_artifacts/vision_only.json
 requests/clean.json
 requests/faulted.json
 requests/no_touch.json
-requests/restored.json
 matrix_receipt.json
 ```
 
 When `--rest-reference-artifact` is supplied, the output additionally contains
 `rest_references/{rest_reference.json,no_contact_validation.json,root_receipt.json}`.
 
-All conditions share one `pair_key` and tactile base-system manifest. Clean,
-faulted, and restored select the tactile `univtac` profile. No-touch selects
+All conditions share one `pair_key` and tactile base-system manifest. Clean
+and faulted select the tactile `univtac` profile. No-touch selects
 the independently identified `vision_only` checkpoint/config while preserving
 the base-system comparison identity. A required rest-reference operator fails
 closed unless `--rest-reference-artifact` is present, strict-loadable, bound to
-`pull_out_key`, and its content hash is embedded in both fault manifests.
+`pull_out_key`, and its content hash is embedded in the fault manifest.
 
 ## 2. Run the no-allocation deployment preflight
 
 Before simulator allocation, validate one generated request together with the
-two pinned external checkouts, official ACT artifacts, NVIDIA visibility, and
+pinned UniVTAC checkout, official ACT artifacts, NVIDIA visibility, and
 Isaac's bundled Python:
 
 ```bash
@@ -410,7 +902,7 @@ Python environment. It writes
 simulator claim flags false. It does not import the learned policy, allocate
 Isaac, or establish task success.
 
-## 3. Execute the four official ACT requests from one canonical state
+## 3. Execute the three official ACT requests from one canonical state
 
 Select the physical GPU outside the request. The request itself uses logical
 `cuda:0`.
@@ -424,15 +916,18 @@ CUDA_VISIBLE_DEVICES=1 "$ISAAC_SIM_PATH/python.sh" \
     "$REQUEST_ROOT/requests/clean.json" \
     "$REQUEST_ROOT/requests/faulted.json" \
     "$REQUEST_ROOT/requests/no_touch.json" \
-    "$REQUEST_ROOT/requests/restored.json" \
   --receipt "$REQUEST_ROOT/paired_execution_receipt.json" \
-  --config "$ACT_CONFIG"
+  --root "$DEPLOY_ROOT"
 ```
 
 The command performs one upstream reset, captures one process-local UIPC/PhysX
 snapshot, restores it before each later condition, and rejects any exact
 multimodal state mismatch before policy delivery. It prints one canonical JSON
 summary and independently reloads every condition artifact. The per-condition
+profile is resolved from the canonical `univtac` or `vision_only` integration
+config under `artifacts/models/act/configs/<task>/<profile>/`; a single shared
+`--config` is deliberately rejected for this mixed-profile group. The
+per-condition
 evidence remains exactly:
 
 ```json
@@ -448,8 +943,8 @@ fault realism, or simulator qualification.
 Generate both canonical inputs directly from the registered operators, the
 frozen UniVTAC task horizon, the matched ACT/no-touch identities, and one
 strictly loaded calibration artifact. The generator creates 70 comparison
-points, 142 unique execution cells (one shared clean, one shared no-touch, 70
-faulted, and 70 restored), 140 exact fault manifests, and a self-validating
+points, 72 unique execution cells (one shared clean, one shared no-touch, and
+70 faulted), 70 exact fault manifests, and a self-validating
 receipt. It performs no simulator or policy execution.
 
 ```bash
@@ -463,7 +958,6 @@ python -m robotactile_benchmark.cli generate-primary-matrix \
   --initial-seed 17 \
   --exogenous-seed 29 \
   --fault-start-index 16 \
-  --restoration-index 180 \
   --matrix-id pull_out_key-i17-e29 \
   --rest-reference-artifact "$CALIBRATION_ROOT"
 ```
@@ -483,7 +977,7 @@ deployment/requests/primary-matrix/pull_out_key-i17-e29/
 ├── matrix_manifest.json
 ├── live_matrix_run_config.json
 ├── primary_matrix_receipt.json
-├── fault_manifests/<cell_sha256>.json  # 140 exact manifests
+├── fault_manifests/<cell_sha256>.json  # 70 exact manifests
 └── rest_references/                    # copied calibrated artifact
 ```
 
@@ -542,14 +1036,11 @@ from robotactile_benchmark.execution.official_act import (
     build_official_act_live_binding,
     make_official_act_policy_factory,
 )
-from robotactile_benchmark.trials import RestorationMode
 
 manifest = build_primary_matrix_manifest(
     matrix_id="pull-out-key-primary-v1",
     clean=clean_trial,
     fault_manifests=fault_manifests_14_by_5,
-    restoration_index=180,
-    restoration_mode=RestorationMode.VALID_STREAM_RESUME,
     no_touch_system_id="official-univtac-act.pull_out_key.vision_only.policy_last.v1",
     no_touch_checkpoint_sha256=vision_checkpoint_sha256,
     no_touch_config_sha256=vision_config_sha256,
@@ -695,48 +1186,6 @@ executing the no-touch checkpoint is not sufficient. If the flag is false, or
 if `clean_sr - no_touch_sr < minimum_clean_gain`, TGR is reported as unavailable
 with an explicit reason.
 
-### Optional registered recovery evidence
-
-Recovery lag is not inferred from terminal success. An evaluator that has a
-registered, task-and-phase-matched progress signal may publish one sidecar for
-each restored artifact:
-
-```python
-from robotactile_benchmark.reporting import (
-    POLICY_TASK_PROGRESS_SIGNAL_ID,
-    RecoveryEvidence,
-    RecoveryEvidenceBinding,
-    write_recovery_evidence,
-)
-
-binding = RecoveryEvidenceBinding(
-    clean_live_artifact_root_sha256=clean_root,
-    restored_live_artifact_root_sha256=restored_root,
-    task=restored_cell.task,
-    pair_key=restored_cell.pair_key,
-    operator_id=restored_cell.operator_id,
-    severity_level=restored_cell.severity_level,
-    restoration_index=restored_cell.trial.restoration_index,
-)
-evidence = RecoveryEvidence.evaluate(
-    binding=binding,
-    signal_id=POLICY_TASK_PROGRESS_SIGNAL_ID,
-    clean_envelope=phase_matched_clean_quality,
-    restored_quality=restored_quality,
-    tolerance=0.02,
-    consecutive_steps=5,
-)
-write_recovery_evidence(
-    Path("deployment/outputs/matrices/<matrix-id>/recovery"), evidence
-)
-```
-
-`report-matrix` independently reloads and recomputes the lag. If the sidecar is
-absent, recovery remains ineligible; if its identities, signal, cached lag, or
-canonical bytes disagree, reporting fails closed. This evidence remains
-`unqualified_evaluator_recovery_signal_v1` until the evaluator itself passes a
-separate simulator qualification.
-
 ## 6. Generate the paper report
 
 ```bash
@@ -750,9 +1199,8 @@ python -m robotactile_benchmark.cli report-matrix \
   --output "$DEPLOY_ROOT/outputs/reports/$MATRIX_ID"
 ```
 
-The command currently accepts only a complete primary matrix. Focused phase or
-restoration grids fail closed because they require a registered comparison and
-recovery identity before pooling. The report contains:
+The command currently accepts only a complete primary matrix. Focused or
+incomplete grids fail closed before pooling. The report contains:
 
 ```text
 summary.json
@@ -783,7 +1231,6 @@ artifacts to simulator-qualified evidence.
   gives tasks equal macro weight.
 - Exact two-sided McNemar tests use paired binary outcomes; Holm adjustment is
   applied across the registered operator-severity family.
-- Recovery summaries do not convert an unrecovered trial into zero lag.
 
 ## 8. Isaac qualification boundary
 

@@ -91,7 +91,11 @@ def _validate_pixel_signature(
     metrics["achieved_dose"] = measurement.achieved_dose
     metrics["achieved_dose_unit"] = measurement.unit
     metrics.update(measurement.diagnostics)
-    if measurement.achieved_dose <= 0.0:
+    phase_prerequisite_missing = (
+        manifest.operator_id == "F6_history_residual_imprint"
+        and "NO_RELEASE_SAMPLE" in measurement.failure_codes
+    )
+    if measurement.achieved_dose <= 0.0 and not phase_prerequisite_missing:
         _failure(
             "SIGNATURE_NOT_DELIVERED",
             "operator changed metadata but delivered no observable tactile signature",
@@ -111,6 +115,10 @@ def _validate_pixel_signature(
             (
                 "operator delivered no observable tactile signature"
                 if failure_code == "SIGNATURE_NOT_DELIVERED"
+                else "clean trace contains no non-black tactile content"
+                if failure_code == "NO_CLEAN_TACTILE_CONTENT"
+                else "clean trace contains no tactile response above certified rest"
+                if failure_code == "NO_CLEAN_TACTILE_SIGNAL"
                 else "required diagnostic frames are absent for the operator validator"
             ),
             codes,
@@ -144,9 +152,23 @@ def _validate_fixed_delay(
     failures: List[str],
 ) -> None:
     source_map = tuple(int(value) for value in manifest.parameters["source_index_map"])
+    lag = int(manifest.parameters["lag_frames"])
+    hold_first = manifest.parameters.get("temporal_schedule") in {
+        "full_episode_v1",
+        "window_to_end_v1",
+    }
     for offset, index in enumerate(
         range(manifest.start_index, min(manifest.stop_index, len(delivered_records)))
     ):
+        # Cold-start history grows causally; only indices >= lag have full delay.
+        expected_source = max(0, index - lag) if hold_first else index - lag
+        if source_map[offset] != expected_source:
+            _failure(
+                "SOURCE_PAYLOAD_MISMATCH",
+                "T1 source map violates its delay and declared startup policy",
+                codes,
+                failures,
+            )
         for slot_id in manifest.sensor_slots:
             provenance = delivered_records[index].provenance_for(slot_id)
             if provenance.source_index != source_map[offset]:

@@ -57,7 +57,7 @@ def build_operator_cells(
     no_touch: dict[BaselineKey, OutcomeRecord],
     spec: ReportingSpec,
 ) -> tuple[OperatorCellSummary, ...]:
-    """Compute per-cell effects, intervals, exact tests, and Holm adjustment."""
+    """Compute cells with clean-minus-faulted degradation and paired tests."""
 
     severity_registry = load_severity_registry()["paths"]
     preliminary: list[OperatorCellSummary] = []
@@ -88,7 +88,7 @@ def build_operator_cells(
         differences_by_task: dict[str, list[float]] = defaultdict(list)
         for record, clean_value, _, fault_value in paired:
             differences_by_task[record.task].append(
-                float(fault_value) - float(clean_value)
+                float(clean_value) - float(fault_value)
             )
         interval = task_stratified_paired_bootstrap(
             differences_by_task,
@@ -122,7 +122,7 @@ def build_operator_cells(
                 eligible_count=len(paired),
                 success_rate=mean(float(item[3]) for item in paired),
                 paired_delta_sr=mean(
-                    float(item[3]) - float(item[1]) for item in paired
+                    float(item[1]) - float(item[3]) for item in paired
                 ),
                 no_touch_relative_delta=no_touch_delta,
                 paired_delta_lower=interval.lower,

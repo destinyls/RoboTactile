@@ -227,8 +227,6 @@ def _live_request(tmp_path: Path, task_id: str = "lift_can") -> LiveUniVTACRunRe
         output_dir=tmp_path / "output",
         fault_manifest_path=None,
         rest_references_path=None,
-        restoration_index=None,
-        restoration_mode=None,
         matched_no_touch_system_id=None,
         matched_no_touch_artifact_path=None,
         act_device_name=None,
@@ -252,6 +250,7 @@ def test_runtime_reuses_app_but_constructs_fresh_episode_runtime(
         request=request,
         backend_config=backend_config,
         trial=SimpleNamespace(initial_seed=1),
+        run_spec=SimpleNamespace(success_predicate_id="lift_can_height_v1"),
     )
 
     class FakeRuntime:
@@ -292,7 +291,7 @@ def test_runtime_reuses_app_but_constructs_fresh_episode_runtime(
     monkeypatch.setattr(
         module,
         "UniVTACIsaacBackend",
-        lambda _config, runtime: backends.append(runtime) or object(),
+        lambda _config, runtime, **_kwargs: backends.append(runtime) or object(),
     )
 
     def fake_execute(_request: object, **kwargs: object) -> object:

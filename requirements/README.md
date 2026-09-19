@@ -3,7 +3,8 @@
 RoboTactile can be installed, tested, and built without `uv`.
 
 - `core.lock.txt` pins the dependency-light runtime.
-- `dev.lock.txt` pins the runtime, test, lint, type-check, and build tools.
+- `dev.lock.txt` pins the runtime, test, lint, type-check, build, and optional
+  import dependencies needed to check the complete source tree.
 - `visualization.lock.txt` pins the optional Pillow renderer dependency.
 - all three files include distribution hashes and are consumed with
   `pip --require-hashes`.
@@ -17,9 +18,9 @@ python -m pip install --require-hashes -r requirements/dev.lock.txt
 python -m pip install --no-deps --no-build-isolation .
 ```
 
-Install the optional visualization dependency separately. Binary-only mode
-prevents an unrecorded local Pillow build when no hash-locked wheel matches the
-current platform:
+For a non-development visualization environment, install the optional
+visualization dependency separately. Binary-only mode prevents an unrecorded
+local Pillow build when no hash-locked wheel matches the current platform:
 
 ```bash
 python -m pip install --only-binary=:all: --require-hashes \

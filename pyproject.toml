@@ -29,6 +29,7 @@ ftp1-policy = [
 dev = [
   "hatchling==1.27.0",
   "mypy>=1.11,<1.19",
+  "Pillow>=9.2,<12",
   "pytest>=8.3",
   "ruff>=0.8",
 ]

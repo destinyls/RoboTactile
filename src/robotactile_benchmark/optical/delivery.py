@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import replace
+from typing import cast
 
 import numpy as np
 
@@ -107,8 +108,9 @@ class OpticalDelivery:
             progress = min(1.0, progress)
             gain = 1.0 + progress * (np.asarray(p["target_gain_rgb"]) - 1.0)
             offset = progress * np.asarray(p["target_offset_rgb"])
-            return np.rint(np.clip(current * gain + offset, 0, 1) * 255).astype(
-                np.uint8
+            return cast(
+                Array,
+                np.rint(np.clip(current * gain + offset, 0, 1) * 255).astype(np.uint8),
             )
         if op == "F5_contact_shape_distortion":
             center = tuple(float(v) for v in p["center_xy"])

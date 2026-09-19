@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import cast
 
 import numpy as np
 
@@ -155,12 +156,15 @@ def _edge_mask(image: Array, threshold: float = 20.0) -> Array:
 
 def _dilate(mask: Array) -> Array:
     padded = np.pad(mask, 1, mode="constant", constant_values=False)
-    return np.logical_or.reduce(
-        tuple(
-            padded[y : y + mask.shape[0], x : x + mask.shape[1]]
-            for y in range(3)
-            for x in range(3)
-        )
+    return cast(
+        Array,
+        np.logical_or.reduce(
+            tuple(
+                padded[y : y + mask.shape[0], x : x + mask.shape[1]]
+                for y in range(3)
+                for x in range(3)
+            )
+        ),
     )
 
 

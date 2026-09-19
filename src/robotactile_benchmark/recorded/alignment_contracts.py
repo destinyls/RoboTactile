@@ -18,7 +18,7 @@ def _source_sha256(value: str) -> None:
 
 
 def _rgb(value: object, name: str) -> Array:
-    image = freeze_array(value, np.uint8)
+    image = freeze_array(np.asarray(value), np.uint8)
     if image.ndim != 3 or image.shape[2] != 3:
         raise ValueError(f"{name} must be uint8 HWC RGB")
     return image

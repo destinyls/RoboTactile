@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -104,7 +104,7 @@ def _array(record_path: Path, summary: dict[str, Any]) -> Array:
         raise ValueError("probe array shape/dtype mismatch")
     if not np.isfinite(value).all():
         raise ValueError("probe tensor has nonfinite values")
-    return value
+    return cast(Array, value)
 
 
 def _difference(a: Array, b: Array) -> dict[str, Any]:
